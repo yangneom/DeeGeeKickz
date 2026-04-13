@@ -1,58 +1,103 @@
-// This imports the basic Flutter tools we need to build the app
+// Basic Flutter import - needed for every Flutter app
 import 'package:flutter/material.dart';
 
-// This imports Firebase so we can connect to it
+// Firebase core import - needed to initialize Firebase
 import 'package:firebase_core/firebase_core.dart';
 
-// This imports the config file that FlutterFire generated for us
+// Riverpod import - needed for state management
+// ProviderScope is the wrapper that makes Riverpod work
+import 'package:flutter_riverpod/flutter_riverpod.dart';
+
+// ScreenUtil import - needed for responsive design
+import 'package:flutter_screenutil/flutter_screenutil.dart';
+
+// This is the file that FlutterFire generated for us
 import 'firebase_options.dart';
 
-// This is the STARTING POINT of your app
-// "async" means this function can wait for things to finish (like Firebase loading)
+// This is our Login screen
+import 'screens/auth/login_screen.dart';
+
+// ================================================
+// MAIN FUNCTION
+// This is the starting point of the whole app
+// ================================================
 void main() async {
 
-  // This makes sure Flutter is ready BEFORE we start Firebase
-  // Always needed when doing something before runApp()
+  // Make sure Flutter is ready BEFORE we start Firebase
   WidgetsFlutterBinding.ensureInitialized();
 
-  // This connects your Flutter app to your Firebase project
-  // "await" means "wait for this to finish before moving on"
-  await Firebase.initializeApp(
-    // This automatically picks the right config depending on the platform
-    // Android uses android config, iOS uses iOS config, etc.
-    options: DefaultFirebaseOptions.currentPlatform,
-  );
+  // Try to connect to Firebase
+  // We wrap this in try catch in case something goes wrong
+  try {
+    await Firebase.initializeApp(
+      options: DefaultFirebaseOptions.currentPlatform,
+    );
+  } catch (error) {
+    // If Firebase fails to initialize print the error
+    print('Firebase initialization failed: $error');
+  }
 
-  // This starts your Flutter app after Firebase is ready
-  runApp(const MyApp());
+  // Start the app
+  // ProviderScope wraps the whole app
+  // This is REQUIRED for Riverpod to work
+  // Without this Riverpod providers will not work
+  runApp(
+    const ProviderScope(
+      child: MyApp(),
+    ),
+  );
 }
 
-// This is your main App widget — think of it as the "root" of your app
+// ================================================
+// MY APP
+// This is the root widget of the whole app
+// Every other screen is inside this widget
+// ================================================
 class MyApp extends StatelessWidget {
   const MyApp({super.key});
 
   @override
   Widget build(BuildContext context) {
-    return MaterialApp(
-      // The name of your app
-      title: 'Sales & Inventory with Ordering System',
 
-      // This removes the "DEBUG" banner on the top right corner
-      debugShowCheckedModeBanner: false,
+    // ScreenUtilInit wraps the whole app
+    // This makes everything inside responsive
+    // It scales sizes based on the design size below
+    return ScreenUtilInit(
 
-      // This sets the color theme of your whole app
-      theme: ThemeData(
-        colorScheme: ColorScheme.fromSeed(seedColor: Colors.blue),
-        useMaterial3: true,
-      ),
+      // We design for 375x812 which is standard iPhone size
+      // ScreenUtil will automatically scale up for tablets
+      // and scale down for smaller phones
+      designSize: const Size(375, 812),
 
-      // This is the first screen your app shows
-      // Just a temporary screen to test if Firebase is connected
-      home: const Scaffold(
-        body: Center(
-          child: Text('Firebase Connected!'),
-        ),
-      ),
+      // This allows text to adapt its size to the screen
+      minTextAdapt: true,
+
+      // This helps with split screen mode on tablets
+      splitScreenMode: true,
+
+      // Builder returns the actual app
+      builder: (context, child) {
+        return MaterialApp(
+
+          // Name of the app
+          title: 'DeeGee Kickz',
+
+          // Remove the DEBUG banner on top right corner
+          debugShowCheckedModeBanner: false,
+
+          // Set the color theme of the whole app
+          // We use black to match DeeGee Kickz design
+          theme: ThemeData(
+            colorScheme: ColorScheme.fromSeed(
+              seedColor: Colors.black,
+            ),
+            useMaterial3: true,
+          ),
+
+          // The first screen the app shows is LoginScreen
+          home: const LoginScreen(),
+        );
+      },
     );
   }
 }
