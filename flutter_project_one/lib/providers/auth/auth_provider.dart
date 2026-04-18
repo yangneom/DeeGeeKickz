@@ -13,8 +13,7 @@ final authStateProvider = StreamProvider<User?>((ref) {
   return authService.authStateChanges;
 });
 
-// Tracks if login is currently loading
-// Using Notifier instead of StateProvider (new Riverpod 3.x way)
+// Tracks if LOGIN is currently loading
 class IsLoadingNotifier extends Notifier<bool> {
   @override
   bool build() => false;
@@ -28,7 +27,7 @@ final isLoadingProvider = NotifierProvider<IsLoadingNotifier, bool>(() {
   return IsLoadingNotifier();
 });
 
-// Stores error message when login fails
+// Stores error message when LOGIN fails
 class ErrorMessageNotifier extends Notifier<String?> {
   @override
   String? build() => null;
@@ -40,4 +39,32 @@ class ErrorMessageNotifier extends Notifier<String?> {
 
 final errorMessageProvider = NotifierProvider<ErrorMessageNotifier, String?>(() {
   return ErrorMessageNotifier();
+});
+
+// Tracks if REGISTER is currently loading
+class RegisterIsLoadingNotifier extends Notifier<bool> {
+  @override
+  bool build() => false;
+
+  void setLoading(bool value) {
+    state = value;
+  }
+}
+
+final registerIsLoadingProvider = NotifierProvider<RegisterIsLoadingNotifier, bool>(() {
+  return RegisterIsLoadingNotifier();
+});
+
+// Stores error message when REGISTER fails
+class RegisterErrorNotifier extends Notifier<String?> {
+  @override
+  String? build() => null;
+
+  void setError(String? message) {
+    state = message;
+  }
+}
+
+final registerErrorProvider = NotifierProvider<RegisterErrorNotifier, String?>(() {
+  return RegisterErrorNotifier();
 });

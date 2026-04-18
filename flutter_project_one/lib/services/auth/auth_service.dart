@@ -1,21 +1,33 @@
-// This imports Firebase Authentication
-// Firebase Authentication handles login, register, and logout
+// Firebase Authentication import
+// Handles login, register, logout, and email verification
 import 'package:firebase_auth/firebase_auth.dart';
 
-// This class is responsible for ALL login and logout logic
+// Firestore import
+// Handles saving user profile data to the database
+import 'package:cloud_firestore/cloud_firestore.dart';
+
+// ================================================
+// AUTH SERVICE
+//
+// This class is responsible for ALL auth logic
 // Think of this as the "worker" that talks to Firebase
+//
+// It handles:
+//   - Login
+//   - Register
+//   - Logout
+//   - Get User Role
+// ================================================
 class AuthService {
 
-  // This is our connection to Firebase Authentication
-  // We use underscore "_" to mean this is private
-  // Private means only THIS file can use _auth directly
+  // Connection to Firebase Authentication
   final FirebaseAuth _auth = FirebaseAuth.instance;
+
+  // Connection to Firestore database
+  final FirebaseFirestore _firestore = FirebaseFirestore.instance;
 
   // ================================================
   // GET CURRENT USER
-  // This tells us WHO is currently logged in
-  // Returns the User object if someone is logged in
-  // Returns null if nobody is logged in
   // ================================================
   User? get currentUser {
     return _auth.currentUser;
@@ -23,81 +35,170 @@ class AuthService {
 
   // ================================================
   // AUTH STATE CHANGES
-  // This is like a "watcher" 
-  // It automatically fires when:
-  //   - Someone logs in  → sends User object
-  //   - Someone logs out → sends null
-  // We use Stream because it keeps watching over time
   // ================================================
   Stream<User?> get authStateChanges {
     return _auth.authStateChanges();
   }
 
   // ================================================
+  // GET USER ROLE
+  // Reads the role field from Firestore for the current user
+  // Returns the role string e.g. "admin", "customer"
+  // Returns null if something goes wrong
+  // ================================================
+  Future<String?> getUserRole() async {
+    try {
+      User? user = _auth.currentUser;
+
+      if (user == null) {
+        print('getUserRole: No current user found');
+        return null;
+      }
+
+      print('getUserRole: Looking up UID ${user.uid}');
+
+      DocumentSnapshot doc = await _firestore
+          .collection('user')
+          .doc(user.uid)
+          .get();
+
+      if (doc.exists) {
+        final role = doc.get('role') as String?;
+        print('getUserRole: Found role = $role');
+        return role;
+      }
+
+      print('getUserRole: Document does not exist for UID ${user.uid}');
+      return null;
+
+    } catch (error) {
+      print('getUserRole error: $error');
+      return null;
+    }
+  }
+
+  // ================================================
   // LOGIN FUNCTION
-  // This function logs in a user with email and password
-  // 
-  // Returns null    → if login was SUCCESSFUL
-  // Returns String  → if login FAILED (the error message)
+  // Returns null   → if login was SUCCESSFUL
+  // Returns String → if login FAILED (the error message)
   // ================================================
   Future<String?> login({
     required String email,
     required String password,
   }) async {
 
-    // "try" means attempt to do something
-    // If it fails, "catch" will handle the error
     try {
 
-      // Try to sign in with Firebase
-      // .trim() removes any extra spaces the user accidentally typed
       await _auth.signInWithEmailAndPassword(
         email: email.trim(),
         password: password.trim(),
       );
 
-      // If we reach this line, login was SUCCESSFUL
-      // Return null to mean "no error"
+      print('Login successful for ${email.trim()}');
       return null;
 
     } on FirebaseAuthException catch (error) {
 
-      // If login FAILED, Firebase gives us an error code
-      // We convert that error code into a friendly message
+      // Print the actual Firebase error code so we can debug
+      print('FirebaseAuthException code: ${error.code}');
+      print('FirebaseAuthException message: ${error.message}');
 
-      // User typed wrong email
       if (error.code == 'user-not-found') {
         return 'No account found with this email.';
-      }
 
-      // User typed wrong password
-      else if (error.code == 'wrong-password') {
+      } else if (error.code == 'wrong-password') {
         return 'Wrong password. Please try again.';
-      }
 
-      // Email format is wrong (missing @ for example)
-      else if (error.code == 'invalid-email') {
+      } else if (error.code == 'invalid-email') {
         return 'Please enter a valid email address.';
-      }
 
-      // Account was disabled by admin
-      else if (error.code == 'user-disabled') {
+      } else if (error.code == 'user-disabled') {
         return 'This account has been disabled.';
-      }
 
-      // Any other error we don't know about
-      else {
-        return 'Login failed. Please try again.';
+      } else if (error.code == 'invalid-credential') {
+        return 'Incorrect email or password. Please try again.';
+
+      } else if (error.code == 'too-many-requests') {
+        return 'Too many failed attempts. Please try again later.';
+
+      } else {
+        return 'Login failed (${error.code}). Please try again.';
       }
     }
   }
 
   // ================================================
+  // REGISTER FUNCTION
+  // Returns null   → if register was SUCCESSFUL
+  // Returns String → if register FAILED (the error message)
+  // ================================================
+  Future<String?> register({
+    required String firstName,
+    required String lastName,
+    required String email,
+    required String phone,
+    required String password,
+  }) async {
+
+    try {
+
+      // Step 1 - Create account in Firebase Auth
+      UserCredential credential = await _auth.createUserWithEmailAndPassword(
+        email: email.trim(),
+        password: password.trim(),
+      );
+
+      User newUser = credential.user!;
+      print('Register: Created auth user with UID ${newUser.uid}');
+
+      // Step 2 - Save user profile to Firestore
+      await _firestore
+          .collection('user')
+          .doc(newUser.uid)
+          .set({
+            'first_name': firstName.trim(),
+            'last_name': lastName.trim(),
+            'email': email.trim(),
+            'phone': phone.trim(),
+            'role': 'customer',
+          });
+
+      print('Register: Saved user profile to Firestore');
+
+      // Step 3 - Send verification email
+      await newUser.sendEmailVerification();
+      print('Register: Verification email sent');
+
+      return null;
+
+    } on FirebaseAuthException catch (error) {
+
+      print('Register FirebaseAuthException code: ${error.code}');
+
+      if (error.code == 'email-already-in-use') {
+        return 'An account already exists with this email.';
+
+      } else if (error.code == 'invalid-email') {
+        return 'Please enter a valid email address.';
+
+      } else if (error.code == 'weak-password') {
+        return 'Password is too weak. Use at least 6 characters.';
+
+      } else {
+        return 'Registration failed (${error.code}). Please try again.';
+      }
+
+    } catch (error) {
+      print('Register unknown error: $error');
+      return 'Something went wrong. Please try again.';
+    }
+  }
+
+  // ================================================
   // LOGOUT FUNCTION
-  // This function logs out the current user
-  // Very simple - just call Firebase signOut
   // ================================================
   Future<void> logout() async {
     await _auth.signOut();
+    print('User logged out');
   }
 }
