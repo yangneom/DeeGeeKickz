@@ -10,13 +10,28 @@ import '../../providers/auth/auth_provider.dart';
 // Import RegisterScreen so we can navigate to it when user taps Sign Up
 import '../../screens/auth/register_screen.dart';
 
-// Import screens for role-based navigation
-import '../../screens/dashboard/admin_dashboard_screen.dart';
+// Import AdminLayout for role-based navigation
+import '../../screens/admin/admin_layout.dart';
 
-// TODO: Create these screens later
-// import '../../screens/cashier/cashier_screen.dart';
-// import '../../screens/customer/customer_home_screen.dart';
+// TODO: Import these screens later when built
+// import '../../screens/cashier/cashier_layout.dart';
+// import '../../screens/customer/customer_layout.dart';
 
+// ================================================
+// LOGIN FORM WIDGET
+//
+// This widget contains:
+//   - Email text field
+//   - Password text field
+//   - Remember me checkbox
+//   - Forgot password link
+//   - Login button
+//   - Sign up link
+//
+// ConsumerStatefulWidget means this widget:
+//   - Has its own state (can use setState)
+//   - Can also read Riverpod providers (ref.watch)
+// ================================================
 class LoginForm extends ConsumerStatefulWidget {
   const LoginForm({super.key});
 
@@ -26,14 +41,33 @@ class LoginForm extends ConsumerStatefulWidget {
 
 class _LoginFormState extends ConsumerState<LoginForm> {
 
+  // ================================================
+  // CONTROLLERS
+  // Controllers let us READ what the user typed
+  // ================================================
   final TextEditingController _emailController = TextEditingController();
   final TextEditingController _passwordController = TextEditingController();
 
+  // ================================================
+  // LOCAL STATE VARIABLES
+  // ================================================
+
+  // Controls if password is visible or hidden
   bool _isPasswordVisible = false;
+
+  // Controls the remember me checkbox
   bool _rememberMe = false;
 
+  // ================================================
+  // FORM KEY
+  // Used to validate the form before login
+  // ================================================
   final GlobalKey<FormState> _formKey = GlobalKey<FormState>();
 
+  // ================================================
+  // DISPOSE
+  // Clean up controllers when widget is removed
+  // ================================================
   @override
   void dispose() {
     _emailController.dispose();
@@ -41,84 +75,129 @@ class _LoginFormState extends ConsumerState<LoginForm> {
     super.dispose();
   }
 
+  // ================================================
+  // HANDLE LOGIN FUNCTION
+  //
+  // Step 1 - Validate the form
+  // Step 2 - Set loading to true
+  // Step 3 - Call AuthService to login
+  // Step 4 - Fetch user role from Firestore
+  // Step 5 - Navigate based on role
+  // Step 6 - Handle any errors
+  // ================================================
   Future<void> _handleLogin() async {
 
     // Step 1 - Validate form
+    // If any field is empty or invalid stop here
     bool formIsValid = _formKey.currentState!.validate();
     if (formIsValid == false) {
       return;
     }
 
     // Step 2 - Set loading to true
+    // Shows spinner on the button
     ref.read(isLoadingProvider.notifier).setLoading(true);
 
-    // Clear any old error message
+    // Clear any old error message from previous attempt
     ref.read(errorMessageProvider.notifier).setError(null);
 
-    // Step 3 - Call AuthService to login
-    final authService = ref.read(authServiceProvider);
+    // Wrap everything in try/catch
+    // So if ANYTHING goes wrong we handle it cleanly
+    try {
 
-    final String? errorMessage = await authService.login(
-      email: _emailController.text,
-      password: _passwordController.text,
-    );
+      // Step 3 - Call AuthService to login
+      // Returns null if successful
+      // Returns error string if failed
+      final authService = ref.read(authServiceProvider);
 
-    // Step 4 - Set loading back to false
-    ref.read(isLoadingProvider.notifier).setLoading(false);
+      final String? errorMessage = await authService.login(
+        email: _emailController.text,
+        password: _passwordController.text,
+      );
 
-    // Step 5 - Handle success or failure
-    if (errorMessage == null) {
+      // If login failed show the error message and stop
+      if (errorMessage != null) {
+        ref.read(errorMessageProvider.notifier).setError(errorMessage);
+        return;
+      }
 
-      // Login SUCCESS - fetch role from Firestore
+      // Step 4 - Login was successful
+      // Now fetch the user's role from Firestore
+      // So we know which screen to navigate to
       final String? role = await authService.getUserRole();
 
-      // Check if widget is still on screen before navigating
+      // Step 5 - Check if widget is still on screen
+      // before navigating
+      // This prevents errors if user closed the screen
+      // while waiting for the login to complete
       if (!mounted) return;
 
       // Navigate based on role
       if (role == 'admin' || role == 'super_admin') {
+
+        // Admin and Super Admin go to Admin Layout
         Navigator.pushReplacement(
           context,
           MaterialPageRoute(
-            builder: (context) => const AdminDashboardScreen(),
+            builder: (context) => const AdminLayout(),
           ),
         );
 
       } else if (role == 'cashier') {
-        // TODO: Navigate to CashierScreen once created
-        // Navigator.pushReplacement(
-        //   context,
-        //   MaterialPageRoute(
-        //     builder: (context) => const CashierScreen(),
-        //   ),
-        // );
-        print('Cashier login - screen coming soon');
+
+        // TODO: Navigate to CashierLayout once created
+        ref.read(errorMessageProvider.notifier).setError(
+          'Cashier screen coming soon.',
+        );
+
+      } else if (role == 'customer') {
+
+        // TODO: Navigate to CustomerLayout once created
+        ref.read(errorMessageProvider.notifier).setError(
+          'Customer screen coming soon.',
+        );
 
       } else {
-        // role == 'customer' or anything else
-        // TODO: Navigate to CustomerHomeScreen once created
-        // Navigator.pushReplacement(
-        //   context,
-        //   MaterialPageRoute(
-        //     builder: (context) => const CustomerHomeScreen(),
-        //   ),
-        // );
-        print('Customer login - screen coming soon');
+
+        // Role is null or unknown
+        // This should not happen but handle it just in case
+        ref.read(errorMessageProvider.notifier).setError(
+          'Unknown role. Please contact support.',
+        );
+
       }
 
-    } else {
+    } catch (error) {
 
-      // Login FAILED - show error message
-      ref.read(errorMessageProvider.notifier).setError(errorMessage);
+      // Step 6 - Something unexpected went wrong
+      // Show a generic error message
+      // This catches things like no internet connection
+      // or any other unexpected error
+      ref.read(errorMessageProvider.notifier).setError(
+        'Something went wrong. Please try again.',
+      );
+
+    } finally {
+
+      // This runs whether login succeeded or failed
+      // ALWAYS set loading back to false here
+      // So the button never gets stuck in loading state
+      ref.read(isLoadingProvider.notifier).setLoading(false);
+
     }
   }
 
+  // ================================================
+  // BUILD
+  // ================================================
   @override
   Widget build(BuildContext context) {
 
+    // Read loading and error state from providers
     final bool isLoading = ref.watch(isLoadingProvider);
     final String? errorMessage = ref.watch(errorMessageProvider);
 
+    // Responsiveness
     final double screenWidth = MediaQuery.of(context).size.width;
 
     double formWidth;
@@ -285,7 +364,7 @@ class _LoginFormState extends ConsumerState<LoginForm> {
               mainAxisAlignment: MainAxisAlignment.spaceBetween,
               children: [
 
-                // Remember Me checkbox
+                // Remember Me checkbox on the left
                 Row(
                   children: [
                     Checkbox(
@@ -303,7 +382,7 @@ class _LoginFormState extends ConsumerState<LoginForm> {
                   ],
                 ),
 
-                // Forgot Password link
+                // Forgot Password link on the right
                 GestureDetector(
                   onTap: () {
                     // TODO: Navigate to forgot password screen later
@@ -324,6 +403,7 @@ class _LoginFormState extends ConsumerState<LoginForm> {
 
             // ================================================
             // ERROR MESSAGE BOX
+            // Only shows when there is an error
             // ================================================
             if (errorMessage != null)
               Container(
@@ -354,7 +434,10 @@ class _LoginFormState extends ConsumerState<LoginForm> {
               width: double.infinity,
               height: 50,
               child: ElevatedButton(
+
+                // Disabled when loading
                 onPressed: isLoading ? null : _handleLogin,
+
                 style: ElevatedButton.styleFrom(
                   backgroundColor: Colors.black,
                   foregroundColor: Colors.white,
@@ -362,6 +445,9 @@ class _LoginFormState extends ConsumerState<LoginForm> {
                     borderRadius: BorderRadius.circular(8),
                   ),
                 ),
+
+                // Show spinner when loading
+                // Show text when not loading
                 child: isLoading
                     ? const SizedBox(
                         height: 20,
