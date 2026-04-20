@@ -12,3 +12,11 @@ git checkout feature/inventory ← switch to it
 # Upload this new branch to GitHub so it exists online too
 git push -u origin feature/inventory
 
+
+# 1. Before coding - check your status
+git status
+
+# 2. After coding - save your work
+git add .
+git commit -m "describe what you did"
+git push
