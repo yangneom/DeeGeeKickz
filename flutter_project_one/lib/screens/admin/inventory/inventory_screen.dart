@@ -2,7 +2,6 @@ import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import '../../../models/product.dart';
 import '../../../widgets/admin/inventory/inventory_table.dart';
-import 'add_product_screen.dart';
 import '../../../widgets/admin/inventory/add_product_dialog.dart';
 import '../../../widgets/admin/inventory/stock_adjustment_dialog.dart';
 
