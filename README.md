@@ -18,5 +18,5 @@ git status
 
 # 2. After coding - save your work
 git add .
-git commit -m "describe what you did"
+git commit -m "did the add new product and stock adj"
 git push

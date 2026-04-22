@@ -2,6 +2,10 @@ import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import '../../../models/product.dart';
 import '../../../widgets/admin/inventory/inventory_table.dart';
+import 'add_product_screen.dart';
+import '../../../widgets/admin/inventory/add_product_dialog.dart';
+import '../../../widgets/admin/inventory/stock_adjustment_dialog.dart';
+
 
 class InventoryScreen extends ConsumerStatefulWidget {
   const InventoryScreen({super.key});
@@ -11,6 +15,10 @@ class InventoryScreen extends ConsumerStatefulWidget {
 }
 
 class _InventoryScreenState extends ConsumerState<InventoryScreen> {
+
+  // ================================================
+  // CONTROLLERS AND STATE
+  // ================================================
   final TextEditingController _searchController = TextEditingController();
 
   List<Product> _filteredProducts = fakeProducts;
@@ -18,125 +26,149 @@ class _InventoryScreenState extends ConsumerState<InventoryScreen> {
   String? _selectedStatus;
   String? _selectedCategory;
 
-  OverlayEntry? _filterOverlay;
-
-  // ================= FILTER LOGIC =================
+  // ================================================
+  // GET ALL UNIQUE CATEGORIES
+  // ================================================
   List<String> _getCategories() {
-    final categories = <String>{};
-    for (var p in fakeProducts) {
-      categories.add(p.category);
+    List<String> categories = [];
+    for (Product product in fakeProducts) {
+      if (!categories.contains(product.category)) {
+        categories.add(product.category);
+      }
     }
-    return categories.toList();
+    return categories;
   }
 
+  @override
+  void dispose() {
+    _searchController.dispose();
+    super.dispose();
+  }
+
+  // ================================================
+  // APPLY FILTERS
+  // ================================================
   void _applyFilters() {
-    final query = _searchController.text.toLowerCase();
+    String searchQuery = _searchController.text.toLowerCase();
+    List<Product> results = [];
 
-    final results = fakeProducts.where((product) {
-      final matchesSearch = query.isEmpty ||
-          product.productName.toLowerCase().contains(query) ||
-          product.brand.toLowerCase().contains(query) ||
-          product.category.toLowerCase().contains(query);
+    for (Product product in fakeProducts) {
 
-      final matchesCategory = _selectedCategory == null ||
-          product.category == _selectedCategory;
+      // Search filter
+      bool matchesSearch = true;
+      if (searchQuery.isNotEmpty) {
+        bool nameMatch = product.productName.toLowerCase().contains(searchQuery);
+        bool brandMatch = product.brand.toLowerCase().contains(searchQuery);
+        bool categoryMatch = product.category.toLowerCase().contains(searchQuery);
+        matchesSearch = nameMatch || brandMatch || categoryMatch;
+      }
+      if (matchesSearch == false) continue;
 
-      final matchesStatus = _selectedStatus == null ||
-          product.variants.any((v) => v.status == _selectedStatus);
+      // Category filter
+      bool matchesCategory = true;
+      if (_selectedCategory != null) {
+        matchesCategory = product.category == _selectedCategory;
+      }
+      if (matchesCategory == false) continue;
 
-      return matchesSearch && matchesCategory && matchesStatus;
-    }).toList();
+      // Status filter
+      bool matchesStatus = true;
+      if (_selectedStatus != null) {
+        matchesStatus = false;
+        for (var variant in product.variants) {
+          if (variant.status == _selectedStatus) {
+            matchesStatus = true;
+            break;
+          }
+        }
+      }
+      if (matchesStatus == false) continue;
 
-    setState(() => _filteredProducts = results);
+      results.add(product);
+    }
+
+    setState(() {
+      _filteredProducts = results;
+    });
   }
 
+  // ================================================
+  // CLEAR ALL FILTERS
+  // ================================================
   void _clearFilters() {
     setState(() {
       _selectedStatus = null;
       _selectedCategory = null;
       _searchController.clear();
       _filteredProducts = fakeProducts;
+      _showFilterPanel = false;
     });
-    _removeFilterOverlay();
   }
 
-  // ================= OVERLAY =================
-  void _showFilterOverlay(BuildContext buttonContext) {
-    _removeFilterOverlay();
-
-    final box = buttonContext.findRenderObject() as RenderBox;
-    final position = box.localToGlobal(Offset.zero);
-
-    _filterOverlay = OverlayEntry(
-      builder: (_) => Stack(
-        children: [
-          // click outside
-          Positioned.fill(
-            child: GestureDetector(
-              onTap: _removeFilterOverlay,
-              behavior: HitTestBehavior.translucent,
-            ),
-          ),
-
-          // panel
-          Positioned(
-            top: position.dy + box.size.height,
-            left: position.dx,
-            child: Material(
-              color: Colors.transparent,
-              child: _buildFilterPanel(),
-            ),
-          ),
-        ],
-      ),
-    );
-
-    Overlay.of(buttonContext, rootOverlay: true)
-        .insert(_filterOverlay!);
-
-    setState(() => _showFilterPanel = true);
-  }
-
-  void _removeFilterOverlay() {
-    _filterOverlay?.remove();
-    _filterOverlay = null;
-    if (mounted) {
-      setState(() => _showFilterPanel = false);
-    }
-  }
-
-  // ================= UI PARTS =================
-  Widget _buildRadio(String label) {
-    final selected = _selectedStatus == label;
+  // ================================================
+  // BUILD RADIO OPTION
+  // ================================================
+  Widget _buildRadioOption(String status) {
+    bool isSelected = _selectedStatus == status;
 
     return GestureDetector(
       onTap: () {
         setState(() {
-          _selectedStatus = selected ? null : label;
+          if (_selectedStatus == status) {
+            _selectedStatus = null;
+          } else {
+            _selectedStatus = status;
+          }
         });
       },
-      child: Row(
-        children: [
-          Container(
-            width: 16,
-            height: 16,
-            decoration: BoxDecoration(
-              shape: BoxShape.circle,
-              border: Border.all(
-                color: selected ? const Color(0xFF2563EB) : Colors.grey,
+      child: Padding(
+        padding: const EdgeInsets.symmetric(vertical: 4),
+        child: Row(
+          children: [
+            Container(
+              width: 16,
+              height: 16,
+              decoration: BoxDecoration(
+                shape: BoxShape.circle,
+                border: Border.all(
+                  color: isSelected
+                      ? const Color(0xFF2563EB)
+                      : const Color(0xFFD1D5DB),
+                  width: 2,
+                ),
+                color: isSelected
+                    ? const Color(0xFF2563EB)
+                    : Colors.white,
               ),
-              color: selected ? const Color(0xFF2563EB) : Colors.white,
+              child: isSelected
+                  ? const Center(
+                      child: Icon(
+                        Icons.circle,
+                        size: 6,
+                        color: Colors.white,
+                      ),
+                    )
+                  : null,
             ),
-          ),
-          const SizedBox(width: 8),
-          Text(label, style: const TextStyle(fontSize: 12)),
-        ],
+            const SizedBox(width: 8),
+            Text(
+              status,
+              style: const TextStyle(
+                fontSize: 12,
+                color: Color(0xFF374151),
+              ),
+            ),
+          ],
+        ),
       ),
     );
   }
 
+  // ================================================
+  // BUILD FILTER PANEL
+  // ================================================
   Widget _buildFilterPanel() {
-    final categories = _getCategories();
+    List<String> categories = _getCategories();
 
     return Container(
       width: 220,
@@ -144,126 +176,464 @@ class _InventoryScreenState extends ConsumerState<InventoryScreen> {
       decoration: BoxDecoration(
         color: Colors.white,
         borderRadius: BorderRadius.circular(8),
+        border: Border.all(color: const Color(0xFFE5E7EB)),
         boxShadow: [
           BoxShadow(
+            color: Colors.black.withOpacity(0.10),
             blurRadius: 12,
-            color: Colors.black.withOpacity(0.1),
-          )
+            offset: const Offset(0, 4),
+          ),
         ],
       ),
       child: Column(
-        mainAxisSize: MainAxisSize.min,
         crossAxisAlignment: CrossAxisAlignment.start,
+        mainAxisSize: MainAxisSize.min,
         children: [
-          const Text('Filter', style: TextStyle(fontWeight: FontWeight.bold)),
 
-          const SizedBox(height: 10),
-          const Text('Status', style: TextStyle(fontSize: 12)),
-          _buildRadio('Available'),
-          _buildRadio('Low Stock'),
-          _buildRadio('Out of Stock'),
-
-          const SizedBox(height: 10),
-          const Text('Category', style: TextStyle(fontSize: 12)),
-
-          DropdownButton<String>(
-            value: _selectedCategory,
-            hint: const Text('All'),
-            isExpanded: true,
-            items: [
-              const DropdownMenuItem(value: null, child: Text('All')),
-              ...categories.map((c) =>
-                  DropdownMenuItem(value: c, child: Text(c))),
-            ],
-            onChanged: (val) {
-              setState(() => _selectedCategory = val);
-            },
+          // Title
+          const Text(
+            'Filter',
+            style: TextStyle(
+              fontSize: 14,
+              fontWeight: FontWeight.w600,
+              color: Color(0xFF111827),
+            ),
           ),
 
-          const SizedBox(height: 10),
+          const SizedBox(height: 12),
 
+          // Status
+          const Text(
+            'Status',
+            style: TextStyle(
+              fontSize: 12,
+              fontWeight: FontWeight.w500,
+              color: Color(0xFF374151),
+            ),
+          ),
+
+          const SizedBox(height: 6),
+
+          _buildRadioOption('Available'),
+          _buildRadioOption('Low Stock'),
+          _buildRadioOption('Out of Stock'),
+
+          const SizedBox(height: 12),
+
+          // Category
+          const Text(
+            'Category',
+            style: TextStyle(
+              fontSize: 12,
+              fontWeight: FontWeight.w500,
+              color: Color(0xFF374151),
+            ),
+          ),
+
+          const SizedBox(height: 6),
+
+          Container(
+            height: 36,
+            padding: const EdgeInsets.symmetric(horizontal: 10),
+            decoration: BoxDecoration(
+              border: Border.all(color: const Color(0xFFD1D5DB)),
+              borderRadius: BorderRadius.circular(6),
+            ),
+            child: DropdownButtonHideUnderline(
+              child: DropdownButton<String>(
+                value: _selectedCategory,
+                hint: const Text(
+                  'Select Category',
+                  style: TextStyle(fontSize: 12, color: Color(0xFF9CA3AF)),
+                ),
+                isExpanded: true,
+                items: [
+                  const DropdownMenuItem<String>(
+                    value: null,
+                    child: Text('All', style: TextStyle(fontSize: 12)),
+                  ),
+                  ...categories.map((String cat) {
+                    return DropdownMenuItem<String>(
+                      value: cat,
+                      child: Text(cat, style: const TextStyle(fontSize: 12)),
+                    );
+                  }).toList(),
+                ],
+                onChanged: (String? value) {
+                  setState(() {
+                    _selectedCategory = value;
+                  });
+                },
+              ),
+            ),
+          ),
+
+          const SizedBox(height: 14),
+
+          // Clear + Filter buttons
           Row(
             children: [
               Expanded(
                 child: OutlinedButton(
-                  onPressed: _clearFilters,
-                  child: const Text('Clear'),
+                  onPressed: () {
+                    _clearFilters();
+                  },
+                  style: OutlinedButton.styleFrom(
+                    foregroundColor: const Color(0xFF374151),
+                    side: const BorderSide(color: Color(0xFFD1D5DB)),
+                    padding: const EdgeInsets.symmetric(vertical: 8),
+                    shape: RoundedRectangleBorder(
+                      borderRadius: BorderRadius.circular(6),
+                    ),
+                  ),
+                  child: const Text(
+                    'Clear',
+                    style: TextStyle(fontSize: 12),
+                  ),
                 ),
               ),
-              const SizedBox(width: 6),
+              const SizedBox(width: 8),
               Expanded(
                 child: ElevatedButton(
                   onPressed: () {
                     _applyFilters();
-                    _removeFilterOverlay();
+                    setState(() {
+                      _showFilterPanel = false;
+                    });
                   },
-                  child: const Text('Apply'),
+                  style: ElevatedButton.styleFrom(
+                    backgroundColor: const Color(0xFF2563EB),
+                    foregroundColor: Colors.white,
+                    padding: const EdgeInsets.symmetric(vertical: 8),
+                    elevation: 0,
+                    shape: RoundedRectangleBorder(
+                      borderRadius: BorderRadius.circular(6),
+                    ),
+                  ),
+                  child: const Text(
+                    'Filter',
+                    style: TextStyle(fontSize: 12),
+                  ),
                 ),
               ),
             ],
-          )
+          ),
         ],
       ),
     );
   }
 
-  // ================= BUILD =================
+  // ================================================
+  // BUILD
+  // ================================================
   @override
   Widget build(BuildContext context) {
     return Scaffold(
       backgroundColor: const Color(0xFFF8F9FA),
-      body: Padding(
-        padding: const EdgeInsets.all(32),
-        child: Column(
-          children: [
-            Row(
-              children: [
-                SizedBox(
-                  width: 280,
-                  child: TextField(
-                    controller: _searchController,
-                    onChanged: (_) => _applyFilters(),
-                    decoration: const InputDecoration(
-                      hintText: 'Search',
-                    ),
-                  ),
-                ),
-                const SizedBox(width: 8),
+      body: GestureDetector(
 
-                // ✅ FIXED BUTTON
-                Builder(
-                  builder: (btnCtx) => GestureDetector(
-                    onTap: () {
-                      if (_filterOverlay != null) {
-                        _removeFilterOverlay();
-                      } else {
-                        _showFilterOverlay(btnCtx);
-                      }
-                    },
-                    child: Container(
-                      height: 42,
-                      width: 42,
-                      decoration: BoxDecoration(
-                        border: Border.all(),
-                        color: _showFilterPanel
-                            ? Colors.blue.shade50
-                            : Colors.white,
+        // Close filter panel when tapping outside
+        onTap: () {
+          if (_showFilterPanel == true) {
+            setState(() {
+              _showFilterPanel = false;
+            });
+          }
+        },
+
+        child: Padding(
+          padding: const EdgeInsets.all(32),
+          child: Column(
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: [
+
+              // ================================================
+              // TOP ROW — TITLE + ARCHIVED + EXPORT
+              // ================================================
+              Row(
+                crossAxisAlignment: CrossAxisAlignment.center,
+                children: [
+
+                  // Title and subtitle
+                  const Column(
+                    crossAxisAlignment: CrossAxisAlignment.start,
+                    children: [
+                      Text(
+                        'Inventory Management',
+                        style: TextStyle(
+                          fontSize: 24,
+                          fontWeight: FontWeight.bold,
+                          color: Color(0xFF111827),
+                        ),
                       ),
-                      child: const Icon(Icons.filter_list),
+                      SizedBox(height: 4),
+                      Text(
+                        'Manages items and their stock status.',
+                        style: TextStyle(
+                          fontSize: 13,
+                          color: Color(0xFF9CA3AF),
+                        ),
+                      ),
+                    ],
+                  ),
+
+                  const Spacer(),
+
+                  // Archived button
+                  ElevatedButton(
+                    onPressed: () {},
+                    style: ElevatedButton.styleFrom(
+                      backgroundColor: const Color(0xFF9CA3AF),
+                      foregroundColor: Colors.white,
+                      padding: const EdgeInsets.symmetric(
+                        horizontal: 16,
+                        vertical: 12,
+                      ),
+                      shape: RoundedRectangleBorder(
+                        borderRadius: BorderRadius.circular(8),
+                      ),
+                      elevation: 0,
+                    ),
+                    child: const Text(
+                      'Archived',
+                      style: TextStyle(
+                        fontSize: 13,
+                        fontWeight: FontWeight.w500,
+                      ),
                     ),
                   ),
-                ),
-              ],
-            ),
 
-            const SizedBox(height: 16),
+                  const SizedBox(width: 8),
 
-            Expanded(
-              child: InventoryTable(
-                products: _filteredProducts,
+                  // Export button with dropdown arrow
+                  Container(
+                    decoration: BoxDecoration(
+                      border: Border.all(color: const Color(0xFFD1D5DB)),
+                      borderRadius: BorderRadius.circular(8),
+                    ),
+                    child: Row(
+                      mainAxisSize: MainAxisSize.min,
+                      children: [
+                        TextButton(
+                          onPressed: () {},
+                          style: TextButton.styleFrom(
+                            foregroundColor: const Color(0xFF374151),
+                            padding: const EdgeInsets.symmetric(
+                              horizontal: 16,
+                              vertical: 12,
+                            ),
+                          ),
+                          child: const Text(
+                            'Export',
+                            style: TextStyle(
+                              fontSize: 13,
+                              fontWeight: FontWeight.w500,
+                            ),
+                          ),
+                        ),
+                        Container(
+                          width: 1,
+                          height: 20,
+                          color: const Color(0xFFD1D5DB),
+                        ),
+                        IconButton(
+                          onPressed: () {},
+                          icon: const Icon(
+                            Icons.keyboard_arrow_down,
+                            size: 18,
+                            color: Color(0xFF6B7280),
+                          ),
+                          padding: const EdgeInsets.symmetric(horizontal: 8),
+                          constraints: const BoxConstraints(),
+                        ),
+                      ],
+                    ),
+                  ),
+                ],
               ),
-            ),
-          ],
+
+              const SizedBox(height: 24),
+
+              // ================================================
+              // SECOND ROW
+              // [Search] [Filter] ---spacer--- [Add Product] [Stock Adj]
+              // ================================================
+              Row(
+                crossAxisAlignment: CrossAxisAlignment.center,
+                children: [
+
+                  // Search bar
+                  SizedBox(
+                    width: 280,
+                    height: 42,
+                    child: TextField(
+                      controller: _searchController,
+                      onChanged: (String value) {
+                        _applyFilters();
+                      },
+                      style: const TextStyle(fontSize: 13),
+                      decoration: InputDecoration(
+                        hintText: 'Search',
+                        hintStyle: const TextStyle(
+                          fontSize: 13,
+                          color: Color(0xFF9CA3AF),
+                        ),
+                        prefixIcon: const Icon(
+                          Icons.search,
+                          size: 18,
+                          color: Color(0xFF9CA3AF),
+                        ),
+                        filled: true,
+                        fillColor: Colors.white,
+                        border: OutlineInputBorder(
+                          borderRadius: BorderRadius.circular(8),
+                          borderSide: const BorderSide(
+                            color: Color(0xFFD1D5DB),
+                          ),
+                        ),
+                        enabledBorder: OutlineInputBorder(
+                          borderRadius: BorderRadius.circular(8),
+                          borderSide: const BorderSide(
+                            color: Color(0xFFD1D5DB),
+                          ),
+                        ),
+                        focusedBorder: OutlineInputBorder(
+                          borderRadius: BorderRadius.circular(8),
+                          borderSide: const BorderSide(
+                            color: Color(0xFF2563EB),
+                          ),
+                        ),
+                        contentPadding: const EdgeInsets.symmetric(
+                          vertical: 12,
+                        ),
+                      ),
+                    ),
+                  ),
+
+                  const SizedBox(width: 8),
+
+                  // Filter button + panel
+                  Stack(
+                    clipBehavior: Clip.none,
+                    children: [
+
+                      // Filter icon button
+                      GestureDetector(
+                        onTap: () {
+                          setState(() {
+                            _showFilterPanel = !_showFilterPanel;
+                          });
+                        },
+                        child: Container(
+                          height: 42,
+                          width: 42,
+                          decoration: BoxDecoration(
+                            color: _showFilterPanel
+                                ? const Color(0xFFEFF6FF)
+                                : Colors.white,
+                            borderRadius: BorderRadius.circular(8),
+                            border: Border.all(
+                              color: _showFilterPanel
+                                  ? const Color(0xFF2563EB)
+                                  : const Color(0xFFD1D5DB),
+                            ),
+                          ),
+                          child: Icon(
+                            Icons.filter_list,
+                            size: 18,
+                            color: _showFilterPanel
+                                ? const Color(0xFF2563EB)
+                                : const Color(0xFF6B7280),
+                          ),
+                        ),
+                      ),
+
+                      // Filter panel appears below the button
+                      if (_showFilterPanel == true)
+                        Positioned(
+                          top: 48,
+                          left: 0,
+                          child: GestureDetector(
+                            onTap: () {},
+                            child: _buildFilterPanel(),
+                          ),
+                        ),
+                    ],
+                  ),
+
+                  const Spacer(),
+
+                  // Add Product button
+                  ElevatedButton(
+                    onPressed: () {
+                        showAddProductDialog(context);
+                    },
+                    style: ElevatedButton.styleFrom(
+                      backgroundColor: const Color(0xFF2563EB),
+                      foregroundColor: Colors.white,
+                      padding: const EdgeInsets.symmetric(
+                        horizontal: 16,
+                        vertical: 12,
+                      ),
+                      shape: RoundedRectangleBorder(
+                        borderRadius: BorderRadius.circular(8),
+                      ),
+                      elevation: 0,
+                    ),
+                    child: const Text(
+                      'Add Product',
+                      style: TextStyle(
+                        fontSize: 13,
+                        fontWeight: FontWeight.w500,
+                      ),
+                    ),
+                  ),
+
+                  const SizedBox(width: 8),
+
+                  // Stock Adj button
+                  ElevatedButton(
+                    onPressed: () {
+                      showStockAdjustmentDialog(context);
+                    },
+                    style: ElevatedButton.styleFrom(
+                      backgroundColor: const Color(0xFF16A34A),
+                      foregroundColor: Colors.white,
+                      padding: const EdgeInsets.symmetric(
+                        horizontal: 16,
+                        vertical: 12,
+                      ),
+                      shape: RoundedRectangleBorder(
+                        borderRadius: BorderRadius.circular(8),
+                      ),
+                      elevation: 0,
+                    ),
+                    child: const Text(
+                      'Stock Adj',
+                      style: TextStyle(
+                        fontSize: 13,
+                        fontWeight: FontWeight.w500,
+                      ),
+                    ),
+                  ),
+                ],
+              ),
+
+              const SizedBox(height: 16),
+
+              // ================================================
+              // INVENTORY TABLE
+              // ================================================
+              Expanded(
+                child: SingleChildScrollView(
+                  scrollDirection: Axis.vertical,
+                  child: InventoryTable(
+                    products: _filteredProducts,
+                  ),
+                ),
+              ),
+            ],
+          ),
         ),
       ),
     );
