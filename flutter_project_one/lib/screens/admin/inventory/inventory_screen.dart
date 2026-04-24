@@ -4,6 +4,7 @@ import '../../../models/product.dart';
 import '../../../widgets/admin/inventory/inventory_table.dart';
 import '../../../widgets/admin/inventory/add_product_dialog.dart';
 import '../../../widgets/admin/inventory/stock_adjustment_dialog.dart';
+import '../../../widgets/admin/inventory/archived_items_dialog.dart';
 
 
 class InventoryScreen extends ConsumerStatefulWidget {
@@ -380,7 +381,9 @@ class _InventoryScreenState extends ConsumerState<InventoryScreen> {
 
                   // Archived button
                   ElevatedButton(
-                    onPressed: () {},
+                    onPressed: () {
+                      showArchivedItemsDialog(context);
+                    },
                     style: ElevatedButton.styleFrom(
                       backgroundColor: const Color(0xFF9CA3AF),
                       foregroundColor: Colors.white,
