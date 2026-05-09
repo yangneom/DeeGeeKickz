@@ -11,6 +11,8 @@ import '../../widgets/admin/sidebar/admin_sidebar.dart';
 // on the right side when user clicks sidebar items
 import 'dashboard/admin_dashboard_screen.dart';
 import 'inventory/inventory_screen.dart';
+//Sales
+import 'sales/sales_screen.dart';
 
 // ================================================
 // ADMIN LAYOUT
@@ -69,7 +71,7 @@ class _AdminLayoutState extends ConsumerState<AdminLayout> {
     } else if (_currentIndex == 1) {
       return const InventoryScreen();
     } else if (_currentIndex == 2) {
-      // TODO: Build Sales screen later
+      return const SalesScreen();
       return _buildComingSoon('Sales');
     } else if (_currentIndex == 3) {
       // TODO: Build Feedback screen later

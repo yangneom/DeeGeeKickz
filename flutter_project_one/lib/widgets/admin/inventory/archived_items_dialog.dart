@@ -445,7 +445,7 @@ class _ArchivedItemsDialogState extends State<ArchivedItemsDialog> {
 
             // Title
             Padding(
-              padding: const EdgeInsets.fromLTRB(24, 28, 24, 0),
+              padding: const  .fromLTRB(24, 28, 24, 0),
               child: Column(
                 crossAxisAlignment: CrossAxisAlignment.start,
                 children: const [
