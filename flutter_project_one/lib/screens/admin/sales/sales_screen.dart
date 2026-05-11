@@ -1,11 +1,10 @@
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
-import '../../../models/sales_order.dart';
-import '../../../widgets/admin/sales/sales_table.dart';
+import '../../../widgets/common/common_table.dart';
 import '../../../widgets/common/search_bar.dart';
 import '../../../widgets/common/filter_button.dart';
-import '../../../widgets/common/filter_panel.dart';
 import '../../../widgets/common/export_button.dart';
+import '../../../widgets/common/filter_panel.dart';
 
 class SalesScreen extends ConsumerStatefulWidget {
   const SalesScreen({super.key});
@@ -23,14 +22,68 @@ class _SalesScreenState extends ConsumerState<SalesScreen> {
   // controls the search text field
   final TextEditingController _searchController = TextEditingController();
 
-  // list of orders shown in the table
-  List<SalesOrder> _filteredOrders = fakeSalesOrders;
-
   // controls if filter panel is visible
   bool _showFilterPanel = false;
 
   // currently selected filter value
   String? _selectedStatus;
+
+  // ================================================
+  // FAKE DATA — just for testing
+  // later this will come from Firebase
+  // ================================================
+  final List<Map<String, String>> _allSales = [
+    {
+      'reference': '123456',
+      'date': 'Feb 13, 2026 - 2:45 PM',
+      'total': '5,500',
+      'payment': 'Cash Payment',
+      'status': 'Shipped',
+    },
+    {
+      'reference': '123457',
+      'date': 'Feb 13, 2026 - 3:00 PM',
+      'total': '5,500',
+      'payment': 'Online Payment',
+      'status': 'Preparing',
+    },
+    {
+      'reference': '123458',
+      'date': 'Feb 14, 2026 - 10:00 AM',
+      'total': '3,200',
+      'payment': 'Cash Payment',
+      'status': 'Pending',
+    },
+    {
+      'reference': '123459',
+      'date': 'Feb 14, 2026 - 11:00 AM',
+      'total': '1,800',
+      'payment': 'Online Payment',
+      'status': 'Confirmed',
+    },
+    {
+      'reference': '123460',
+      'date': 'Feb 15, 2026 - 9:00 AM',
+      'total': '4,200',
+      'payment': 'Cash Payment',
+      'status': 'Cancelled',
+    },
+  ];
+
+  // filtered list shown in table
+  List<Map<String, String>> _filteredSales = [];
+
+  // ================================================
+  // INIT STATE — runs when screen first loads
+  // sets filtered list to all sales by default
+  // ================================================
+  @override
+  void initState() {
+    super.initState();
+
+    // show all sales at the start
+    _filteredSales = _allSales;
+  }
 
   // ================================================
   // DISPOSE — clean up controller when screen closes
@@ -42,59 +95,237 @@ class _SalesScreenState extends ConsumerState<SalesScreen> {
   }
 
   // ================================================
-  // GET STATUS LABEL — converts enum to display text
-  // ================================================
-  String _getStatusLabel(SalesOrderStatus status) {
-    if (status == SalesOrderStatus.cancelled) {
-      return 'Cancelled';
-    } else if (status == SalesOrderStatus.pending) {
-      return 'Pending';
-    } else if (status == SalesOrderStatus.confirmed) {
-      return 'Confirmed';
-    } else if (status == SalesOrderStatus.preparing) {
-      return 'Preparing';
-    } else if (status == SalesOrderStatus.shipped) {
-      return 'Shipped';
-    } else {
-      return '';
-    }
-  }
-
-  // ================================================
-  // APPLY FILTERS — filters orders by search + status
+  // APPLY FILTERS
+  // filters the sales list based on
+  // search text and selected status
   // ================================================
   void _applyFilters() {
-    setState(() {
 
-      _filteredOrders = fakeSalesOrders.where((SalesOrder order) {
+    // get search text and make it lowercase
+    String searchQuery = _searchController.text.toLowerCase();
 
-        // check if search query matches the reference number
-        bool matchesSearch = order.referenceNumber
+    // this will hold our filtered results
+    List<Map<String, String>> results = [];
+
+    // loop through all sales
+    for (int i = 0; i < _allSales.length; i = i + 1) {
+
+      // get current sale
+      Map<String, String> sale = _allSales[i];
+
+      // check if sale matches search query
+      bool matchesSearch = true;
+
+      if (searchQuery.isNotEmpty) {
+
+        // check if reference number contains search text
+        bool referenceMatch = sale['reference']!
             .toLowerCase()
-            .contains(_searchController.text.toLowerCase());
+            .contains(searchQuery);
 
-        // check if the status filter matches
-        bool matchesStatus = true;
-        if (_selectedStatus != null && _selectedStatus!.isNotEmpty) {
-          matchesStatus = _getStatusLabel(order.status) == _selectedStatus;
-        }
+        // check if payment method contains search text
+        bool paymentMatch = sale['payment']!
+            .toLowerCase()
+            .contains(searchQuery);
 
-        return matchesSearch && matchesStatus;
+        // matches if either reference or payment matches
+        matchesSearch = referenceMatch || paymentMatch;
+      }
 
-      }).toList();
+      // if search does not match skip this sale
+      if (matchesSearch == false) {
+        continue;
+      }
+
+      // check if sale matches selected status
+      bool matchesStatus = true;
+
+      if (_selectedStatus != null) {
+        matchesStatus = sale['status'] == _selectedStatus;
+      }
+
+      // if status does not match skip this sale
+      if (matchesStatus == false) {
+        continue;
+      }
+
+      // if both match add to results
+      results.add(sale);
+    }
+
+    // update the filtered list
+    setState(() {
+      _filteredSales = results;
     });
   }
 
   // ================================================
-  // CLEAR FILTERS — resets everything back to default
+  // CLEAR FILTERS — resets everything
   // ================================================
   void _clearFilters() {
     setState(() {
       _selectedStatus = null;
       _searchController.clear();
-      _filteredOrders = fakeSalesOrders;
+      _filteredSales = _allSales;
       _showFilterPanel = false;
     });
+  }
+
+  // ================================================
+  // BUILD STATUS BADGE
+  // shows a colored badge based on status
+  // ================================================
+  Widget _buildStatusBadge(String status) {
+
+    // default colors
+    Color backgroundColor = Colors.grey.shade100;
+    Color textColor = Colors.grey;
+
+    if (status == 'Shipped') {
+      backgroundColor = const Color(0xFFFEF3C7);
+      textColor = const Color(0xFFD97706);
+    }
+
+    if (status == 'Preparing') {
+      backgroundColor = const Color(0xFFEFF6FF);
+      textColor = const Color(0xFF2563EB);
+    }
+
+    if (status == 'Pending') {
+      backgroundColor = const Color(0xFFFEF9C3);
+      textColor = const Color(0xFFCA8A04);
+    }
+
+    if (status == 'Confirmed') {
+      backgroundColor = const Color(0xFFDCFCE7);
+      textColor = const Color(0xFF16A34A);
+    }
+
+    if (status == 'Cancelled') {
+      backgroundColor = const Color(0xFFFEE2E2);
+      textColor = const Color(0xFFDC2626);
+    }
+
+    // wrap in Align so badge stays small
+    // without Align it stretches to full column width
+    return Align(
+      alignment: Alignment.centerLeft,
+      child: Container(
+        padding: const EdgeInsets.symmetric(
+          horizontal: 10,
+          vertical: 4,
+        ),
+        decoration: BoxDecoration(
+          color: backgroundColor,
+          borderRadius: BorderRadius.circular(20),
+        ),
+        child: Text(
+          status,
+          style: TextStyle(
+            fontSize: 12,
+            fontWeight: FontWeight.w500,
+            color: textColor,
+          ),
+        ),
+      ),
+    );
+  }
+
+  // ================================================
+  // BUILD TABLE ROWS
+  // converts filtered sales into table rows
+  // ================================================
+  List<List<Widget>> _buildRows() {
+
+    // this will hold all our rows
+    List<List<Widget>> tableRows = [];
+
+    // loop through each filtered sale
+    for (int i = 0; i < _filteredSales.length; i = i + 1) {
+
+      // get the current sale
+      Map<String, String> sale = _filteredSales[i];
+
+      // build one row
+      List<Widget> oneRow = [
+
+        // column 1 — reference number
+        Text(
+          sale['reference']!,
+          style: const TextStyle(
+            fontSize: 13,
+            color: Color(0xFF111827),
+          ),
+        ),
+
+        // column 2 — date and time
+        Text(
+          sale['date']!,
+          style: const TextStyle(
+            fontSize: 13,
+            color: Color(0xFF111827),
+          ),
+        ),
+
+        // column 3 — total
+        Text(
+          sale['total']!,
+          style: const TextStyle(
+            fontSize: 13,
+            color: Color(0xFF111827),
+          ),
+        ),
+
+        // column 4 — payment method
+        Text(
+          sale['payment']!,
+          style: const TextStyle(
+            fontSize: 13,
+            color: Color(0xFF111827),
+          ),
+        ),
+
+        // column 5 — status badge
+        // Align keeps badge its natural size
+        // without Align it stretches to full width
+        _buildStatusBadge(sale['status']!),
+
+        // column 6 — view button
+        // Align keeps button its natural size
+        // without Align it stretches to full width
+        Align(
+          alignment: Alignment.centerLeft,
+          child: OutlinedButton(
+            onPressed: () {
+              // TODO: open sale details later
+              print('View sale: ${sale['reference']}');
+            },
+            style: OutlinedButton.styleFrom(
+              foregroundColor: const Color(0xFF374151),
+              side: const BorderSide(
+                color: Color(0xFFD1D5DB),
+              ),
+              padding: const EdgeInsets.symmetric(
+                horizontal: 16,
+                vertical: 8,
+              ),
+              shape: RoundedRectangleBorder(
+                borderRadius: BorderRadius.circular(6),
+              ),
+            ),
+            child: const Text(
+              'View',
+              style: TextStyle(fontSize: 12),
+            ),
+          ),
+        ),
+      ];
+
+      // add this row to our list
+      tableRows.add(oneRow);
+    }
+
+    return tableRows;
   }
 
   // ================================================
@@ -122,45 +353,31 @@ class _SalesScreenState extends ConsumerState<SalesScreen> {
             children: [
 
               // ================================================
-              // TOP ROW — TITLE + EXPORT
+              // TOP ROW — TITLE ONLY
               // ================================================
-              Row(
-                crossAxisAlignment: CrossAxisAlignment.center,
+              const Column(
+                crossAxisAlignment: CrossAxisAlignment.start,
                 children: [
 
-                  // title and subtitle
-                  const Column(
-                    crossAxisAlignment: CrossAxisAlignment.start,
-                    children: [
-                      Text(
-                        'Sales Management',
-                        style: TextStyle(
-                          fontSize: 24,
-                          fontWeight: FontWeight.bold,
-                          color: Color(0xFF111827),
-                        ),
-                      ),
-                      SizedBox(height: 4),
-                      Text(
-                        'Track and manage your sales orders.',
-                        style: TextStyle(
-                          fontSize: 13,
-                          color: Color(0xFF9CA3AF),
-                        ),
-                      ),
-                    ],
+                  // main title
+                  Text(
+                    'Sales Management',
+                    style: TextStyle(
+                      fontSize: 24,
+                      fontWeight: FontWeight.bold,
+                      color: Color(0xFF111827),
+                    ),
                   ),
 
-                  const Spacer(),
+                  SizedBox(height: 4),
 
-                  // export button — using common widget!
-                  ExportButton(
-                    onExport: () {
-                      // export logic here later
-                    },
-                    onDropdown: () {
-                      // dropdown logic here later
-                    },
+                  // subtitle
+                  Text(
+                    'View and manage all sales transactions.',
+                    style: TextStyle(
+                      fontSize: 13,
+                      color: Color(0xFF9CA3AF),
+                    ),
                   ),
                 ],
               ),
@@ -168,7 +385,8 @@ class _SalesScreenState extends ConsumerState<SalesScreen> {
               const SizedBox(height: 24),
 
               // ================================================
-              // SECOND ROW — SEARCH + FILTER
+              // SECOND ROW — SEARCH + FILTER + EXPORT
+              // export is now here beside filter!
               // ================================================
               Row(
                 crossAxisAlignment: CrossAxisAlignment.center,
@@ -177,7 +395,7 @@ class _SalesScreenState extends ConsumerState<SalesScreen> {
                   // search bar — using common widget!
                   CommonSearchBar(
                     controller: _searchController,
-                    hintText: 'Search orders...',
+                    hintText: 'Search sales...',
                     onChanged: (String value) {
                       // filter every time user types
                       _applyFilters();
@@ -186,7 +404,7 @@ class _SalesScreenState extends ConsumerState<SalesScreen> {
 
                   const SizedBox(width: 8),
 
-                  // filter button + panel — using common widget!
+                  // filter button — using common widget!
                   FilterButton(
                     isOpen: _showFilterPanel,
 
@@ -218,14 +436,18 @@ class _SalesScreenState extends ConsumerState<SalesScreen> {
                       });
                     },
 
-                    // sales filter sections — status only
+                    // sales filter sections
                     sections: [
                       FilterSection(
                         title: 'Status',
                         options: [
                           FilterOption(
-                            label: 'Cancelled',
-                            value: 'Cancelled',
+                            label: 'Shipped',
+                            value: 'Shipped',
+                          ),
+                          FilterOption(
+                            label: 'Preparing',
+                            value: 'Preparing',
                           ),
                           FilterOption(
                             label: 'Pending',
@@ -236,19 +458,26 @@ class _SalesScreenState extends ConsumerState<SalesScreen> {
                             value: 'Confirmed',
                           ),
                           FilterOption(
-                            label: 'Preparing',
-                            value: 'Preparing',
-                          ),
-                          FilterOption(
-                            label: 'Shipped',
-                            value: 'Shipped',
+                            label: 'Cancelled',
+                            value: 'Cancelled',
                           ),
                         ],
                       ),
                     ],
                   ),
 
+                  // spacer pushes export to the right
                   const Spacer(),
+
+                  // export button — now in second row!
+                  ExportButton(
+                    onExport: () {
+                      print('Export clicked');
+                    },
+                    onDropdown: () {
+                      print('Dropdown clicked');
+                    },
+                  ),
                 ],
               ),
 
@@ -259,16 +488,19 @@ class _SalesScreenState extends ConsumerState<SalesScreen> {
               // ================================================
               Expanded(
                 child: SingleChildScrollView(
-                  scrollDirection: Axis.vertical,
-                  child: SalesTable(
-                    orders: _filteredOrders,
-                    onView: (SalesOrder order) {
-                      // TODO: open order detail dialog later
-                    },
+                  child: CommonTable(
+                    headers: const [
+                      'Reference Number',
+                      'Date & Time',
+                      'Total',
+                      'Payment Method',
+                      'Status',
+                      'Action',
+                    ],
+                    rows: _buildRows(),
                   ),
                 ),
               ),
-
             ],
           ),
         ),

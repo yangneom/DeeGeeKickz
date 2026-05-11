@@ -1,33 +1,30 @@
-// Basic Flutter import
 import 'package:flutter/material.dart';
-
-// Riverpod import
 import 'package:flutter_riverpod/flutter_riverpod.dart';
-
-// Import our sidebar widget
 import '../../widgets/admin/sidebar/admin_sidebar.dart';
-// Import all admin screens
-// These are the screens that will show
-// on the right side when user clicks sidebar items
+import '../../widgets/admin/topbar/admin_top_bar.dart';
 import 'dashboard/admin_dashboard_screen.dart';
 import 'inventory/inventory_screen.dart';
-//Sales
 import 'sales/sales_screen.dart';
 
 // ================================================
 // ADMIN LAYOUT
 //
 // This is the WRAPPER for every admin screen
-// Think of it as the "frame" of the admin panel
 //
-// It contains:
-//   - Sidebar on the LEFT (always visible)
-//   - Content on the RIGHT (changes based on
-//     which sidebar item is selected)
+// It now has 3 parts:
+//   1. TOP BAR    — notification + profile
+//   2. SIDEBAR    — navigation items on the left
+//   3. CONTENT    — the actual screen on the right
 //
-// Every admin screen uses this layout
-// So the sidebar is always there no matter
-// which screen the admin is on
+// Layout looks like this:
+//
+// ┌─────────────────────────────────┐
+// │         TOP BAR          🔔 👤 │
+// ├─────────┬───────────────────────┤
+// │         │                       │
+// │ SIDEBAR │      CONTENT          │
+// │         │                       │
+// └─────────┴───────────────────────┘
 // ================================================
 class AdminLayout extends ConsumerStatefulWidget {
   const AdminLayout({super.key});
@@ -40,63 +37,67 @@ class _AdminLayoutState extends ConsumerState<AdminLayout> {
 
   // ================================================
   // CURRENT INDEX
-  // Tracks which sidebar item is selected
+  // tracks which sidebar item is selected
   //
   // 0 = Dashboard
   // 1 = Inventory
   // 2 = Sales
   // 3 = Feedback
-  // 4 = Order Approval
-  // 5 = Promotions
-  // 6 = Notification
+  // 4 = Messages
+  // 5 = Order Approval
+  // 6 = Promotions
+  // 7 = Notification
   // ================================================
   int _currentIndex = 0;
 
   // ================================================
   // GET CURRENT SCREEN
-  // Returns the correct screen based on
+  // returns the correct screen based on
   // which sidebar item is selected
-  //
-  // Think of this like a switch statement
-  // If index is 0 → show Dashboard
-  // If index is 1 → show Inventory
-  // etc.
   // ================================================
   Widget _getCurrentScreen() {
 
-    // Check which index is selected
-    // and return the matching screen
+    // check which index is selected
     if (_currentIndex == 0) {
       return const AdminDashboardScreen();
-    } else if (_currentIndex == 1) {
-      return const InventoryScreen();
-    } else if (_currentIndex == 2) {
-      return const SalesScreen();
-      return _buildComingSoon('Sales');
-    } else if (_currentIndex == 3) {
-      // TODO: Build Feedback screen later
-      return _buildComingSoon('Feedback');
-    } else if (_currentIndex == 4) {
-      // TODO: Build Order Approval screen later
-      return _buildComingSoon('Order Approval');
-    } else if (_currentIndex == 5) {
-      // TODO: Build Promotions screen later
-      return _buildComingSoon('Promotions');
-    } else if (_currentIndex == 6) {
-      // TODO: Build Notification screen later
-      return _buildComingSoon('Notification');
-    } else {
-      return const AdminDashboardScreen();
     }
+
+    if (_currentIndex == 1) {
+      return const InventoryScreen();
+    }
+
+    if (_currentIndex == 2) {
+      return const SalesScreen();
+    }
+
+    if (_currentIndex == 3) {
+      return _buildComingSoon('Feedback');
+    }
+
+    if (_currentIndex == 4) {
+      return _buildComingSoon('Messages');
+    }
+
+    if (_currentIndex == 5) {
+      return _buildComingSoon('Order Approval');
+    }
+
+    if (_currentIndex == 6) {
+      return _buildComingSoon('Promotions');
+    }
+
+    if (_currentIndex == 7) {
+      return _buildComingSoon('Notification');
+    }
+
+    // default — show dashboard
+    return const AdminDashboardScreen();
   }
 
   // ================================================
   // BUILD COMING SOON
-  // Temporary placeholder for screens
+  // temporary placeholder for screens
   // that are not built yet
-  // Shows a simple "Coming Soon" message
-  // so the app doesn't crash when user
-  // clicks unbuilt sidebar items
   // ================================================
   Widget _buildComingSoon(String screenName) {
     return Center(
@@ -104,7 +105,7 @@ class _AdminLayoutState extends ConsumerState<AdminLayout> {
         mainAxisAlignment: MainAxisAlignment.center,
         children: [
 
-          // Icon
+          // construction icon
           Icon(
             Icons.construction_outlined,
             size: 48,
@@ -113,7 +114,7 @@ class _AdminLayoutState extends ConsumerState<AdminLayout> {
 
           const SizedBox(height: 16),
 
-          // Screen name
+          // screen name
           Text(
             screenName,
             style: const TextStyle(
@@ -125,7 +126,7 @@ class _AdminLayoutState extends ConsumerState<AdminLayout> {
 
           const SizedBox(height: 8),
 
-          // Coming soon message
+          // coming soon message
           Text(
             'This screen is coming soon',
             style: TextStyle(
@@ -145,42 +146,43 @@ class _AdminLayoutState extends ConsumerState<AdminLayout> {
   Widget build(BuildContext context) {
 
     return Scaffold(
-
-      // Light grey background for the content area
       backgroundColor: Colors.grey.shade100,
 
-      body: Row(
+      // Column because we stack TOP BAR above
+      // then SIDEBAR + CONTENT side by side below
+      body: Column(
         children: [
 
-          // ================================================
-          // LEFT SIDE — SIDEBAR
-          // Always visible on every admin screen
-          // ================================================
-          AdminSidebar(
-            // Tell sidebar which item is currently selected
-            currentIndex: _currentIndex,
+          // ── TOP BAR ──
+          // always visible at the very top
+          const AdminTopBar(),
 
-            // When user taps a sidebar item
-            // update _currentIndex to show the right screen
-            onItemSelected: (int index) {
-              setState(() {
-                _currentIndex = index;
-              });
-            },
-          ),
-
-          // ================================================
-          // RIGHT SIDE — CONTENT AREA
-          // Changes based on which sidebar item
-          // is selected
-          //
-          // Expanded means it takes ALL remaining space
-          // after the sidebar takes its 200px
-          // ================================================
+          // ── SIDEBAR + CONTENT ──
+          // Expanded means it takes all remaining space
+          // below the top bar
           Expanded(
-            child: _getCurrentScreen(),
-          ),
+            child: Row(
+              children: [
 
+                // sidebar on the LEFT
+                AdminSidebar(
+                  currentIndex: _currentIndex,
+                  onItemSelected: (int index) {
+                    setState(() {
+                      _currentIndex = index;
+                    });
+                  },
+                ),
+
+                // content on the RIGHT
+                // Expanded means it takes all remaining space
+                // after the sidebar
+                Expanded(
+                  child: _getCurrentScreen(),
+                ),
+              ],
+            ),
+          ),
         ],
       ),
     );

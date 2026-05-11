@@ -1,30 +1,20 @@
-// Basic Flutter import
 import 'package:flutter/material.dart';
-
-// Riverpod import
 import 'package:flutter_riverpod/flutter_riverpod.dart';
-
-// Auth providers
 import '../../../providers/auth/auth_provider.dart';
 
 // ================================================
-// ADMIN SIDEBAR WIDGET
+// ADMIN SIDEBAR
 //
 // Left sidebar that appears on every admin screen
-//
-// Colors used:
-//   #FFFFFF - white background
-//   #9CA3AF - section label text
-//   #6B7280 - nav item text + icons
-//   #6F7680 - subtle text
-//   Blue    - selected item highlight
+// Contains navigation items only
+// Profile and notification moved to top bar!
 // ================================================
 class AdminSidebar extends ConsumerStatefulWidget {
 
-  // Which sidebar item is currently selected
+  // which sidebar item is currently selected
   final int currentIndex;
 
-  // Function that runs when user taps a sidebar item
+  // function that runs when user taps a sidebar item
   final Function(int) onItemSelected;
 
   const AdminSidebar({
@@ -43,25 +33,18 @@ class _AdminSidebarState extends ConsumerState<AdminSidebar> {
   // HANDLE LOGOUT
   // ================================================
   Future<void> _handleLogout() async {
-
     try {
-
       final authService = ref.read(authServiceProvider);
       await authService.logout();
-
     } catch (error) {
-
-      // If logout fails print the error
-      // We still want to handle this gracefully
       print('Logout error: $error');
-
     }
   }
 
   // ================================================
   // BUILD SECTION LABEL
-  // Small uppercase grey text above each group
-  // Example: "OVERVIEW", "MANAGEMENT"
+  // small gray text above each group
+  // example: "OVERVIEW", "MANAGEMENT"
   // ================================================
   Widget _buildSectionLabel(String label) {
     return Padding(
@@ -75,7 +58,6 @@ class _AdminSidebarState extends ConsumerState<AdminSidebar> {
         style: const TextStyle(
           fontSize: 11,
           fontWeight: FontWeight.w500,
-          // #9CA3AF - light grey for section labels
           color: Color(0xFF9CA3AF),
           letterSpacing: 0.5,
         ),
@@ -85,10 +67,9 @@ class _AdminSidebarState extends ConsumerState<AdminSidebar> {
 
   // ================================================
   // BUILD NAV ITEM
-  // One clickable row in the sidebar
-  // Shows icon + label
-  // Blue left border + blue text when selected
-  // Grey icon + grey text when not selected
+  // one clickable row in the sidebar
+  // shows icon + label
+  // blue when selected, gray when not selected
   // ================================================
   Widget _buildNavItem({
     required int index,
@@ -96,43 +77,41 @@ class _AdminSidebarState extends ConsumerState<AdminSidebar> {
     required String label,
   }) {
 
-    // Is this item currently selected?
+    // check if this item is currently selected
     bool isSelected = widget.currentIndex == index;
 
     return GestureDetector(
 
+      // when user taps this item
       onTap: () {
         widget.onItemSelected(index);
       },
 
       child: Container(
-        // Full width of sidebar
         width: double.infinity,
-
         margin: const EdgeInsets.symmetric(
           horizontal: 8,
           vertical: 1,
         ),
-
         padding: const EdgeInsets.symmetric(
           horizontal: 12,
           vertical: 9,
         ),
-
         decoration: BoxDecoration(
-          // Very light blue background when selected
-          // Transparent when not selected
-          color: isSelected
+
+          // light blue background if selected
+          // transparent if not selected
+          color: isSelected == true
               ? const Color(0xFFEFF6FF)
               : Colors.transparent,
 
           borderRadius: BorderRadius.circular(6),
 
-          // Blue left border when selected
-          border: isSelected
+          // blue left border if selected
+          // no border if not selected
+          border: isSelected == true
               ? const Border(
                   left: BorderSide(
-                    // Blue border
                     color: Color(0xFF2563EB),
                     width: 3,
                   ),
@@ -143,29 +122,26 @@ class _AdminSidebarState extends ConsumerState<AdminSidebar> {
         child: Row(
           children: [
 
-            // Icon
+            // icon — blue if selected, gray if not
             Icon(
               icon,
               size: 17,
-              // Blue when selected, #6B7280 grey when not
-              color: isSelected
+              color: isSelected == true
                   ? const Color(0xFF2563EB)
                   : const Color(0xFF6B7280),
             ),
 
             const SizedBox(width: 10),
 
-            // Label
+            // label — blue if selected, gray if not
             Text(
               label,
               style: TextStyle(
                 fontSize: 13,
-                // Semibold when selected, normal when not
-                fontWeight: isSelected
+                fontWeight: isSelected == true
                     ? FontWeight.w600
                     : FontWeight.w400,
-                // Blue when selected, #6B7280 grey when not
-                color: isSelected
+                color: isSelected == true
                     ? const Color(0xFF2563EB)
                     : const Color(0xFF6B7280),
               ),
@@ -182,29 +158,14 @@ class _AdminSidebarState extends ConsumerState<AdminSidebar> {
   @override
   Widget build(BuildContext context) {
 
-    // Get current logged in user for bottom user info
-    final authState = ref.watch(authStateProvider);
-
-    // Get user's email and display name
-    String userEmail = '';
-    String userName = '';
-
-    authState.whenData((user) {
-      if (user != null) {
-        userEmail = user.email ?? '';
-        // Display name if set, otherwise show email
-        userName = user.displayName ?? userEmail;
-      }
-    });
-
     return Container(
-      // Fixed sidebar width
+      // fixed sidebar width
       width: 210,
 
-      // Full screen height
+      // full screen height
       height: double.infinity,
 
-      // White background + right border
+      // white background with right border
       decoration: BoxDecoration(
         color: const Color(0xFFFFFFFF),
         border: Border(
@@ -219,10 +180,7 @@ class _AdminSidebarState extends ConsumerState<AdminSidebar> {
         crossAxisAlignment: CrossAxisAlignment.start,
         children: [
 
-          // ================================================
-          // LOGO
-          // Centered at the top with padding
-          // ================================================
+          // ── LOGO ──
           Center(
             child: Padding(
               padding: const EdgeInsets.only(
@@ -237,9 +195,7 @@ class _AdminSidebarState extends ConsumerState<AdminSidebar> {
             ),
           ),
 
-          // ================================================
-          // OVERVIEW SECTION
-          // ================================================
+          // ── OVERVIEW SECTION ──
           _buildSectionLabel('Overview'),
 
           _buildNavItem(
@@ -248,9 +204,7 @@ class _AdminSidebarState extends ConsumerState<AdminSidebar> {
             label: 'Dashboard',
           ),
 
-          // ================================================
-          // MANAGEMENT SECTION
-          // ================================================
+          // ── MANAGEMENT SECTION ──
           _buildSectionLabel('Management'),
 
           _buildNavItem(
@@ -273,39 +227,40 @@ class _AdminSidebarState extends ConsumerState<AdminSidebar> {
 
           _buildNavItem(
             index: 4,
+            icon: Icons.message_outlined,
+            label: 'Messages',
+          ),
+
+          _buildNavItem(
+            index: 5,
             icon: Icons.fact_check_outlined,
             label: 'Order Approval',
           ),
 
           _buildNavItem(
-            index: 5,
+            index: 6,
             icon: Icons.local_offer_outlined,
             label: 'Promotions',
           ),
 
-          // ================================================
-          // NOTIFICATIONS SECTION
-          // ================================================
+          // ── NOTIFICATIONS SECTION ──
           _buildSectionLabel('Notifications'),
 
           _buildNavItem(
-            index: 6,
+            index: 7,
             icon: Icons.notifications_outlined,
             label: 'Notification',
           ),
 
-          // ================================================
-          // SPACER
-          // Pushes logout + user info to the bottom
-          // ================================================
+          // ── SPACER ──
+          // pushes logout button to the bottom
           const Spacer(),
 
-          // ================================================
-          // LOGOUT BUTTON
-          // Same style as nav items but no selection state
-          // ================================================
+          // ── LOGOUT BUTTON ──
           GestureDetector(
-            onTap: _handleLogout,
+            onTap: () {
+              _handleLogout();
+            },
             child: Container(
               width: double.infinity,
               margin: const EdgeInsets.symmetric(
@@ -318,12 +273,17 @@ class _AdminSidebarState extends ConsumerState<AdminSidebar> {
               ),
               child: Row(
                 children: [
-                  Icon(
+
+                  // logout icon
+                  const Icon(
                     Icons.logout,
                     size: 17,
-                    color: const Color(0xFF6B7280),
+                    color: Color(0xFF6B7280),
                   ),
+
                   const SizedBox(width: 10),
+
+                  // logout text
                   const Text(
                     'Logout',
                     style: TextStyle(
@@ -337,75 +297,7 @@ class _AdminSidebarState extends ConsumerState<AdminSidebar> {
             ),
           ),
 
-          // ================================================
-          // DIVIDER ABOVE USER INFO
-          // ================================================
-          Divider(
-            color: Colors.grey.shade200,
-            height: 1,
-            thickness: 1,
-          ),
-
-          // ================================================
-          // USER INFO AT THE BOTTOM
-          // Avatar + "Hello" + user name
-          // ================================================
-          Padding(
-            padding: const EdgeInsets.symmetric(
-              horizontal: 16,
-              vertical: 14,
-            ),
-            child: Row(
-              children: [
-
-                // Grey circle avatar with person icon
-                CircleAvatar(
-                  radius: 18,
-                  backgroundColor: Colors.grey.shade200,
-                  child: Icon(
-                    Icons.person,
-                    size: 18,
-                    color: const Color(0xFF6B7280),
-                  ),
-                ),
-
-                const SizedBox(width: 10),
-
-                // Hello + name
-                Expanded(
-                  child: Column(
-                    crossAxisAlignment: CrossAxisAlignment.start,
-                    children: [
-
-                      // "Hello" label
-                      const Text(
-                        'Hello',
-                        style: TextStyle(
-                          fontSize: 11,
-                          color: Color(0xFF9CA3AF),
-                        ),
-                      ),
-
-                      const SizedBox(height: 2),
-
-                      // User name or email
-                      // overflow means if too long show "..."
-                      Text(
-                        userName,
-                        style: const TextStyle(
-                          fontSize: 13,
-                          fontWeight: FontWeight.w600,
-                          color: Color(0xFF374151),
-                        ),
-                        overflow: TextOverflow.ellipsis,
-                        maxLines: 1,
-                      ),
-                    ],
-                  ),
-                ),
-              ],
-            ),
-          ),
+          const SizedBox(height: 16),
         ],
       ),
     );
