@@ -5,7 +5,8 @@ import '../../widgets/admin/topbar/admin_top_bar.dart';
 import 'dashboard/admin_dashboard_screen.dart';
 import 'inventory/inventory_screen.dart';
 import 'sales/sales_screen.dart';
-
+import 'feedback/feedback_screen.dart';
+import 'promotions/promotions_screen.dart';
 // ================================================
 // ADMIN LAYOUT
 //
@@ -71,7 +72,7 @@ class _AdminLayoutState extends ConsumerState<AdminLayout> {
     }
 
     if (_currentIndex == 3) {
-      return _buildComingSoon('Feedback');
+      return const FeedbackScreen();
     }
 
     if (_currentIndex == 4) {
@@ -83,7 +84,7 @@ class _AdminLayoutState extends ConsumerState<AdminLayout> {
     }
 
     if (_currentIndex == 6) {
-      return _buildComingSoon('Promotions');
+      return const PromotionsScreen();
     }
 
     if (_currentIndex == 7) {
@@ -143,48 +144,46 @@ class _AdminLayoutState extends ConsumerState<AdminLayout> {
   // BUILD
   // ================================================
   @override
-  Widget build(BuildContext context) {
+Widget build(BuildContext context) {
 
-    return Scaffold(
-      backgroundColor: Colors.grey.shade100,
+  return Scaffold(
+    backgroundColor: Colors.grey.shade100,
 
-      // Column because we stack TOP BAR above
-      // then SIDEBAR + CONTENT side by side below
-      body: Column(
-        children: [
+    // Row because sidebar is on the LEFT
+    // and the right side has TOP BAR + CONTENT stacked
+    body: Row(
+      children: [
 
-          // ── TOP BAR ──
-          // always visible at the very top
-          const AdminTopBar(),
+        // ── SIDEBAR on the LEFT ──
+        // sidebar takes full height
+        // so it goes from very top to very bottom
+        AdminSidebar(
+          currentIndex: _currentIndex,
+          onItemSelected: (int index) {
+            setState(() {
+              _currentIndex = index;
+            });
+          },
+        ),
 
-          // ── SIDEBAR + CONTENT ──
-          // Expanded means it takes all remaining space
-          // below the top bar
-          Expanded(
-            child: Row(
-              children: [
+        // ── RIGHT SIDE — TOP BAR + CONTENT ──
+        // Expanded means it takes all remaining space
+        Expanded(
+          child: Column(
+            children: [
 
-                // sidebar on the LEFT
-                AdminSidebar(
-                  currentIndex: _currentIndex,
-                  onItemSelected: (int index) {
-                    setState(() {
-                      _currentIndex = index;
-                    });
-                  },
-                ),
+              // top bar at the top of RIGHT side only
+              const AdminTopBar(),
 
-                // content on the RIGHT
-                // Expanded means it takes all remaining space
-                // after the sidebar
-                Expanded(
-                  child: _getCurrentScreen(),
-                ),
-              ],
-            ),
+              // content below the top bar
+              Expanded(
+                child: _getCurrentScreen(),
+              ),
+            ],
           ),
-        ],
-      ),
-    );
-  }
+        ),
+      ],
+    ),
+  );
 }
+  }

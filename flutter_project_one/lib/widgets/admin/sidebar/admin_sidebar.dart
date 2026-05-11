@@ -253,8 +253,15 @@ class _AdminSidebarState extends ConsumerState<AdminSidebar> {
           ),
 
           // ── SPACER ──
-          // pushes logout button to the bottom
+          // pushes logout to bottom but not too far
           const Spacer(),
+
+          // ── DIVIDER above logout ──
+          Divider(
+            color: Colors.grey.shade200,
+            height: 1,
+            thickness: 1,
+          ),
 
           // ── LOGOUT BUTTON ──
           GestureDetector(
@@ -263,13 +270,9 @@ class _AdminSidebarState extends ConsumerState<AdminSidebar> {
             },
             child: Container(
               width: double.infinity,
-              margin: const EdgeInsets.symmetric(
-                horizontal: 8,
-                vertical: 1,
-              ),
               padding: const EdgeInsets.symmetric(
-                horizontal: 12,
-                vertical: 9,
+                horizontal: 20,
+                vertical: 14,
               ),
               child: Row(
                 children: [

@@ -5,6 +5,7 @@ import '../../../widgets/common/search_bar.dart';
 import '../../../widgets/common/filter_button.dart';
 import '../../../widgets/common/export_button.dart';
 import '../../../widgets/common/filter_panel.dart';
+import '../../../widgets/admin/sales/transaction_details_dialog.dart';
 
 class SalesScreen extends ConsumerStatefulWidget {
   const SalesScreen({super.key});
@@ -297,8 +298,16 @@ class _SalesScreenState extends ConsumerState<SalesScreen> {
           alignment: Alignment.centerLeft,
           child: OutlinedButton(
             onPressed: () {
-              // TODO: open sale details later
-              print('View sale: ${sale['reference']}');
+              // showDialog displays a popup over the screen
+              // context tells Flutter where to show it
+              // builder returns the widget to show
+              showDialog(
+                context: context,
+                builder: (BuildContext dialogContext) {
+                  // pass the sale data into the dialog
+                  return TransactionDetailsDialog(sale: sale);
+                },
+              );
             },
             style: OutlinedButton.styleFrom(
               foregroundColor: const Color(0xFF374151),
