@@ -18,5 +18,8 @@ git status
 
 # 2. After coding - save your work
 git add .
-git commit -m "did the add new product and stock adj"
+git commit -m "did the dashboard"
 git push
+
+# To check the Lib Folder Structure
+tree lib /f
