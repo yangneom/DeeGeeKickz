@@ -7,6 +7,7 @@ import 'inventory/inventory_screen.dart';
 import 'sales/sales_screen.dart';
 import 'feedback/feedback_screen.dart';
 import 'promotions/promotions_screen.dart';
+import '../../screens/admin/messages/messages_screen.dart';
 // ================================================
 // ADMIN LAYOUT
 //
@@ -76,7 +77,8 @@ class _AdminLayoutState extends ConsumerState<AdminLayout> {
     }
 
     if (_currentIndex == 4) {
-      return _buildComingSoon('Messages');
+      return const MessagesScreen();
+
     }
 
     if (_currentIndex == 5) {

@@ -1,5 +1,6 @@
 import 'package:flutter/material.dart';
 import '../../common/confirm_dialog.dart';
+import 'add_banner_dialog.dart'; // 👈 import the dialog
 
 class BannersTable extends StatefulWidget {
   const BannersTable({super.key});
@@ -22,6 +23,22 @@ class _BannersTableState extends State<BannersTable> {
       'status': 'Inactive',
     },
   ];
+
+  // ================================================
+  // OPEN ADD BANNER DIALOG
+  // Waits for the result and adds it to the list
+  // ================================================
+  Future<void> _handleAddBanner() async {
+    final Map<String, dynamic>? result = await showAddBannerDialog(context);
+
+    // if user cancelled, result is null — do nothing
+    if (result == null) return;
+
+    // add the new banner to the list
+    setState(() {
+      _banners.add(result);
+    });
+  }
 
   Widget _buildStatusBadge(String status) {
     final bool isActive = status == 'Active';
@@ -143,9 +160,7 @@ class _BannersTableState extends State<BannersTable> {
                   ],
                 ),
                 ElevatedButton(
-                  onPressed: () {
-                    // TODO: open add banner dialog
-                  },
+                  onPressed: _handleAddBanner, // 👈 connected
                   style: ElevatedButton.styleFrom(
                     backgroundColor: const Color(0xFF2563EB),
                     foregroundColor: Colors.white,
@@ -196,7 +211,7 @@ class _BannersTableState extends State<BannersTable> {
                     child: Row(
                       children: [
 
-                        // Banner Preview — constrained width, left-aligned
+                        // Banner Preview
                         Expanded(
                           flex: 4,
                           child: Align(
@@ -240,7 +255,7 @@ class _BannersTableState extends State<BannersTable> {
                           ),
                         ),
 
-                        // Status badge — natural width, not stretched
+                        // Status badge
                         Expanded(
                           flex: 2,
                           child: Align(

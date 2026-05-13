@@ -772,7 +772,6 @@ class _RegisterFormState extends ConsumerState<RegisterForm> {
                 ),
               ),
             ),
-
           ],
         ),
       ),

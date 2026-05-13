@@ -13,24 +13,14 @@ import '../../screens/auth/register_screen.dart';
 // Import AdminLayout for role-based navigation
 import '../../screens/admin/admin_layout.dart';
 
-// TODO: Import these screens later when built
-// import '../../screens/cashier/cashier_layout.dart';
+// ✅ Import CashierLayout — now built!
+import '../../screens/cashier/cashier_layout.dart';
+
+// TODO: Import CustomerLayout when built
 // import '../../screens/customer/customer_layout.dart';
 
 // ================================================
 // LOGIN FORM WIDGET
-//
-// This widget contains:
-//   - Email text field
-//   - Password text field
-//   - Remember me checkbox
-//   - Forgot password link
-//   - Login button
-//   - Sign up link
-//
-// ConsumerStatefulWidget means this widget:
-//   - Has its own state (can use setState)
-//   - Can also read Riverpod providers (ref.watch)
 // ================================================
 class LoginForm extends ConsumerStatefulWidget {
   const LoginForm({super.key});
@@ -41,33 +31,14 @@ class LoginForm extends ConsumerStatefulWidget {
 
 class _LoginFormState extends ConsumerState<LoginForm> {
 
-  // ================================================
-  // CONTROLLERS
-  // Controllers let us READ what the user typed
-  // ================================================
   final TextEditingController _emailController = TextEditingController();
   final TextEditingController _passwordController = TextEditingController();
 
-  // ================================================
-  // LOCAL STATE VARIABLES
-  // ================================================
-
-  // Controls if password is visible or hidden
   bool _isPasswordVisible = false;
-
-  // Controls the remember me checkbox
   bool _rememberMe = false;
 
-  // ================================================
-  // FORM KEY
-  // Used to validate the form before login
-  // ================================================
   final GlobalKey<FormState> _formKey = GlobalKey<FormState>();
 
-  // ================================================
-  // DISPOSE
-  // Clean up controllers when widget is removed
-  // ================================================
   @override
   void dispose() {
     _emailController.dispose();
@@ -77,37 +48,17 @@ class _LoginFormState extends ConsumerState<LoginForm> {
 
   // ================================================
   // HANDLE LOGIN FUNCTION
-  //
-  // Step 1 - Validate the form
-  // Step 2 - Set loading to true
-  // Step 3 - Call AuthService to login
-  // Step 4 - Fetch user role from Firestore
-  // Step 5 - Navigate based on role
-  // Step 6 - Handle any errors
   // ================================================
   Future<void> _handleLogin() async {
 
-    // Step 1 - Validate form
-    // If any field is empty or invalid stop here
     bool formIsValid = _formKey.currentState!.validate();
-    if (formIsValid == false) {
-      return;
-    }
+    if (formIsValid == false) return;
 
-    // Step 2 - Set loading to true
-    // Shows spinner on the button
     ref.read(isLoadingProvider.notifier).setLoading(true);
-
-    // Clear any old error message from previous attempt
     ref.read(errorMessageProvider.notifier).setError(null);
 
-    // Wrap everything in try/catch
-    // So if ANYTHING goes wrong we handle it cleanly
     try {
 
-      // Step 3 - Call AuthService to login
-      // Returns null if successful
-      // Returns error string if failed
       final authService = ref.read(authServiceProvider);
 
       final String? errorMessage = await authService.login(
@@ -115,39 +66,28 @@ class _LoginFormState extends ConsumerState<LoginForm> {
         password: _passwordController.text,
       );
 
-      // If login failed show the error message and stop
       if (errorMessage != null) {
         ref.read(errorMessageProvider.notifier).setError(errorMessage);
         return;
       }
 
-      // Step 4 - Login was successful
-      // Now fetch the user's role from Firestore
-      // So we know which screen to navigate to
       final String? role = await authService.getUserRole();
 
-      // Step 5 - Check if widget is still on screen
-      // before navigating
-      // This prevents errors if user closed the screen
-      // while waiting for the login to complete
       if (!mounted) return;
 
-      // Navigate based on role
-      if (role == 'admin' || role == 'super_admin') {
+      if (role == 'Admin' || role == 'super_admin') {
 
-        // Admin and Super Admin go to Admin Layout
         Navigator.pushReplacement(
           context,
-          MaterialPageRoute(
-            builder: (context) => const AdminLayout(),
-          ),
+          MaterialPageRoute(builder: (context) => const AdminLayout()),
         );
 
       } else if (role == 'cashier') {
 
-        // TODO: Navigate to CashierLayout once created
-        ref.read(errorMessageProvider.notifier).setError(
-          'Cashier screen coming soon.',
+        // Navigate to CashierLayout
+        Navigator.pushReplacement(
+          context,
+          MaterialPageRoute(builder: (context) => const CashierLayout()),
         );
 
       } else if (role == 'customer') {
@@ -159,8 +99,6 @@ class _LoginFormState extends ConsumerState<LoginForm> {
 
       } else {
 
-        // Role is null or unknown
-        // This should not happen but handle it just in case
         ref.read(errorMessageProvider.notifier).setError(
           'Unknown role. Please contact support.',
         );
@@ -169,19 +107,12 @@ class _LoginFormState extends ConsumerState<LoginForm> {
 
     } catch (error) {
 
-      // Step 6 - Something unexpected went wrong
-      // Show a generic error message
-      // This catches things like no internet connection
-      // or any other unexpected error
       ref.read(errorMessageProvider.notifier).setError(
         'Something went wrong. Please try again.',
       );
 
     } finally {
 
-      // This runs whether login succeeded or failed
-      // ALWAYS set loading back to false here
-      // So the button never gets stuck in loading state
       ref.read(isLoadingProvider.notifier).setLoading(false);
 
     }
@@ -193,11 +124,9 @@ class _LoginFormState extends ConsumerState<LoginForm> {
   @override
   Widget build(BuildContext context) {
 
-    // Read loading and error state from providers
     final bool isLoading = ref.watch(isLoadingProvider);
     final String? errorMessage = ref.watch(errorMessageProvider);
 
-    // Responsiveness
     final double screenWidth = MediaQuery.of(context).size.width;
 
     double formWidth;
@@ -215,9 +144,7 @@ class _LoginFormState extends ConsumerState<LoginForm> {
           crossAxisAlignment: CrossAxisAlignment.start,
           children: [
 
-            // ================================================
-            // LOGO
-            // ================================================
+            // ── LOGO ──
             Center(
               child: Image.asset(
                 'assets/images/logo.jpg',
@@ -228,9 +155,7 @@ class _LoginFormState extends ConsumerState<LoginForm> {
 
             const SizedBox(height: 20),
 
-            // ================================================
-            // TITLE
-            // ================================================
+            // ── TITLE ──
             const Center(
               child: Text(
                 'Log in to Your Account',
@@ -244,24 +169,17 @@ class _LoginFormState extends ConsumerState<LoginForm> {
 
             const SizedBox(height: 8),
 
-            // ================================================
-            // SUBTITLE
-            // ================================================
+            // ── SUBTITLE ──
             const Center(
               child: Text(
                 'Enter your credentials to continue',
-                style: TextStyle(
-                  fontSize: 14,
-                  color: Colors.grey,
-                ),
+                style: TextStyle(fontSize: 14, color: Colors.grey),
               ),
             ),
 
             const SizedBox(height: 30),
 
-            // ================================================
-            // EMAIL LABEL
-            // ================================================
+            // ── EMAIL LABEL ──
             const Text(
               'Email Address',
               style: TextStyle(
@@ -273,9 +191,7 @@ class _LoginFormState extends ConsumerState<LoginForm> {
 
             const SizedBox(height: 8),
 
-            // ================================================
-            // EMAIL TEXT FIELD
-            // ================================================
+            // ── EMAIL FIELD ──
             TextFormField(
               controller: _emailController,
               keyboardType: TextInputType.emailAddress,
@@ -302,9 +218,7 @@ class _LoginFormState extends ConsumerState<LoginForm> {
 
             const SizedBox(height: 16),
 
-            // ================================================
-            // PASSWORD LABEL
-            // ================================================
+            // ── PASSWORD LABEL ──
             const Text(
               'Password',
               style: TextStyle(
@@ -316,9 +230,7 @@ class _LoginFormState extends ConsumerState<LoginForm> {
 
             const SizedBox(height: 8),
 
-            // ================================================
-            // PASSWORD TEXT FIELD
-            // ================================================
+            // ── PASSWORD FIELD ──
             TextFormField(
               controller: _passwordController,
               obscureText: !_isPasswordVisible,
@@ -357,14 +269,10 @@ class _LoginFormState extends ConsumerState<LoginForm> {
 
             const SizedBox(height: 12),
 
-            // ================================================
-            // REMEMBER ME + FORGOT PASSWORD ROW
-            // ================================================
+            // ── REMEMBER ME + FORGOT PASSWORD ──
             Row(
               mainAxisAlignment: MainAxisAlignment.spaceBetween,
               children: [
-
-                // Remember Me checkbox on the left
                 Row(
                   children: [
                     Checkbox(
@@ -381,11 +289,9 @@ class _LoginFormState extends ConsumerState<LoginForm> {
                     ),
                   ],
                 ),
-
-                // Forgot Password link on the right
                 GestureDetector(
                   onTap: () {
-                    // TODO: Navigate to forgot password screen later
+                    // TODO: Navigate to forgot password screen
                   },
                   child: const Text(
                     'Forgot Password?',
@@ -401,10 +307,7 @@ class _LoginFormState extends ConsumerState<LoginForm> {
 
             const SizedBox(height: 16),
 
-            // ================================================
-            // ERROR MESSAGE BOX
-            // Only shows when there is an error
-            // ================================================
+            // ── ERROR MESSAGE ──
             if (errorMessage != null)
               Container(
                 width: double.infinity,
@@ -412,32 +315,22 @@ class _LoginFormState extends ConsumerState<LoginForm> {
                 decoration: BoxDecoration(
                   color: Colors.red.shade50,
                   borderRadius: BorderRadius.circular(8),
-                  border: Border.all(
-                    color: Colors.red.shade200,
-                  ),
+                  border: Border.all(color: Colors.red.shade200),
                 ),
                 child: Text(
                   errorMessage,
-                  style: const TextStyle(
-                    color: Colors.red,
-                    fontSize: 13,
-                  ),
+                  style: const TextStyle(color: Colors.red, fontSize: 13),
                 ),
               ),
 
             if (errorMessage != null) const SizedBox(height: 16),
 
-            // ================================================
-            // LOGIN BUTTON
-            // ================================================
+            // ── LOGIN BUTTON ──
             SizedBox(
               width: double.infinity,
               height: 50,
               child: ElevatedButton(
-
-                // Disabled when loading
                 onPressed: isLoading ? null : _handleLogin,
-
                 style: ElevatedButton.styleFrom(
                   backgroundColor: Colors.black,
                   foregroundColor: Colors.white,
@@ -445,9 +338,6 @@ class _LoginFormState extends ConsumerState<LoginForm> {
                     borderRadius: BorderRadius.circular(8),
                   ),
                 ),
-
-                // Show spinner when loading
-                // Show text when not loading
                 child: isLoading
                     ? const SizedBox(
                         height: 20,
@@ -469,24 +359,17 @@ class _LoginFormState extends ConsumerState<LoginForm> {
 
             const SizedBox(height: 20),
 
-            // ================================================
-            // OR DIVIDER
-            // ================================================
+            // ── OR DIVIDER ──
             const Center(
               child: Text(
                 'OR',
-                style: TextStyle(
-                  fontSize: 13,
-                  color: Colors.grey,
-                ),
+                style: TextStyle(fontSize: 13, color: Colors.grey),
               ),
             ),
 
             const SizedBox(height: 20),
 
-            // ================================================
-            // SIGN UP LINK
-            // ================================================
+            // ── SIGN UP LINK ──
             Center(
               child: GestureDetector(
                 onTap: () {
@@ -500,10 +383,7 @@ class _LoginFormState extends ConsumerState<LoginForm> {
                 child: RichText(
                   text: const TextSpan(
                     text: "Don't have an account? ",
-                    style: TextStyle(
-                      fontSize: 14,
-                      color: Colors.black,
-                    ),
+                    style: TextStyle(fontSize: 14, color: Colors.black),
                     children: [
                       TextSpan(
                         text: 'Sign Up',
@@ -519,7 +399,6 @@ class _LoginFormState extends ConsumerState<LoginForm> {
                 ),
               ),
             ),
-
           ],
         ),
       ),

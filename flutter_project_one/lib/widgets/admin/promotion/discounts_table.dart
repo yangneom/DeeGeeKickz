@@ -1,5 +1,6 @@
 import 'package:flutter/material.dart';
 import '../../common/confirm_dialog.dart';
+import 'create_discount_dialog.dart'; // 👈 import the dialog
 
 class DiscountsTable extends StatefulWidget {
   const DiscountsTable({super.key});
@@ -39,6 +40,22 @@ class _DiscountsTableState extends State<DiscountsTable> {
       'status': 'Inactive',
     },
   ];
+
+  // ================================================
+  // OPEN CREATE DISCOUNT DIALOG
+  // Waits for the result and adds it to the list
+  // ================================================
+  Future<void> _handleCreateDiscount() async {
+    final Map<String, dynamic>? result = await showCreateDiscountDialog(context);
+
+    // if user cancelled, result is null — do nothing
+    if (result == null) return;
+
+    // add the new discount to the list
+    setState(() {
+      _discounts.add(result);
+    });
+  }
 
   Widget _buildStatusBadge(String status) {
     final bool isActive = status == 'Active';
@@ -160,9 +177,7 @@ class _DiscountsTableState extends State<DiscountsTable> {
                   ],
                 ),
                 ElevatedButton(
-                  onPressed: () {
-                    // TODO: open create discount dialog
-                  },
+                  onPressed: _handleCreateDiscount, // 👈 connected
                   style: ElevatedButton.styleFrom(
                     backgroundColor: const Color(0xFF2563EB),
                     foregroundColor: Colors.white,
@@ -279,7 +294,7 @@ class _DiscountsTableState extends State<DiscountsTable> {
                           ),
                         ),
 
-                        // Status badge — natural width, not stretched
+                        // Status badge
                         Expanded(
                           flex: 2,
                           child: Align(

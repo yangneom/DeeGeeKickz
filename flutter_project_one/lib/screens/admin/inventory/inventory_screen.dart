@@ -2,7 +2,7 @@ import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import '../../../models/product.dart';
 import '../../../services/admin/inventory/inventory_service.dart';
-import '../../../widgets/admin/inventory/inventory_table.dart';
+import '../../../widgets/common/expandable_product_table.dart';
 import '../../../widgets/admin/inventory/add_product_dialog.dart';
 import '../../../widgets/admin/inventory/stock_adjustment_dialog.dart';
 import '../../../widgets/admin/inventory/archived_items_dialog.dart';
@@ -321,13 +321,27 @@ class _InventoryScreenState extends ConsumerState<InventoryScreen> {
               // ================================================
               // INVENTORY TABLE
               // ================================================
-              Expanded(
-                child: SingleChildScrollView(
-                  scrollDirection: Axis.vertical,
-                  child: InventoryTable(
-                    products: _filteredProducts,
-                  ),
-                ),
+              ExpandableProductTable(
+  products: _filteredProducts,
+
+  // 3-dot menu as action
+  actionBuilder: (Product product) {
+    return Builder(
+      builder: (BuildContext buttonContext) {
+        return GestureDetector(
+          onTap: () {
+            // TODO: show menu
+            print('Menu for: ${product.productName}');
+          },
+          child: const Icon(
+            Icons.more_vert,
+            size: 20,
+            color: Color(0xFF6B7280),
+          ),
+        );
+      },
+    );
+  },
               ),
             ],
           ),

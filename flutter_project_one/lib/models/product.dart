@@ -96,6 +96,11 @@ class Product {
   // One product can have many variants
   final List<ProductVariant> variants;
 
+  // ── NEW optional field ──
+  // only used by archived products
+  // normal products leave this null
+  final String? archivedDate;
+
   // ================================================
   // CONSTRUCTOR
   // ================================================
@@ -105,6 +110,7 @@ class Product {
     required this.brand,
     required this.category,
     required this.variants,
+    this.archivedDate,
   });
 
   // ================================================
