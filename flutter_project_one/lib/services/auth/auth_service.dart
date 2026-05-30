@@ -1,53 +1,42 @@
-// Firebase Authentication import
-// Handles login, register, logout, and email verification
-import 'package:firebase_auth/firebase_auth.dart';
-
-// Firestore import
-// Handles saving user profile data to the database
-import 'package:cloud_firestore/cloud_firestore.dart';
+import 'package:supabase_flutter/supabase_flutter.dart';
 
 class AuthService {
 
-  final FirebaseAuth _auth = FirebaseAuth.instance;
-  final FirebaseFirestore _firestore = FirebaseFirestore.instance;
+  final SupabaseClient _supabase = Supabase.instance.client;
 
+  // ── GET CURRENT USER ──
   User? get currentUser {
-    return _auth.currentUser;
+    return _supabase.auth.currentUser;
   }
 
-  Stream<User?> get authStateChanges {
-    return _auth.authStateChanges();
+  // ── AUTH STATE CHANGES ──
+  Stream<AuthState> get authStateChanges {
+    return _supabase.auth.onAuthStateChange;
   }
 
+  // ── GET USER ROLE ──
   Future<String?> getUserRole() async {
     try {
-      User? user = _auth.currentUser;
+      final user = _supabase.auth.currentUser;
 
       if (user == null) {
         print('getUserRole: No current user found');
         return null;
       }
 
-      print('getUserRole: Looking up UID ${user.uid}');
+      print('getUserRole: Looking up UID ${user.id}');
 
-      DocumentSnapshot doc = await _firestore
-          .collection('user')
-          .doc(user.uid)
-          .get();
+      final response = await _supabase
+          .from('users')
+          .select('role')
+          .eq('id', user.id)
+          .single();
 
-      // ✅ NEW DEBUG LINES
-      print('getUserRole: doc.exists = ${doc.exists}');
-      print('getUserRole: doc.id = ${doc.id}');
-      print('getUserRole: doc.data() = ${doc.data()}');
+      print('getUserRole: response = $response');
 
-      if (doc.exists) {
-        final role = doc.get('role') as String?;
-        print('getUserRole: Found role = $role');
-        return role;
-      }
-
-      print('getUserRole: Document does not exist for UID ${user.uid}');
-      return null;
+      final role = response['role'] as String?;
+      print('getUserRole: Found role = $role');
+      return role;
 
     } catch (error) {
       print('getUserRole error: $error');
@@ -55,14 +44,14 @@ class AuthService {
     }
   }
 
+  // ── LOGIN ──
   Future<String?> login({
     required String email,
     required String password,
   }) async {
-
     try {
 
-      await _auth.signInWithEmailAndPassword(
+      await _supabase.auth.signInWithPassword(
         email: email.trim(),
         password: password.trim(),
       );
@@ -70,29 +59,22 @@ class AuthService {
       print('Login successful for ${email.trim()}');
       return null;
 
-    } on FirebaseAuthException catch (error) {
+    } on AuthException catch (error) {
+      print('AuthException: ${error.message}');
 
-      print('FirebaseAuthException code: ${error.code}');
-      print('FirebaseAuthException message: ${error.message}');
-
-      if (error.code == 'user-not-found') {
-        return 'No account found with this email.';
-      } else if (error.code == 'wrong-password') {
-        return 'Wrong password. Please try again.';
-      } else if (error.code == 'invalid-email') {
-        return 'Please enter a valid email address.';
-      } else if (error.code == 'user-disabled') {
-        return 'This account has been disabled.';
-      } else if (error.code == 'invalid-credential') {
+      if (error.message.contains('Invalid login credentials')) {
         return 'Incorrect email or password. Please try again.';
-      } else if (error.code == 'too-many-requests') {
+      } else if (error.message.contains('Email not confirmed')) {
+        return 'Please verify your email first.';
+      } else if (error.message.contains('too many requests')) {
         return 'Too many failed attempts. Please try again later.';
       } else {
-        return 'Login failed (${error.code}). Please try again.';
+        return 'Login failed: ${error.message}';
       }
     }
   }
 
+  // ── REGISTER ──
   Future<String?> register({
     required String firstName,
     required String lastName,
@@ -100,47 +82,43 @@ class AuthService {
     required String phone,
     required String password,
   }) async {
-
     try {
 
-      UserCredential credential = await _auth.createUserWithEmailAndPassword(
+      final response = await _supabase.auth.signUp(
         email: email.trim(),
         password: password.trim(),
       );
 
-      User newUser = credential.user!;
-      print('Register: Created auth user with UID ${newUser.uid}');
+      final user = response.user;
+      if (user == null) {
+        return 'Registration failed. Please try again.';
+      }
 
-      await _firestore
-          .collection('user')
-          .doc(newUser.uid)
-          .set({
-            'first_name': firstName.trim(),
-            'last_name': lastName.trim(),
-            'email': email.trim(),
-            'phone': phone.trim(),
-            'role': 'customer',
-          });
+      print('Register: Created auth user with UID ${user.id}');
 
-      print('Register: Saved user profile to Firestore');
+      // Save user profile to users table
+      await _supabase.from('users').upsert({
+        'id': user.id,
+        'first_name': firstName.trim(),
+        'last_name': lastName.trim(),
+        'email': email.trim(),
+        'phone': phone.trim(),
+        'role': 'Customer',
+      });
 
-      await newUser.sendEmailVerification();
-      print('Register: Verification email sent');
-
+      print('Register: Saved user profile to Supabase');
       return null;
 
-    } on FirebaseAuthException catch (error) {
+    } on AuthException catch (error) {
+      print('Register AuthException: ${error.message}');
 
-      print('Register FirebaseAuthException code: ${error.code}');
-
-      if (error.code == 'email-already-in-use') {
+      if (error.message.contains('already registered')) {
         return 'An account already exists with this email.';
-      } else if (error.code == 'invalid-email') {
-        return 'Please enter a valid email address.';
-      } else if (error.code == 'weak-password') {
+      } else if (error.message.contains('weak password') ||
+          error.message.contains('Password should be')) {
         return 'Password is too weak. Use at least 6 characters.';
       } else {
-        return 'Registration failed (${error.code}). Please try again.';
+        return 'Registration failed: ${error.message}';
       }
 
     } catch (error) {
@@ -149,8 +127,29 @@ class AuthService {
     }
   }
 
+  // ── LOGOUT ──
   Future<void> logout() async {
-    await _auth.signOut();
+    await _supabase.auth.signOut();
     print('User logged out');
+  }
+
+  // ── GET USER PROFILE ──
+  Future<Map<String, dynamic>?> getUserProfile() async {
+    try {
+      final user = _supabase.auth.currentUser;
+      if (user == null) return null;
+
+      final response = await _supabase
+          .from('users')
+          .select()
+          .eq('id', user.id)
+          .single();
+
+      return response;
+
+    } catch (error) {
+      print('getUserProfile error: $error');
+      return null;
+    }
   }
 }

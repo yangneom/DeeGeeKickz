@@ -1,21 +1,14 @@
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
-import 'package:cloud_firestore/cloud_firestore.dart';
+import 'package:supabase_flutter/supabase_flutter.dart';
 import '../../../providers/auth/auth_provider.dart';
 
-// ================================================
-// CASHIER TOP BAR
-//
-// Shows "Hello, [cashier name]" + profile icon
-// on the top right — same pattern as admin
-// ================================================
 class CashierTopBar extends ConsumerWidget {
   const CashierTopBar({super.key});
 
   @override
   Widget build(BuildContext context, WidgetRef ref) {
 
-    // Watch the current logged-in user
     final authState = ref.watch(authStateProvider);
 
     return Container(
@@ -31,29 +24,26 @@ class CashierTopBar extends ConsumerWidget {
         mainAxisAlignment: MainAxisAlignment.end,
         children: [
 
-          // ── HELLO + NAME ──
           authState.when(
-            data: (user) {
-              if (user == null) {
-                return const SizedBox.shrink();
-              }
+            data: (state) {
+              final user = state.session?.user;
+              if (user == null) return const SizedBox.shrink();
 
-              // Fetch the cashier's first name from Firestore
-              return FutureBuilder<DocumentSnapshot>(
-                future: FirebaseFirestore.instance
-                    .collection('user')
-                    .doc(user.uid)
-                    .get(),
+              return FutureBuilder<Map<String, dynamic>?>(
+                future: Supabase.instance.client
+                    .from('users')
+                    .select('first_name, last_name')
+                    .eq('id', user.id)
+                    .single()
+                    .then((v) => v),
                 builder: (context, snapshot) {
+                  String displayName = 'Cashier';
 
-                  String displayName = '';
-
-                  if (snapshot.hasData && snapshot.data!.exists) {
-                    final data =
-                        snapshot.data!.data() as Map<String, dynamic>;
-                    final firstName = data['first_name'] as String? ?? '';
-                    final lastName = data['last_name'] as String? ?? '';
-                    displayName = '$firstName $lastName'.trim();
+                  if (snapshot.hasData && snapshot.data != null) {
+                    final first = snapshot.data!['first_name'] ?? '';
+                    final last = snapshot.data!['last_name'] ?? '';
+                    displayName = '$first $last'.trim();
+                    if (displayName.isEmpty) displayName = 'Cashier';
                   }
 
                   return Column(
@@ -68,7 +58,7 @@ class CashierTopBar extends ConsumerWidget {
                         ),
                       ),
                       Text(
-                        displayName.isEmpty ? 'Cashier' : displayName,
+                        displayName,
                         style: const TextStyle(
                           fontSize: 13,
                           fontWeight: FontWeight.w600,
@@ -86,7 +76,6 @@ class CashierTopBar extends ConsumerWidget {
 
           const SizedBox(width: 12),
 
-          // ── PROFILE ICON ──
           Container(
             width: 36,
             height: 36,

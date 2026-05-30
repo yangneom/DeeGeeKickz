@@ -8,6 +8,7 @@ import 'sales/sales_screen.dart';
 import 'feedback/feedback_screen.dart';
 import 'promotions/promotions_screen.dart';
 import '../../screens/admin/messages/messages_screen.dart';
+import 'orders/orders_screen.dart'; 
 // ================================================
 // ADMIN LAYOUT
 //
@@ -82,7 +83,7 @@ class _AdminLayoutState extends ConsumerState<AdminLayout> {
     }
 
     if (_currentIndex == 5) {
-      return _buildComingSoon('Order Approval');
+      return const OrdersScreen();
     }
 
     if (_currentIndex == 6) {

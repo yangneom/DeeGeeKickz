@@ -45,7 +45,7 @@ class InventoryService {
       }
       if (matchesCategory == false) continue;
 
-      // Status filter
+      // Status filter    
       bool matchesStatus = true;
       if (selectedStatus != null) {
         matchesStatus = false;
@@ -58,7 +58,7 @@ class InventoryService {
       }
       if (matchesStatus == false) continue;
 
-      results.add(product);
+      results.add(product); 
     }
 
     return results;

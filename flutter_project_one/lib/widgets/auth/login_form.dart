@@ -74,39 +74,26 @@ class _LoginFormState extends ConsumerState<LoginForm> {
       final String? role = await authService.getUserRole();
 
       if (!mounted) return;
-
-      if (role == 'Admin' || role == 'super_admin') {
-
-        Navigator.pushReplacement(
-          context,
-          MaterialPageRoute(builder: (context) => const AdminLayout()),
-        );
-
-      } else if (role == 'cashier') {
-
-        // Navigate to CashierLayout
-        Navigator.pushReplacement(
-          context,
-          MaterialPageRoute(builder: (context) => const CashierLayout()),
-        );
-
-      } else if (role == 'customer') {
-
-        // TODO: Navigate to CustomerLayout once created
-        ref.read(errorMessageProvider.notifier).setError(
-          'Customer screen coming soon.',
-        );
-
-      } else {
-
-        ref.read(errorMessageProvider.notifier).setError(
-          'Unknown role. Please contact support.',
-        );
-
+        if (role == 'Admin' || role == 'Super Admin') {
+          Navigator.pushReplacement(
+            context,
+            MaterialPageRoute(builder: (context) => const AdminLayout()),
+          );
+        } else if (role == 'Cashier') {
+          Navigator.pushReplacement(
+            context,
+            MaterialPageRoute(builder: (context) => const CashierLayout()),
+          );
+        } else if (role == 'Customer') {
+          ref.read(errorMessageProvider.notifier).setError(
+            'Customer screen coming soon.',
+          );
+        } else {
+          ref.read(errorMessageProvider.notifier).setError(
+            'Unknown role: $role. Please contact support.',
+          );
       }
-
     } catch (error) {
-
       ref.read(errorMessageProvider.notifier).setError(
         'Something went wrong. Please try again.',
       );

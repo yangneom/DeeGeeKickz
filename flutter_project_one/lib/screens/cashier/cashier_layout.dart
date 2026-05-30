@@ -3,6 +3,7 @@ import 'package:flutter_riverpod/flutter_riverpod.dart';
 import '../../widgets/cashier/sidebar/cashier_sidebar.dart';
 import '../../widgets/cashier/topbar/cashier_top_bar.dart';
 import 'cashierModule/cashier_screen.dart';
+import '../../screens/cashier/inventory/cashier_inventory_screen.dart';
 // ================================================
 // CASHIER LAYOUT
 //
@@ -42,8 +43,14 @@ class _CashierLayoutState extends ConsumerState<CashierLayout> {
       return const CashierScreen();
     }
 
+    // inventory
+    if (_currentIndex == 1) {
+      return const CashierInventoryScreen();
+    }
+
     // Default
     return const CashierScreen();
+    
   }
 
   // ================================================

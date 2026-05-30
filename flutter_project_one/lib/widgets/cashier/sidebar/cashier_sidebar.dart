@@ -10,6 +10,7 @@ import '../../../screens/auth/login_screen.dart';
 //
 // Items:
 //   0 = Cashier (POS)
+//   1 = Inventory (view only)
 //   Logout at the bottom
 // ================================================
 class CashierSidebar extends ConsumerWidget {
@@ -60,6 +61,27 @@ class CashierSidebar extends ConsumerWidget {
             index: 0,
             icon: Icons.lock_outline,
             label: 'Cashier',
+          ),
+
+          // ── SECTION LABEL: Management ──
+          Padding(
+            padding: const EdgeInsets.fromLTRB(20, 16, 20, 6),
+            child: Text(
+              'Management',
+              style: TextStyle(
+                color: Colors.grey.shade500,
+                fontSize: 11,
+                fontWeight: FontWeight.w600,
+                letterSpacing: 0.5,
+              ),
+            ),
+          ),
+
+          // ── INVENTORY NAV ITEM ──
+          _buildNavItem(
+            index: 1,
+            icon: Icons.inventory_2_outlined,
+            label: 'Inventory',
           ),
 
           // Spacer pushes logout to the bottom

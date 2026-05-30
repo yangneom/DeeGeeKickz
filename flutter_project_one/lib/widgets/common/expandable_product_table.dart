@@ -4,61 +4,86 @@ import '../../models/product.dart';
 // ================================================
 // EXPANDABLE PRODUCT TABLE
 //
-// This is a reusable table for showing products
-// with expandable rows that show variants inside.
+// Reusable table for showing products with
+// expandable rows that reveal variants inside.
 //
 // Used by:
-//   - Inventory screen   (with 3-dot menu)
-//   - Archived dialog    (with restore button)
-//   - Cashier screen     (no action, view only)
+//   - Admin inventory screen   → actionBuilder with 3-dot menu
+//   - Archived items dialog    → actionBuilder with Restore button
+//   - Cashier inventory screen → actionBuilder: null (view only)
 //
-// The action column is OPTIONAL!
-// If actionBuilder is null = no action column shown
+// ── ROLE-AWARE STATUS ──
 //
-// How to use:
+// showReserved controls what status the table shows:
 //
-// // With action button:
-// ExpandableProductTable(
-//   products: myProducts,
-//   actionBuilder: (Product product) {
-//     return MyActionButton(product);
-//   },
-// )
+//   showReserved: false (DEFAULT — admin + archived)
+//     → uses stockQty only
+//     → statuses: Available / Low Stock / Out of Stock
+//     → Reserved badge NEVER shown
 //
-// // Without action button (view only):
-// ExpandableProductTable(
-//   products: myProducts,
-//   actionBuilder: null,
-// )
+//   showReserved: true (CASHIER ONLY)
+//     → uses availableQty (stock minus reserved)
+//     → statuses: Available / Low Stock / Out of Stock / Reserved
+//     → Reserved badge shown when variant is fully locked
+//
+// ── USAGE ──
+//
+// Admin inventory (default — no showReserved needed):
+//   ExpandableProductTable(
+//     products: products,
+//     actionBuilder: (p) => MyActionWidget(p),
+//   )
+//
+// Archived dialog (default — no showReserved needed):
+//   ExpandableProductTable(
+//     products: products,
+//     extraHeaderLabel: 'Archived Date',
+//     extraValueBuilder: (p) => p.archivedDate ?? '',
+//     actionBuilder: (p) => RestoreButton(p),
+//   )
+//
+// Cashier inventory (must pass showReserved: true):
+//   ExpandableProductTable(
+//     products: products,
+//     actionBuilder: null,
+//     showReserved: true,
+//   )
 // ================================================
 class ExpandableProductTable extends StatefulWidget {
 
   // the list of products to show in the table
   final List<Product> products;
 
-  // the action widget to show on each row
-  // if null = no action column shown at all
-  // if provided = shows action column with this widget
+  // the action widget to show on each product row
+  // if null → no action column shown at all
   final Widget Function(Product product)? actionBuilder;
 
-  // ── NEW OPTIONAL PARAMS ──
-
-  // extra column title
+  // extra column header label
   // example: 'Archived Date'
-  // if null = no extra column shown
+  // if null → no extra column shown
   final String? extraHeaderLabel;
 
   // extra column value per product
-  // example: (product) => product.archivedDate
-  // if null = no extra column shown
+  // example: (product) => product.archivedDate ?? ''
+  // if null → no extra column shown
   final String Function(Product product)? extraValueBuilder;
+
+  // controls whether Reserved status is shown
+  //
+  // false (DEFAULT) → admin + archived view
+  //   uses stockQty only — Reserved never shown
+  //
+  // true → cashier view only
+  //   uses availableQty — Reserved shown when fully locked
+  final bool showReserved;
 
   const ExpandableProductTable({
     super.key,
     required this.products,
     this.actionBuilder,
-    this.extraHeaderLabel,    // ← new
-    this.extraValueBuilder,   // ← new
+    this.extraHeaderLabel,
+    this.extraValueBuilder,
+    this.showReserved = false,
   });
 
   @override
@@ -72,61 +97,40 @@ class _ExpandableProductTableState extends State<ExpandableProductTable> {
   // ================================================
   // TRACKS WHICH ROWS ARE EXPANDED
   // Key = productId, Value = true or false
-  // example: {'product_001': true, 'product_002': false}
   // ================================================
   Map<String, bool> _expandedRows = {};
 
   // ================================================
   // IS EXPANDED
-  // checks if a product row is currently expanded
   // ================================================
   bool _isExpanded(String productId) {
-
-    // if not in the map yet = not expanded = false
-    bool isExpanded = _expandedRows[productId] ?? false;
-
-    return isExpanded;
+    return _expandedRows[productId] ?? false;
   }
 
   // ================================================
   // TOGGLE EXPANDED
-  // opens a row if closed, closes if open
   // ================================================
   void _toggleExpanded(String productId) {
-
     setState(() {
-
-      // get current state
-      bool currentState = _expandedRows[productId] ?? false;
-
-      // flip it to the opposite
-      _expandedRows[productId] = !currentState;
+      bool current = _expandedRows[productId] ?? false;
+      _expandedRows[productId] = !current;
     });
   }
 
   // ================================================
   // FORMAT PRICE
-  // converts 5500.0 to "5,500"
+  // converts 5500.0 → "5,500"
   // ================================================
   String _formatPrice(double price) {
-
-    // convert to int first to remove decimals
     int priceAsInt = price.toInt();
-
-    // convert to string
     String priceString = priceAsInt.toString();
-
-    // add commas every 3 digits from the right
     String result = '';
     int count = 0;
 
     for (int i = priceString.length - 1; i >= 0; i = i - 1) {
-
-      // add comma every 3 digits
       if (count > 0 && count % 3 == 0) {
         result = ',' + result;
       }
-
       result = priceString[i] + result;
       count = count + 1;
     }
@@ -135,20 +139,52 @@ class _ExpandableProductTableState extends State<ExpandableProductTable> {
   }
 
   // ================================================
+  // RESOLVE STATUS
+  //
+  // showReserved: false → admin / archived view
+  //   ignores reservedQty entirely
+  //   uses raw stockQty for status
+  //   Reserved is NEVER returned
+  //
+  // showReserved: true → cashier view
+  //   uses variant.status which is based on availableQty
+  //   can return Reserved when fully locked
+  // ================================================
+  String _resolveStatus(ProductVariant variant) {
+
+    // cashier view — use availableQty-based status from model
+    // this can return Reserved, Low Stock, Out of Stock, Available
+    if (widget.showReserved == true) {
+      return variant.status;
+    }
+
+    // admin / archived view — use raw stockQty only
+    // Reserved is completely ignored here
+    if (variant.stockQty == 0) {
+      return 'Out of Stock';
+    }
+
+    if (variant.stockQty <= 5) {
+      return 'Low Stock';
+    }
+
+    return 'Available';
+  }
+
+  // ================================================
   // BUILD STATUS BADGE
-  // shows a colored badge based on status
-  // Available = green
-  // Low Stock = yellow
-  // Out of Stock = red
+  //
+  // Available    → green
+  // Low Stock    → yellow
+  // Out of Stock → red
+  // Reserved     → gray (cashier only — never shown to admin)
   // ================================================
   Widget _buildStatusBadge(String status) {
 
-    // default colors
     Color backgroundColor = Colors.grey.shade100;
     Color textColor = Colors.grey;
     Color borderColor = Colors.grey.shade300;
 
-    // pick colors based on status
     if (status == 'Available') {
       backgroundColor = const Color(0xFFDCFCE7);
       textColor = const Color(0xFF16A34A);
@@ -165,6 +201,14 @@ class _ExpandableProductTableState extends State<ExpandableProductTable> {
       backgroundColor = const Color(0xFFFFE4E6);
       textColor = const Color(0xFFDC2626);
       borderColor = const Color(0xFFFCA5A5);
+    }
+
+    // Reserved — gray badge
+    // only reachable when showReserved: true (cashier view)
+    if (status == 'Reserved') {
+      backgroundColor = const Color(0xFFF3F4F6);
+      textColor = const Color(0xFF6B7280);
+      borderColor = const Color(0xFFD1D5DB);
     }
 
     return Align(
@@ -195,7 +239,6 @@ class _ExpandableProductTableState extends State<ExpandableProductTable> {
   // TEXT STYLES
   // ================================================
 
-  // header text style — gray and bold
   TextStyle get _headerStyle {
     return const TextStyle(
       fontSize: 13,
@@ -204,7 +247,6 @@ class _ExpandableProductTableState extends State<ExpandableProductTable> {
     );
   }
 
-  // body text style — dark gray
   TextStyle get _bodyStyle {
     return const TextStyle(
       fontSize: 13,
@@ -212,7 +254,6 @@ class _ExpandableProductTableState extends State<ExpandableProductTable> {
     );
   }
 
-  // variant header text style — lighter gray
   TextStyle get _variantHeaderStyle {
     return const TextStyle(
       fontSize: 12,
@@ -239,10 +280,10 @@ class _ExpandableProductTableState extends State<ExpandableProductTable> {
       child: Row(
         children: [
 
-          // space for the chevron icon
+          // space for chevron
           const SizedBox(width: 28),
 
-          // product name — biggest column
+          // product name
           Expanded(
             flex: 4,
             child: Text('Product Name', style: _headerStyle),
@@ -272,8 +313,7 @@ class _ExpandableProductTableState extends State<ExpandableProductTable> {
             child: Text('Average Price', style: _headerStyle),
           ),
 
-          // ── NEW — extra column header ──
-          // only show if extraHeaderLabel is provided
+          // extra column — only if provided
           if (widget.extraHeaderLabel != null)
             Expanded(
               flex: 2,
@@ -283,7 +323,7 @@ class _ExpandableProductTableState extends State<ExpandableProductTable> {
               ),
             ),
 
-          // action column — only show if actionBuilder is provided
+          // action column — only if actionBuilder provided
           if (widget.actionBuilder != null)
             SizedBox(
               width: 80,
@@ -296,39 +336,29 @@ class _ExpandableProductTableState extends State<ExpandableProductTable> {
 
   // ================================================
   // BUILD PRODUCT ROW
-  // one row per product in the table
   // ================================================
   Widget _buildProductRow(Product product) {
 
-    // check if this row is expanded
     bool isExpanded = _isExpanded(product.productId);
 
     return Container(
       decoration: BoxDecoration(
         border: Border(
-
-          // blue left border when expanded
-          // transparent when not expanded
           left: BorderSide(
             color: isExpanded == true
                 ? const Color(0xFF2563EB)
                 : Colors.transparent,
             width: 3,
           ),
-
-          // bottom border always
           bottom: const BorderSide(color: Color(0xFFE5E7EB)),
         ),
       ),
       child: Column(
         children: [
 
-          // ── CLICKABLE MAIN ROW ──
-          // clicking this expands or collapses the row
+          // clickable main row
           InkWell(
-            onTap: () {
-              _toggleExpanded(product.productId);
-            },
+            onTap: () => _toggleExpanded(product.productId),
             child: Padding(
               padding: const EdgeInsets.symmetric(
                 horizontal: 16,
@@ -338,7 +368,7 @@ class _ExpandableProductTableState extends State<ExpandableProductTable> {
                 crossAxisAlignment: CrossAxisAlignment.center,
                 children: [
 
-                  // chevron icon shows direction
+                  // chevron
                   SizedBox(
                     width: 28,
                     child: Icon(
@@ -376,7 +406,7 @@ class _ExpandableProductTableState extends State<ExpandableProductTable> {
                     child: Text(product.category, style: _bodyStyle),
                   ),
 
-                  // total stock
+                  // total stock — always uses stockQty (physical stock)
                   Expanded(
                     flex: 2,
                     child: Text(
@@ -394,8 +424,7 @@ class _ExpandableProductTableState extends State<ExpandableProductTable> {
                     ),
                   ),
 
-                  // ── NEW — extra column value ──
-                  // only show if extraValueBuilder is provided
+                  // extra column value — only if provided
                   if (widget.extraValueBuilder != null)
                     Expanded(
                       flex: 2,
@@ -405,14 +434,10 @@ class _ExpandableProductTableState extends State<ExpandableProductTable> {
                       ),
                     ),
 
-                  // action column — only show if actionBuilder is provided
+                  // action column — only if actionBuilder provided
                   if (widget.actionBuilder != null)
                     SizedBox(
                       width: 80,
-
-                      // call actionBuilder to get the widget
-                      // this is where the 3-dot menu or
-                      // restore button will appear
                       child: widget.actionBuilder!(product),
                     ),
                 ],
@@ -420,8 +445,7 @@ class _ExpandableProductTableState extends State<ExpandableProductTable> {
             ),
           ),
 
-          // ── VARIANT SECTION ──
-          // only shows when row is expanded
+          // variant section — only when expanded
           if (isExpanded == true)
             _buildVariantSection(product),
         ],
@@ -431,7 +455,7 @@ class _ExpandableProductTableState extends State<ExpandableProductTable> {
 
   // ================================================
   // BUILD VARIANT SECTION
-  // shows all variants of a product when expanded
+  // shows all variants when a product row is expanded
   // ================================================
   Widget _buildVariantSection(Product product) {
     return Container(
@@ -453,53 +477,47 @@ class _ExpandableProductTableState extends State<ExpandableProductTable> {
             child: Row(
               children: [
 
-                // indent to align with product name
+                // indent
                 const SizedBox(width: 28),
 
-                // color header
                 Expanded(
                   flex: 2,
                   child: Text('Color', style: _variantHeaderStyle),
                 ),
 
-                // size header
                 Expanded(
                   flex: 1,
                   child: Text('Size', style: _variantHeaderStyle),
                 ),
 
-                // stock qty header
                 Expanded(
                   flex: 2,
                   child: Text('Stock Qty', style: _variantHeaderStyle),
                 ),
 
-                // status header
                 Expanded(
                   flex: 3,
                   child: Text('Status', style: _variantHeaderStyle),
                 ),
 
-                // cost price header
                 Expanded(
                   flex: 2,
                   child: Text('Cost Price', style: _variantHeaderStyle),
                 ),
 
-                // retail price header
                 Expanded(
                   flex: 2,
                   child: Text('Retail Price', style: _variantHeaderStyle),
                 ),
 
-                // ── NEW — extra space to align with extra column ──
+                // spacer for extra column alignment
                 if (widget.extraHeaderLabel != null)
                   const Expanded(
                     flex: 2,
                     child: SizedBox(),
                   ),
 
-                // space to align with action column
+                // spacer for action column alignment
                 if (widget.actionBuilder != null)
                   const SizedBox(width: 80),
               ],
@@ -507,7 +525,6 @@ class _ExpandableProductTableState extends State<ExpandableProductTable> {
           ),
 
           // ── VARIANT DATA ROWS ──
-          // one row per variant
           for (int i = 0; i < product.variants.length; i = i + 1)
             Container(
               decoration: const BoxDecoration(
@@ -526,7 +543,7 @@ class _ExpandableProductTableState extends State<ExpandableProductTable> {
                   // indent
                   const SizedBox(width: 28),
 
-                  // color value
+                  // color
                   Expanded(
                     flex: 2,
                     child: Text(
@@ -535,7 +552,7 @@ class _ExpandableProductTableState extends State<ExpandableProductTable> {
                     ),
                   ),
 
-                  // size value
+                  // size
                   Expanded(
                     flex: 1,
                     child: Text(
@@ -544,7 +561,8 @@ class _ExpandableProductTableState extends State<ExpandableProductTable> {
                     ),
                   ),
 
-                  // stock qty value
+                  // stock qty — always shows raw stockQty
+                  // never availableQty — that's cashier-only logic
                   Expanded(
                     flex: 2,
                     child: Text(
@@ -554,14 +572,16 @@ class _ExpandableProductTableState extends State<ExpandableProductTable> {
                   ),
 
                   // status badge
+                  // _resolveStatus decides what to show
+                  // based on showReserved flag
                   Expanded(
                     flex: 3,
                     child: _buildStatusBadge(
-                      product.variants[i].status,
+                      _resolveStatus(product.variants[i]),
                     ),
                   ),
 
-                  // cost price value
+                  // cost price
                   Expanded(
                     flex: 2,
                     child: Text(
@@ -570,7 +590,7 @@ class _ExpandableProductTableState extends State<ExpandableProductTable> {
                     ),
                   ),
 
-                  // retail price value
+                  // retail price
                   Expanded(
                     flex: 2,
                     child: Text(
@@ -579,14 +599,14 @@ class _ExpandableProductTableState extends State<ExpandableProductTable> {
                     ),
                   ),
 
-                  // ── NEW — extra space to align with extra column ──
+                  // spacer for extra column alignment
                   if (widget.extraValueBuilder != null)
                     const Expanded(
                       flex: 2,
                       child: SizedBox(),
                     ),
 
-                  // space to align with action column
+                  // spacer for action column alignment
                   if (widget.actionBuilder != null)
                     const SizedBox(width: 80),
                 ],
@@ -619,14 +639,11 @@ class _ExpandableProductTableState extends State<ExpandableProductTable> {
       child: Column(
         children: [
 
-          // header row at the top
           _buildHeaderRow(),
 
-          // one product row per product
           for (int i = 0; i < widget.products.length; i = i + 1)
             _buildProductRow(widget.products[i]),
 
-          // show empty message if no products
           if (widget.products.isEmpty)
             Container(
               padding: const EdgeInsets.all(32),

@@ -1,5 +1,5 @@
 import 'package:flutter_riverpod/flutter_riverpod.dart';
-import 'package:firebase_auth/firebase_auth.dart';
+import 'package:supabase_flutter/supabase_flutter.dart';
 import '../../services/auth/auth_service.dart';
 
 // Creates ONE AuthService for the whole app
@@ -8,7 +8,7 @@ final authServiceProvider = Provider<AuthService>((ref) {
 });
 
 // Watches if user is logged in or not
-final authStateProvider = StreamProvider<User?>((ref) {
+final authStateProvider = StreamProvider<AuthState>((ref) {
   final authService = ref.watch(authServiceProvider);
   return authService.authStateChanges;
 });
@@ -51,7 +51,8 @@ class RegisterIsLoadingNotifier extends Notifier<bool> {
   }
 }
 
-final registerIsLoadingProvider = NotifierProvider<RegisterIsLoadingNotifier, bool>(() {
+final registerIsLoadingProvider =
+    NotifierProvider<RegisterIsLoadingNotifier, bool>(() {
   return RegisterIsLoadingNotifier();
 });
 
@@ -65,6 +66,7 @@ class RegisterErrorNotifier extends Notifier<String?> {
   }
 }
 
-final registerErrorProvider = NotifierProvider<RegisterErrorNotifier, String?>(() {
+final registerErrorProvider =
+    NotifierProvider<RegisterErrorNotifier, String?>(() {
   return RegisterErrorNotifier();
 });

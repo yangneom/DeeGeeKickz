@@ -19,5 +19,5 @@ samples, guidance on mobile development, and a full API reference.
 # Push in git hub
 
 git add .
-git commit -m "Updated messages, promotion, inventory"
+git commit -m "converted into supabase and made a huge adjustment"
 git push origin main

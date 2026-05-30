@@ -2,7 +2,10 @@ import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import '../../../models/product.dart';
+import '../../../models/sale.dart';
 import '../../../widgets/cashier/inventory/select_variant_dialog.dart';
+import '../../../widgets/cashier/receipt/receipt_dialog.dart';
+
 // ================================================
 // CART ITEM MODEL
 // One item in the cashier's cart
@@ -33,6 +36,23 @@ class CartItem {
 // Layout:
 //   LEFT  → Search bar + Product grid
 //   RIGHT → Cart panel + Payment + Checkout
+//
+// PAYMENT FLOW:
+//   Cash    → Print Receipt button
+//              ↓
+//             Save to fakeSales immediately
+//              ↓
+//             Show receipt dialog (Print / Save PDF / Close)
+//
+//   Online  → Checkout button → PayMongo placeholder
+//              ↓ Mark Paid
+//             Save to fakeSales immediately
+//              ↓
+//             Show receipt dialog (Print / Save PDF / Close)
+//
+// NOTE: Sale is ALWAYS saved on payment confirmation.
+//       Printing is optional — closing receipt does
+//       NOT cancel or undo the sale.
 // ================================================
 class CashierScreen extends ConsumerStatefulWidget {
   const CashierScreen({super.key});
@@ -52,7 +72,7 @@ class _CashierScreenState extends ConsumerState<CashierScreen> {
 
   // ── PAYMENT ──
   // 'cash' or 'online'
-  String _paymentMethod = 'cash';
+  String _paymentMethod = 'online';
   final TextEditingController _cashPaidController = TextEditingController();
   double _discountAmount = 0;
   final TextEditingController _discountController = TextEditingController();
@@ -70,7 +90,7 @@ class _CashierScreenState extends ConsumerState<CashierScreen> {
   // ================================================
   List<Product> get _filteredProducts {
     if (_searchQuery.isEmpty) return fakeProducts;
-    return fakeProducts.where((p) {
+    return fakeProducts.where((Product p) {
       return p.productName.toLowerCase().contains(_searchQuery) ||
           p.brand.toLowerCase().contains(_searchQuery);
     }).toList();
@@ -102,6 +122,17 @@ class _CashierScreenState extends ConsumerState<CashierScreen> {
   }
 
   // ================================================
+  // TOTAL ITEM COUNT in cart
+  // ================================================
+  int get _totalItemCount {
+    int count = 0;
+    for (CartItem item in _cartItems) {
+      count += item.quantity;
+    }
+    return count;
+  }
+
+  // ================================================
   // ADD TO CART
   // ================================================
   void _addToCart({
@@ -112,19 +143,20 @@ class _CashierScreenState extends ConsumerState<CashierScreen> {
     required double price,
   }) {
     setState(() {
-      // Check if same item already in cart
-      final existingIndex = _cartItems.indexWhere(
-        (item) =>
+
+      // check if same item already in cart
+      final int existingIndex = _cartItems.indexWhere(
+        (CartItem item) =>
             item.productId == product.productId &&
             item.color == color &&
             item.size == size,
       );
 
       if (existingIndex >= 0) {
-        // Just increase quantity
+        // just increase quantity
         _cartItems[existingIndex].quantity += quantity;
       } else {
-        // Add new cart item
+        // add new cart item
         _cartItems.add(CartItem(
           productId: product.productId,
           productName: product.productName,
@@ -165,10 +197,243 @@ class _CashierScreenState extends ConsumerState<CashierScreen> {
       _cashPaidController.clear();
       _discountController.clear();
       _discountAmount = 0;
-      _paymentMethod = 'cash';
+      _paymentMethod = 'online';
       _searchController.clear();
       _searchQuery = '';
     });
+  }
+
+  // ================================================
+  // GENERATE ORDER NUMBER
+  // format: DG-YYYYMMDD-XXXX
+  // uses fakeSales length to get next number
+  // replace with Supabase query later
+  // ================================================
+  String _generateOrderNumber() {
+    final DateTime now = DateTime.now();
+
+    final String year = now.year.toString();
+    final String month = now.month.toString().padLeft(2, '0');
+    final String day = now.day.toString().padLeft(2, '0');
+
+    // next order number = current count + 1
+    final int nextNumber = fakeSales.length + 1;
+    final String orderSeq = nextNumber.toString().padLeft(4, '0');
+
+    return 'DG-$year$month$day-$orderSeq';
+  }
+
+  // ================================================
+  // SAVE SALE
+  // converts cart items → Sale model
+  // adds to fakeSales list
+  // called BEFORE showing receipt dialog
+  // sale is saved regardless of whether cashier prints
+  // replace fakeSales.add() with Supabase insert later
+  // ================================================
+  Sale _saveSale() {
+
+    // convert CartItems → SaleItems
+    final List<SaleItem> saleItems = _cartItems.map((CartItem item) {
+      return SaleItem(
+        productName: item.productName,
+        color: item.color,
+        size: item.size,
+        quantity: item.quantity,
+        retailPrice: item.retailPrice,
+      );
+    }).toList();
+
+    // build the Sale object
+    final Sale sale = Sale(
+      orderNumber: _generateOrderNumber(),
+      items: saleItems,
+      subtotal: _subtotal,
+      discount: _discountAmount,
+      total: _total,
+      paymentMethod: _paymentMethod,
+      cashPaid: _paymentMethod == 'cash' ? _cashPaid : 0,
+      change: _paymentMethod == 'cash' ? _change : 0,
+      cashierName: 'Cashier DeeGee', // replace with real auth user later
+      transactionDate: DateTime.now(),
+    );
+
+    // save to fakeSales
+    // this is what Admin Sales Management reads
+    fakeSales.add(sale);
+
+    return sale;
+  }
+
+  // ================================================
+  // HANDLE CHECKOUT
+  // cash    → save sale → clear cart → show receipt
+  // online  → show PayMongo placeholder
+  // ================================================
+  void _handleCheckout() {
+    if (_cartItems.isEmpty) return;
+
+    if (_paymentMethod == 'cash') {
+
+      // save to sales immediately
+      final Sale sale = _saveSale();
+
+      // clear the cart
+      _newTransaction();
+
+      // show receipt dialog
+      // sale is already saved — closing receipt does NOT cancel it
+      showReceiptDialog(
+        context: context,
+        sale: sale,
+      );
+    }
+
+    if (_paymentMethod == 'online') {
+      // sale saved inside _showPayMongoPlaceholder after Mark Paid
+      _showPayMongoPlaceholder();
+    }
+  }
+
+  // ================================================
+  // SHOW PAYMONGO PLACEHOLDER
+  // Mark Paid → save sale → clear cart → show receipt
+  // will be replaced with real PayMongo API call later
+  // ================================================
+  void _showPayMongoPlaceholder() {
+    showDialog(
+      context: context,
+      builder: (BuildContext ctx) {
+        return AlertDialog(
+          shape: RoundedRectangleBorder(
+            borderRadius: BorderRadius.circular(12),
+          ),
+          content: Column(
+            mainAxisSize: MainAxisSize.min,
+            children: [
+
+              // blue payment icon
+              Container(
+                width: 56,
+                height: 56,
+                decoration: const BoxDecoration(
+                  color: Color(0xFFEFF6FF),
+                  shape: BoxShape.circle,
+                ),
+                child: const Icon(
+                  Icons.qr_code,
+                  color: Color(0xFF2563EB),
+                  size: 28,
+                ),
+              ),
+
+              const SizedBox(height: 16),
+
+              const Text(
+                'Online Payment',
+                style: TextStyle(
+                  fontSize: 16,
+                  fontWeight: FontWeight.bold,
+                  color: Color(0xFF111827),
+                ),
+              ),
+
+              const SizedBox(height: 8),
+
+              Text(
+                'Total: ₱${_total.toStringAsFixed(0)}',
+                style: const TextStyle(
+                  fontSize: 20,
+                  fontWeight: FontWeight.bold,
+                  color: Color(0xFF2563EB),
+                ),
+              ),
+
+              const SizedBox(height: 8),
+
+              // placeholder message — PayMongo not yet connected
+              Container(
+                padding: const EdgeInsets.all(12),
+                decoration: BoxDecoration(
+                  color: const Color(0xFFFEF9C3),
+                  borderRadius: BorderRadius.circular(8),
+                  border: Border.all(color: const Color(0xFFFDE047)),
+                ),
+                child: const Text(
+                  'PayMongo integration coming soon.\nA payment link / QR will appear here.',
+                  textAlign: TextAlign.center,
+                  style: TextStyle(
+                    fontSize: 12,
+                    color: Color(0xFF92400E),
+                  ),
+                ),
+              ),
+
+              const SizedBox(height: 20),
+
+              Row(
+                children: [
+
+                  // cancel
+                  Expanded(
+                    child: OutlinedButton(
+                      onPressed: () => Navigator.pop(ctx),
+                      style: OutlinedButton.styleFrom(
+                        foregroundColor: const Color(0xFF374151),
+                        side: const BorderSide(color: Color(0xFFD1D5DB)),
+                        padding: const EdgeInsets.symmetric(vertical: 12),
+                        shape: RoundedRectangleBorder(
+                          borderRadius: BorderRadius.circular(8),
+                        ),
+                      ),
+                      child: const Text('Cancel'),
+                    ),
+                  ),
+
+                  const SizedBox(width: 8),
+
+                  // mark as paid — saves sale + shows receipt
+                  Expanded(
+                    child: ElevatedButton(
+                      onPressed: () {
+
+                        // close PayMongo dialog first
+                        Navigator.pop(ctx);
+
+                        // save sale immediately
+                        final Sale sale = _saveSale();
+
+                        // clear cart
+                        _newTransaction();
+
+                        // show receipt dialog
+                        showReceiptDialog(
+                          context: context,
+                          sale: sale,
+                        );
+                      },
+                      style: ElevatedButton.styleFrom(
+                        backgroundColor: const Color(0xFF2563EB),
+                        foregroundColor: Colors.white,
+                        elevation: 0,
+                        padding: const EdgeInsets.symmetric(vertical: 12),
+                        shape: RoundedRectangleBorder(
+                          borderRadius: BorderRadius.circular(8),
+                        ),
+                      ),
+                      child: const Text(
+                        'Mark Paid',
+                        style: TextStyle(fontSize: 12),
+                      ),
+                    ),
+                  ),
+                ],
+              ),
+            ],
+          ),
+        );
+      },
+    );
   }
 
   // ================================================
@@ -189,7 +454,7 @@ class _CashierScreenState extends ConsumerState<CashierScreen> {
                 crossAxisAlignment: CrossAxisAlignment.start,
                 children: [
 
-                  // Title
+                  // title
                   const Text(
                     'Cashier',
                     style: TextStyle(
@@ -201,12 +466,12 @@ class _CashierScreenState extends ConsumerState<CashierScreen> {
 
                   const SizedBox(height: 16),
 
-                  // Search bar
+                  // search bar
                   SizedBox(
                     width: 280,
                     child: TextField(
                       controller: _searchController,
-                      onChanged: (value) {
+                      onChanged: (String value) {
                         setState(() => _searchQuery = value.toLowerCase());
                       },
                       style: const TextStyle(fontSize: 13),
@@ -261,7 +526,7 @@ class _CashierScreenState extends ConsumerState<CashierScreen> {
                               childAspectRatio: 0.78,
                             ),
                             itemCount: _filteredProducts.length,
-                            itemBuilder: (context, index) {
+                            itemBuilder: (BuildContext context, int index) {
                               return _buildProductCard(
                                   _filteredProducts[index]);
                             },
@@ -283,12 +548,122 @@ class _CashierScreenState extends ConsumerState<CashierScreen> {
   // PRODUCT CARD
   // ================================================
   Widget _buildProductCard(Product product) {
+
+    // check if ALL variants are fully reserved
+    // if so → gray out the card visually
+    final bool isFullyReserved = product.isFullyReserved;
+
     return GestureDetector(
       onTap: () {
+
+        // fully reserved → show error popup instead of variant dialog
+        if (isFullyReserved == true) {
+          showDialog(
+            context: context,
+            builder: (BuildContext ctx) {
+              return Dialog(
+                shape: RoundedRectangleBorder(
+                  borderRadius: BorderRadius.circular(12),
+                ),
+                insetPadding: const EdgeInsets.symmetric(horizontal: 24),
+                child: Container(
+                  width: 420,
+                  padding: const EdgeInsets.fromLTRB(24, 28, 24, 20),
+                  decoration: BoxDecoration(
+                    color: Colors.white,
+                    borderRadius: BorderRadius.circular(12),
+                  ),
+                  child: Column(
+                    mainAxisSize: MainAxisSize.min,
+                    crossAxisAlignment: CrossAxisAlignment.start,
+                    children: [
+
+                      // title
+                      const Text(
+                        'Product Fully Reserved',
+                        style: TextStyle(
+                          fontSize: 17,
+                          fontWeight: FontWeight.bold,
+                          color: Color(0xFF111827),
+                        ),
+                      ),
+
+                      const SizedBox(height: 10),
+
+                      // message
+                      Text(
+                        'All variants of ${product.productName} are currently reserved for online orders.',
+                        style: const TextStyle(
+                          fontSize: 13,
+                          color: Color(0xFF6B7280),
+                          height: 1.5,
+                        ),
+                      ),
+
+                      const SizedBox(height: 10),
+
+                      // hint box
+                      Container(
+                        padding: const EdgeInsets.all(10),
+                        decoration: BoxDecoration(
+                          color: const Color(0xFFFEF9C3),
+                          borderRadius: BorderRadius.circular(8),
+                          border: Border.all(color: const Color(0xFFFDE047)),
+                        ),
+                        child: const Text(
+                          'This product will be available again once the admin approves or declines the pending online order.',
+                          style: TextStyle(
+                            fontSize: 12,
+                            color: Color(0xFF92400E),
+                            height: 1.5,
+                          ),
+                        ),
+                      ),
+
+                      const SizedBox(height: 24),
+
+                      // OK button — right aligned
+                      Row(
+                        mainAxisAlignment: MainAxisAlignment.end,
+                        children: [
+                          ElevatedButton(
+                            onPressed: () => Navigator.pop(ctx),
+                            style: ElevatedButton.styleFrom(
+                              backgroundColor: const Color(0xFFDC2626),
+                              foregroundColor: Colors.white,
+                              elevation: 0,
+                              padding: const EdgeInsets.symmetric(
+                                horizontal: 20,
+                                vertical: 11,
+                              ),
+                              shape: RoundedRectangleBorder(
+                                borderRadius: BorderRadius.circular(8),
+                              ),
+                            ),
+                            child: const Text(
+                              'OK, Got It',
+                              style: TextStyle(
+                                fontSize: 13,
+                                fontWeight: FontWeight.w500,
+                              ),
+                            ),
+                          ),
+                        ],
+                      ),
+                    ],
+                  ),
+                ),
+              );
+            },
+          );
+          return;
+        }
+
+        // not reserved → open normal variant dialog
         showSelectVariantDialog(
           context: context,
           product: product,
-          onAddToCart: (color, size, quantity, price) {
+          onAddToCart: (String color, String size, int quantity, double price) {
             _addToCart(
               product: product,
               color: color,
@@ -299,63 +674,124 @@ class _CashierScreenState extends ConsumerState<CashierScreen> {
           },
         );
       },
-      child: Container(
-        decoration: BoxDecoration(
-          color: Colors.white,
-          borderRadius: BorderRadius.circular(8),
-          border: Border.all(color: const Color(0xFFE5E7EB)),
-        ),
-        child: Column(
-          crossAxisAlignment: CrossAxisAlignment.start,
-          children: [
 
-            // Image placeholder
-            Expanded(
-              child: Container(
-                width: double.infinity,
-                decoration: const BoxDecoration(
-                  color: Color(0xFFE5E7EB),
-                  borderRadius: BorderRadius.only(
-                    topLeft: Radius.circular(8),
-                    topRight: Radius.circular(8),
-                  ),
-                ),
-                child: const Icon(
-                  Icons.image_outlined,
-                  size: 36,
-                  color: Color(0xFF9CA3AF),
+      child: Opacity(
+
+        // gray out if fully reserved
+        opacity: isFullyReserved ? 0.5 : 1.0,
+
+        child: Container(
+          decoration: BoxDecoration(
+            color: isFullyReserved
+                ? const Color(0xFFF3F4F6)
+                : Colors.white,
+            borderRadius: BorderRadius.circular(8),
+            border: Border.all(
+              color: isFullyReserved
+                  ? const Color(0xFFD1D5DB)
+                  : const Color(0xFFE5E7EB),
+            ),
+          ),
+          child: Column(
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: [
+
+              // image placeholder
+              Expanded(
+                child: Stack(
+                  children: [
+
+                    // image area
+                    Container(
+                      width: double.infinity,
+                      decoration: BoxDecoration(
+                        color: const Color(0xFFE5E7EB),
+                        borderRadius: const BorderRadius.only(
+                          topLeft: Radius.circular(8),
+                          topRight: Radius.circular(8),
+                        ),
+                      ),
+                      child: const Icon(
+                        Icons.image_outlined,
+                        size: 36,
+                        color: Color(0xFF9CA3AF),
+                      ),
+                    ),
+
+                    // reserved badge on top-left
+                    if (isFullyReserved == true)
+                      Positioned(
+                        top: 8,
+                        left: 8,
+                        child: Container(
+                          padding: const EdgeInsets.symmetric(
+                            horizontal: 8,
+                            vertical: 3,
+                          ),
+                          decoration: BoxDecoration(
+                            color: const Color(0xFFDC2626),
+                            borderRadius: BorderRadius.circular(4),
+                          ),
+                          child: const Row(
+                            mainAxisSize: MainAxisSize.min,
+                            children: [
+                              Icon(
+                                Icons.lock,
+                                size: 10,
+                                color: Colors.white,
+                              ),
+                              SizedBox(width: 4),
+                              Text(
+                                'Reserved',
+                                style: TextStyle(
+                                  fontSize: 10,
+                                  fontWeight: FontWeight.w600,
+                                  color: Colors.white,
+                                ),
+                              ),
+                            ],
+                          ),
+                        ),
+                      ),
+                  ],
                 ),
               ),
-            ),
 
-            // Product info
-            Padding(
-              padding: const EdgeInsets.all(10),
-              child: Column(
-                crossAxisAlignment: CrossAxisAlignment.start,
-                children: [
-                  Text(
-                    product.productName,
-                    maxLines: 1,
-                    overflow: TextOverflow.ellipsis,
-                    style: const TextStyle(
-                      fontSize: 12,
-                      fontWeight: FontWeight.w600,
-                      color: Color(0xFF111827),
+              // product info
+              Padding(
+                padding: const EdgeInsets.all(10),
+                child: Column(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    Text(
+                      product.productName,
+                      maxLines: 1,
+                      overflow: TextOverflow.ellipsis,
+                      style: TextStyle(
+                        fontSize: 12,
+                        fontWeight: FontWeight.w600,
+                        color: isFullyReserved
+                            ? const Color(0xFF9CA3AF)
+                            : const Color(0xFF111827),
+                      ),
                     ),
-                  ),
-                  const SizedBox(height: 2),
-                  Text(
-                    '₱${product.averagePrice.toStringAsFixed(0)} +',
-                    style: const TextStyle(
-                      fontSize: 12,
-                      color: Color(0xFF374151),
+                    const SizedBox(height: 2),
+                    Text(
+                      isFullyReserved
+                          ? 'All reserved'
+                          : '₱${product.averagePrice.toStringAsFixed(0)} +',
+                      style: TextStyle(
+                        fontSize: 12,
+                        color: isFullyReserved
+                            ? const Color(0xFFDC2626)
+                            : const Color(0xFF374151),
+                      ),
                     ),
-                  ),
-                ],
+                  ],
+                ),
               ),
-            ),
-          ],
+            ],
+          ),
         ),
       ),
     );
@@ -377,38 +813,59 @@ class _CashierScreenState extends ConsumerState<CashierScreen> {
         crossAxisAlignment: CrossAxisAlignment.start,
         children: [
 
-          // Cart title
-          const Padding(
-            padding: EdgeInsets.fromLTRB(16, 16, 16, 8),
-            child: Text(
-              'Cart',
-              style: TextStyle(
-                fontSize: 16,
-                fontWeight: FontWeight.bold,
-                color: Color(0xFF111827),
-              ),
+          // ── CART HEADER with item count ──
+          Padding(
+            padding: const EdgeInsets.fromLTRB(16, 16, 16, 12),
+            child: Row(
+              children: [
+
+                const Text(
+                  'Cart',
+                  style: TextStyle(
+                    fontSize: 16,
+                    fontWeight: FontWeight.bold,
+                    color: Color(0xFF111827),
+                  ),
+                ),
+
+                const SizedBox(width: 8),
+
+                // item count badge — only shows when cart has items
+                if (_totalItemCount > 0)
+                  Container(
+                    padding: const EdgeInsets.symmetric(
+                      horizontal: 8,
+                      vertical: 2,
+                    ),
+                    decoration: BoxDecoration(
+                      color: const Color(0xFFEFF6FF),
+                      borderRadius: BorderRadius.circular(20),
+                      border: Border.all(color: const Color(0xFFBFDBFE)),
+                    ),
+                    child: Text(
+                      '$_totalItemCount item${_totalItemCount > 1 ? 's' : ''}',
+                      style: const TextStyle(
+                        fontSize: 11,
+                        fontWeight: FontWeight.w500,
+                        color: Color(0xFF2563EB),
+                      ),
+                    ),
+                  ),
+              ],
             ),
           ),
 
           const Divider(height: 1, color: Color(0xFFE5E7EB)),
 
-          // Cart items list
+          // ── CART ITEMS LIST ──
           Expanded(
             child: _cartItems.isEmpty
-                ? const Center(
-                    child: Text(
-                      'No items yet',
-                      style: TextStyle(
-                        fontSize: 13,
-                        color: Color(0xFF9CA3AF),
-                      ),
-                    ),
-                  )
+                ? _buildEmptyCart()
                 : ListView.separated(
                     padding: const EdgeInsets.all(12),
                     itemCount: _cartItems.length,
                     separatorBuilder: (_, __) => const SizedBox(height: 8),
-                    itemBuilder: (context, index) {
+                    itemBuilder: (BuildContext context, int index) {
                       return _buildCartItem(index);
                     },
                   ),
@@ -418,6 +875,55 @@ class _CashierScreenState extends ConsumerState<CashierScreen> {
 
           // ── PAYMENT SECTION ──
           _buildPaymentSection(),
+        ],
+      ),
+    );
+  }
+
+  // ================================================
+  // EMPTY CART STATE
+  // ================================================
+  Widget _buildEmptyCart() {
+    return Center(
+      child: Column(
+        mainAxisAlignment: MainAxisAlignment.center,
+        children: [
+
+          Container(
+            width: 56,
+            height: 56,
+            decoration: BoxDecoration(
+              color: const Color(0xFFF3F4F6),
+              shape: BoxShape.circle,
+              border: Border.all(color: const Color(0xFFE5E7EB)),
+            ),
+            child: const Icon(
+              Icons.shopping_cart_outlined,
+              size: 24,
+              color: Color(0xFF9CA3AF),
+            ),
+          ),
+
+          const SizedBox(height: 12),
+
+          const Text(
+            'No items yet',
+            style: TextStyle(
+              fontSize: 13,
+              fontWeight: FontWeight.w500,
+              color: Color(0xFF6B7280),
+            ),
+          ),
+
+          const SizedBox(height: 4),
+
+          const Text(
+            'Click a product to add it',
+            style: TextStyle(
+              fontSize: 11,
+              color: Color(0xFF9CA3AF),
+            ),
+          ),
         ],
       ),
     );
@@ -434,11 +940,12 @@ class _CashierScreenState extends ConsumerState<CashierScreen> {
       decoration: BoxDecoration(
         color: const Color(0xFFF9FAFB),
         borderRadius: BorderRadius.circular(8),
+        border: Border.all(color: const Color(0xFFE5E7EB)),
       ),
       child: Row(
         children: [
 
-          // Image placeholder
+          // image placeholder
           Container(
             width: 44,
             height: 44,
@@ -455,7 +962,7 @@ class _CashierScreenState extends ConsumerState<CashierScreen> {
 
           const SizedBox(width: 10),
 
-          // Item details
+          // item details
           Expanded(
             child: Column(
               crossAxisAlignment: CrossAxisAlignment.start,
@@ -470,24 +977,23 @@ class _CashierScreenState extends ConsumerState<CashierScreen> {
                     color: Color(0xFF111827),
                   ),
                 ),
+
+                // size + color
                 Text(
-                  'Size ${item.size}',
+                  'Size ${item.size}  ·  ${item.color}',
                   style: const TextStyle(
                     fontSize: 11,
                     color: Color(0xFF6B7280),
                   ),
                 ),
-                Text(
-                  'Color ${item.color}',
-                  style: const TextStyle(
-                    fontSize: 11,
-                    color: Color(0xFF6B7280),
-                  ),
-                ),
-                const SizedBox(height: 4),
+
+                const SizedBox(height: 6),
+
                 Row(
                   mainAxisAlignment: MainAxisAlignment.spaceBetween,
                   children: [
+
+                    // price
                     Text(
                       '₱${item.retailPrice.toStringAsFixed(0)}',
                       style: const TextStyle(
@@ -496,27 +1002,28 @@ class _CashierScreenState extends ConsumerState<CashierScreen> {
                         color: Color(0xFF111827),
                       ),
                     ),
-                    // Quantity controls
+
+                    // quantity controls
                     Row(
                       children: [
                         _buildSmallQtyButton(
-                          icon: Icons.add,
-                          onTap: () => _updateQuantity(index, 1),
+                          icon: Icons.remove,
+                          onTap: () => _updateQuantity(index, -1),
                         ),
                         Padding(
-                          padding:
-                              const EdgeInsets.symmetric(horizontal: 8),
+                          padding: const EdgeInsets.symmetric(horizontal: 8),
                           child: Text(
                             '${item.quantity}',
                             style: const TextStyle(
                               fontSize: 12,
                               fontWeight: FontWeight.w600,
+                              color: Color(0xFF111827),
                             ),
                           ),
                         ),
                         _buildSmallQtyButton(
-                          icon: Icons.remove,
-                          onTap: () => _updateQuantity(index, -1),
+                          icon: Icons.add,
+                          onTap: () => _updateQuantity(index, 1),
                         ),
                       ],
                     ),
@@ -528,7 +1035,7 @@ class _CashierScreenState extends ConsumerState<CashierScreen> {
 
           const SizedBox(width: 6),
 
-          // Delete button
+          // delete button
           GestureDetector(
             onTap: () => _removeFromCart(index),
             child: const Icon(
@@ -552,12 +1059,15 @@ class _CashierScreenState extends ConsumerState<CashierScreen> {
         crossAxisAlignment: CrossAxisAlignment.start,
         children: [
 
-          // Subtotal
-          _buildSummaryRow('Subtotal', '₱${_subtotal.toStringAsFixed(0)}'),
+          // subtotal
+          _buildSummaryRow(
+            'Subtotal',
+            '₱${_subtotal.toStringAsFixed(0)}',
+          ),
 
-          const SizedBox(height: 4),
+          const SizedBox(height: 6),
 
-          // Discount row
+          // discount row
           Row(
             mainAxisAlignment: MainAxisAlignment.spaceBetween,
             children: [
@@ -606,10 +1116,9 @@ class _CashierScreenState extends ConsumerState<CashierScreen> {
                           const BorderSide(color: Color(0xFF2563EB)),
                     ),
                   ),
-                  onChanged: (value) {
+                  onChanged: (String value) {
                     setState(() {
-                      _discountAmount =
-                          double.tryParse(value) ?? 0;
+                      _discountAmount = double.tryParse(value) ?? 0;
                     });
                   },
                 ),
@@ -619,14 +1128,18 @@ class _CashierScreenState extends ConsumerState<CashierScreen> {
 
           const SizedBox(height: 8),
 
-          // Total
+          const Divider(height: 1, color: Color(0xFFE5E7EB)),
+
+          const SizedBox(height: 8),
+
+          // total
           Row(
             mainAxisAlignment: MainAxisAlignment.spaceBetween,
             children: [
               const Text(
                 'TOTAL',
                 style: TextStyle(
-                  fontSize: 13,
+                  fontSize: 14,
                   fontWeight: FontWeight.bold,
                   color: Color(0xFF111827),
                 ),
@@ -634,7 +1147,7 @@ class _CashierScreenState extends ConsumerState<CashierScreen> {
               Text(
                 '₱${_total.toStringAsFixed(0)}',
                 style: const TextStyle(
-                  fontSize: 13,
+                  fontSize: 14,
                   fontWeight: FontWeight.bold,
                   color: Color(0xFF111827),
                 ),
@@ -642,50 +1155,67 @@ class _CashierScreenState extends ConsumerState<CashierScreen> {
             ],
           ),
 
-          const SizedBox(height: 12),
+          const SizedBox(height: 14),
 
-          // Payment method label
+          // payment method label
           const Text(
             'Payment Method',
-            style: TextStyle(fontSize: 12, color: Color(0xFF6B7280)),
+            style: TextStyle(
+              fontSize: 12,
+              fontWeight: FontWeight.w500,
+              color: Color(0xFF374151),
+            ),
           ),
 
-          const SizedBox(height: 6),
+          const SizedBox(height: 8),
 
-          // Payment method toggle
+          // payment method toggle
           Row(
             children: [
-              _buildPaymentMethodChip(
-                label: 'Online-Payment',
-                value: 'online',
+
+              // GCash / Maya / Card = online
+              Expanded(
+                child: _buildPaymentMethodChip(
+                  label: 'GCash / Maya / Card',
+                  value: 'online',
+                ),
               ),
+
               const SizedBox(width: 8),
-              _buildPaymentMethodChip(
-                label: 'Cash',
-                value: 'cash',
+
+              // Cash
+              Expanded(
+                child: _buildPaymentMethodChip(
+                  label: 'Cash',
+                  value: 'cash',
+                ),
               ),
             ],
           ),
 
           const SizedBox(height: 12),
 
-          // Cash payment input (only show for cash)
+          // ── CASH INPUT — only when cash selected ──
           if (_paymentMethod == 'cash') ...[
+
             Row(
               mainAxisAlignment: MainAxisAlignment.spaceBetween,
               children: [
                 const Text(
-                  'Cash Payment',
-                  style: TextStyle(fontSize: 12, color: Color(0xFF6B7280)),
+                  'Cash Paid',
+                  style: TextStyle(
+                    fontSize: 12,
+                    color: Color(0xFF6B7280),
+                  ),
                 ),
                 SizedBox(
-                  width: 90,
+                  width: 100,
                   height: 30,
                   child: TextField(
                     controller: _cashPaidController,
                     keyboardType: TextInputType.number,
                     inputFormatters: [
-                      FilteringTextInputFormatter.digitsOnly
+                      FilteringTextInputFormatter.digitsOnly,
                     ],
                     textAlign: TextAlign.right,
                     style: const TextStyle(
@@ -694,7 +1224,7 @@ class _CashierScreenState extends ConsumerState<CashierScreen> {
                     ),
                     onChanged: (_) => setState(() {}),
                     decoration: InputDecoration(
-                      hintText: '100',
+                      hintText: '0',
                       hintStyle: TextStyle(
                         fontSize: 12,
                         color: _isInsufficientAmount
@@ -729,22 +1259,27 @@ class _CashierScreenState extends ConsumerState<CashierScreen> {
                       border: OutlineInputBorder(
                         borderRadius: BorderRadius.circular(6),
                       ),
-                      suffixText: _isInsufficientAmount
-                          ? 'Insufficient amount'
-                          : null,
-                      suffixStyle: const TextStyle(
-                        fontSize: 9,
-                        color: Color(0xFFEF4444),
-                      ),
                     ),
                   ),
                 ),
               ],
             ),
 
+            // insufficient warning
+            if (_isInsufficientAmount) ...[
+              const SizedBox(height: 4),
+              const Text(
+                'Insufficient amount',
+                style: TextStyle(
+                  fontSize: 11,
+                  color: Color(0xFFEF4444),
+                ),
+              ),
+            ],
+
             const SizedBox(height: 8),
 
-            // Change
+            // change
             _buildSummaryRow(
               'Change',
               '₱${_change.toStringAsFixed(0)}',
@@ -781,14 +1316,15 @@ class _CashierScreenState extends ConsumerState<CashierScreen> {
 
               const SizedBox(width: 8),
 
-              // Print Receipt
+              // Checkout / Print Receipt
+              // label changes based on payment method
               Expanded(
                 child: ElevatedButton(
-                  onPressed: _cartItems.isEmpty ? null : () {
-                    // TODO: Print receipt
-                  },
+                  onPressed: _cartItems.isEmpty ? null : _handleCheckout,
                   style: ElevatedButton.styleFrom(
-                    backgroundColor: const Color(0xFF111827),
+                    backgroundColor: _paymentMethod == 'online'
+                        ? const Color(0xFF2563EB)
+                        : const Color(0xFF111827),
                     foregroundColor: Colors.white,
                     disabledBackgroundColor: const Color(0xFF9CA3AF),
                     padding: const EdgeInsets.symmetric(vertical: 12),
@@ -797,9 +1333,11 @@ class _CashierScreenState extends ConsumerState<CashierScreen> {
                     ),
                     elevation: 0,
                   ),
-                  child: const Text(
-                    'Print Receipt',
-                    style: TextStyle(
+                  child: Text(
+                    _paymentMethod == 'online'
+                        ? 'Checkout'
+                        : 'Print Receipt',
+                    style: const TextStyle(
                       fontSize: 11,
                       fontWeight: FontWeight.w500,
                     ),
@@ -821,10 +1359,11 @@ class _CashierScreenState extends ConsumerState<CashierScreen> {
     required String value,
   }) {
     final bool isSelected = _paymentMethod == value;
+
     return GestureDetector(
       onTap: () => setState(() => _paymentMethod = value),
       child: Container(
-        padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 6),
+        padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 8),
         decoration: BoxDecoration(
           color: isSelected ? const Color(0xFF2563EB) : Colors.white,
           border: Border.all(
@@ -832,15 +1371,15 @@ class _CashierScreenState extends ConsumerState<CashierScreen> {
                 ? const Color(0xFF2563EB)
                 : const Color(0xFFD1D5DB),
           ),
-          borderRadius: BorderRadius.circular(20),
+          borderRadius: BorderRadius.circular(8),
         ),
         child: Text(
           label,
+          textAlign: TextAlign.center,
           style: TextStyle(
             fontSize: 11,
             fontWeight: FontWeight.w500,
-            color:
-                isSelected ? Colors.white : const Color(0xFF374151),
+            color: isSelected ? Colors.white : const Color(0xFF374151),
           ),
         ),
       ),
@@ -856,11 +1395,17 @@ class _CashierScreenState extends ConsumerState<CashierScreen> {
       children: [
         Text(
           label,
-          style: const TextStyle(fontSize: 12, color: Color(0xFF6B7280)),
+          style: const TextStyle(
+            fontSize: 12,
+            color: Color(0xFF6B7280),
+          ),
         ),
         Text(
           value,
-          style: const TextStyle(fontSize: 12, color: Color(0xFF111827)),
+          style: const TextStyle(
+            fontSize: 12,
+            color: Color(0xFF111827),
+          ),
         ),
       ],
     );
@@ -881,6 +1426,7 @@ class _CashierScreenState extends ConsumerState<CashierScreen> {
         decoration: BoxDecoration(
           shape: BoxShape.circle,
           border: Border.all(color: const Color(0xFFD1D5DB)),
+          color: Colors.white,
         ),
         child: Icon(icon, size: 12, color: const Color(0xFF374151)),
       ),
@@ -888,7 +1434,7 @@ class _CashierScreenState extends ConsumerState<CashierScreen> {
   }
 
   // ================================================
-  // EMPTY STATE
+  // EMPTY STATE (no products found in search)
   // ================================================
   Widget _buildEmptyState() {
     return Center(
@@ -899,7 +1445,10 @@ class _CashierScreenState extends ConsumerState<CashierScreen> {
           const SizedBox(height: 12),
           Text(
             'No products found',
-            style: TextStyle(fontSize: 14, color: Colors.grey.shade500),
+            style: TextStyle(
+              fontSize: 14,
+              color: Colors.grey.shade500,
+            ),
           ),
         ],
       ),
