@@ -3,7 +3,8 @@ import 'package:flutter_riverpod/flutter_riverpod.dart';
 import '../../widgets/super/sidebar/super_sidebar.dart';
 import '../../widgets/super/topbar/super_top_bar.dart';
 import 'dashboard/super_dashboard_screen.dart';
-import 'dashboard/super_dashboard_screen.dart'; // ← ADD THIS
+import 'admin_management/admin_management_screen.dart';
+import 'admin_management/customer_management_screen.dart';
 
 // ================================================
 // SUPER ADMIN LAYOUT
@@ -20,9 +21,9 @@ import 'dashboard/super_dashboard_screen.dart'; // ← ADD THIS
 // └─────────┴───────────────────────┘
 //
 // Indexes:
-//   0 = Dashboard (Analytics)
+//   0 = Dashboard
 //   1 = Admin Accounts
-//   2 = Customer Accounts
+//   2 = Customer Accounts  ← NOW WIRED
 //   3 = Sales Report
 //   4 = Feedback Management
 //   5 = Notification
@@ -50,11 +51,12 @@ class _SuperLayoutState extends ConsumerState<SuperLayout> {
     }
 
     if (_currentIndex == 1) {
-      return _buildComingSoon('Admin Accounts');
+      return const AdminManagementScreen();
     }
 
+    // customer accounts — now wired!
     if (_currentIndex == 2) {
-      return _buildComingSoon('Customer Accounts');
+      return const CustomerManagementScreen();
     }
 
     if (_currentIndex == 3) {
@@ -79,7 +81,6 @@ class _SuperLayoutState extends ConsumerState<SuperLayout> {
 
   // ================================================
   // BUILD COMING SOON
-  // same pattern as admin_layout.dart
   // ================================================
   Widget _buildComingSoon(String screenName) {
     return Center(

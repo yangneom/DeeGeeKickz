@@ -19,5 +19,5 @@ samples, guidance on mobile development, and a full API reference.
 # Push in git hub
 
 git add .
-git commit -m "superadmin dashboard"
+git commit -m "fixing the account management"
 git push origin main
