@@ -19,6 +19,8 @@ import '../../screens/cashier/cashier_layout.dart';
 // TODO: Import CustomerLayout when built
 // import '../../screens/customer/customer_layout.dart';
 
+import '../../screens/super/super_layout.dart'; // ← ADD THIS
+
 // ================================================
 // LOGIN FORM WIDGET
 // ================================================
@@ -73,26 +75,36 @@ class _LoginFormState extends ConsumerState<LoginForm> {
 
       final String? role = await authService.getUserRole();
 
-      if (!mounted) return;
-        if (role == 'Admin' || role == 'Super Admin') {
-          Navigator.pushReplacement(
-            context,
-            MaterialPageRoute(builder: (context) => const AdminLayout()),
-          );
-        } else if (role == 'Cashier') {
-          Navigator.pushReplacement(
-            context,
-            MaterialPageRoute(builder: (context) => const CashierLayout()),
-          );
-        } else if (role == 'Customer') {
-          ref.read(errorMessageProvider.notifier).setError(
-            'Customer screen coming soon.',
-          );
-        } else {
-          ref.read(errorMessageProvider.notifier).setError(
-            'Unknown role: $role. Please contact support.',
-          );
-      }
+      // ✅ REPLACE the role check section with this:
+
+      if (role == 'Admin') {
+        Navigator.pushReplacement(
+          context,
+          MaterialPageRoute(builder: (context) => const AdminLayout()),
+        );
+
+      } else if (role == 'Super Admin') {
+        Navigator.pushReplacement(
+          context,
+          MaterialPageRoute(builder: (context) => const SuperLayout()),
+        );
+
+      } else if (role == 'Cashier') {
+        Navigator.pushReplacement(
+          context,
+          MaterialPageRoute(builder: (context) => const CashierLayout()),
+        );
+
+      } else if (role == 'Customer') {
+        ref.read(errorMessageProvider.notifier).setError(
+          'Customer screen coming soon.',
+        );
+
+      } else {
+        ref.read(errorMessageProvider.notifier).setError(
+          'Unknown role: $role. Please contact support.',
+        );
+}
     } catch (error) {
       ref.read(errorMessageProvider.notifier).setError(
         'Something went wrong. Please try again.',
