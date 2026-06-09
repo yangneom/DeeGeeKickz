@@ -1,4 +1,5 @@
 import 'package:flutter/material.dart';
+import '../../../models/admin_account.dart';
 
 // ================================================
 // ADMIN EDIT DIALOG
@@ -13,10 +14,13 @@ import 'package:flutter/material.dart';
 //   - Password and Security section
 // ================================================
 
+late TextEditingController _phoneController;
+late TextEditingController _emailController;
+
 void showAdminEditDialog(
   BuildContext context,
-  Map<String, dynamic> account,
-  Function(Map<String, dynamic>) onSave,
+  AdminAccount account,
+  Function(AdminAccount) onSave,
 ) {
   showDialog(
     context: context,
@@ -30,8 +34,8 @@ void showAdminEditDialog(
 }
 
 class AdminEditDialog extends StatefulWidget {
-  final Map<String, dynamic> account;
-  final Function(Map<String, dynamic>) onSave;
+    final AdminAccount account;
+    final Function(AdminAccount) onSave;
 
   const AdminEditDialog({
     super.key,
@@ -53,27 +57,46 @@ class _AdminEditDialogState extends State<AdminEditDialog> {
   bool _showPasswordFields = false;
   String? _passwordError;
 
-  @override
-  void initState() {
-    super.initState();
-    _firstNameController = TextEditingController(
-      text: widget.account['firstName'],
-    );
-    _lastNameController = TextEditingController(
-      text: widget.account['lastName'],
-    );
-    _newPasswordController = TextEditingController();
-    _confirmPasswordController = TextEditingController();
-  }
+ @override
+void initState() {
+  super.initState();
+  _firstNameController = TextEditingController(
+    text: widget.account.firstName,
+  );
+  _lastNameController = TextEditingController(
+    text: widget.account.lastName,
+  );
+  _phoneController = TextEditingController(
+    text: widget.account.phone,        // ← populated here, not inline
+  );
+  _emailController = TextEditingController(
+    text: widget.account.email,        // ← populated here, not inline
+  );
+  _newPasswordController = TextEditingController();
+  _confirmPasswordController = TextEditingController();
 
-  @override
-  void dispose() {
-    _firstNameController.dispose();
-    _lastNameController.dispose();
-    _newPasswordController.dispose();
-    _confirmPasswordController.dispose();
-    super.dispose();
+  _newPasswordController.addListener(() {
+  final hasText = _newPasswordController.text.isNotEmpty;
+  if (hasText != _showPasswordFields) {
+    setState(() {
+      _showPasswordFields = hasText;
+      if (!hasText) _passwordError = null;
+    });
   }
+});
+
+}
+
+@override
+void dispose() {
+  _firstNameController.dispose();
+  _lastNameController.dispose();
+  _phoneController.dispose();          // ← dispose here
+  _emailController.dispose();          // ← dispose here
+  _newPasswordController.dispose();
+  _confirmPasswordController.dispose();
+  super.dispose();
+}
 
   // ================================================
   // HANDLE SAVE
@@ -95,10 +118,12 @@ class _AdminEditDialogState extends State<AdminEditDialog> {
       }
     }
 
-    widget.onSave({
-      'firstName': _firstNameController.text.trim(),
-      'lastName': _lastNameController.text.trim(),
-    });
+    widget.onSave(
+    widget.account.copyWith(
+      firstName: _firstNameController.text.trim(),
+      lastName: _lastNameController.text.trim(),
+    ),
+  );
 
     Navigator.pop(context);
   }
@@ -262,23 +287,10 @@ class _AdminEditDialogState extends State<AdminEditDialog> {
 
                     const SizedBox(height: 16),
 
-                    // contact number — read only
-                    _buildTextField(
-                      label: 'Contact Number',
-                      controller: TextEditingController(
-                        text: widget.account['phone'] ?? '',
-                      ),
-                      readOnly: true,
-                    ),
-
-                    const SizedBox(height: 16),
-
                     // email — read only
                     _buildTextField(
                       label: 'Email',
-                      controller: TextEditingController(
-                        text: widget.account['email'] ?? '',
-                      ),
+                      controller: _emailController,
                       readOnly: true,
                     ),
 
@@ -322,18 +334,13 @@ class _AdminEditDialogState extends State<AdminEditDialog> {
                           color: Color(0xFFEF4444),
                         ),
                       ),
-                    ],
+                    ],  
 
                     const SizedBox(height: 12),
 
                     // update password button
                     ElevatedButton(
-                      onPressed: () {
-                        setState(() {
-                          _showPasswordFields = !_showPasswordFields;
-                          _passwordError = null;
-                        });
-                      },
+                       onPressed: _handleSave,
                       style: ElevatedButton.styleFrom(
                         backgroundColor: const Color(0xFF2563EB),
                         foregroundColor: Colors.white,

@@ -27,6 +27,9 @@ void main() async {
   // Load .env file first
   await dotenv.load(fileName: '.env');
 
+  print('URL = ${dotenv.env['SUPABASE_URL']}');
+  print('KEY = ${dotenv.env['SUPABASE_ANON_KEY']}');
+
   // Initialize Supabase
   try {
     await Supabase.initialize(

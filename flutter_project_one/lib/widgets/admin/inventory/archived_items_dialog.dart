@@ -2,110 +2,7 @@ import 'package:flutter/material.dart';
 import 'package:flutter_project_one/widgets/common/confirm_dialog.dart';
 import 'package:flutter_project_one/widgets/common/expandable_product_table.dart';
 import 'package:flutter_project_one/models/product.dart';
-
-// ================================================
-// FAKE ARCHIVED PRODUCT DATA
-// ================================================
-
-class ArchivedSizeRow {
-  final String size;
-  final int stockQty;
-  final String status;
-  final double costPrice;
-  final double retailPrice;
-
-  ArchivedSizeRow({
-    required this.size,
-    required this.stockQty,
-    required this.status,
-    required this.costPrice,
-    required this.retailPrice,
-  });
-}
-
-class ArchivedVariant {
-  final String colorName;
-  final List<ArchivedSizeRow> sizeRows;
-
-  ArchivedVariant({
-    required this.colorName,
-    required this.sizeRows,
-  });
-}
-
-class ArchivedProduct {
-  final String productName;
-  final String brand;
-  final String category;
-  final int totalStock;
-  final double averagePrice;
-  final String archivedDate;
-  final List<ArchivedVariant> variants;
-
-  ArchivedProduct({
-    required this.productName,
-    required this.brand,
-    required this.category,
-    required this.totalStock,
-    required this.averagePrice,
-    required this.archivedDate,
-    required this.variants,
-  });
-}
-
-final List<ArchivedProduct> fakeArchivedProducts = [
-  ArchivedProduct(
-    productName: 'Nike Panda',
-    brand: 'Nike',
-    category: 'Running-Shoes',
-    totalStock: 8,
-    averagePrice: 5500,
-    archivedDate: '2025/03/02',
-    variants: [
-      ArchivedVariant(
-        colorName: 'Pink',
-        sizeRows: [
-          ArchivedSizeRow(
-            size: '8',
-            stockQty: 6,
-            status: 'Low Stock',
-            costPrice: 5500,
-            retailPrice: 2500,
-          ),
-        ],
-      ),
-    ],
-  ),
-  ArchivedProduct(
-    productName: 'Nike Air Max 270 React Flyk b nit Men\'s Running Shoe',
-    brand: 'Nike',
-    category: 'Sneakers',
-    totalStock: 8,
-    averagePrice: 5500,
-    archivedDate: '2025/03/10',
-    variants: [
-      ArchivedVariant(
-        colorName: 'White',
-        sizeRows: [
-          ArchivedSizeRow(
-            size: '9',
-            stockQty: 4,
-            status: 'Available',
-            costPrice: 5500,
-            retailPrice: 4500,
-          ),
-          ArchivedSizeRow(
-            size: '10',
-            stockQty: 0,
-            status: 'Out of Stock',
-            costPrice: 5500,
-            retailPrice: 4500,
-          ),
-        ],
-      ),
-    ],
-  ),
-];
+import '../../../services/admin/inventory/archive_service.dart';
 
 void showArchivedItemsDialog(BuildContext context) {
   showDialog(
@@ -126,63 +23,37 @@ class ArchivedItemsDialog extends StatefulWidget {
 
 class _ArchivedItemsDialogState extends State<ArchivedItemsDialog> {
 
+  final ArchiveService _service = ArchiveService();
+  List<Product> _products = [];
+  bool _isLoading = true;
+
   // ================================================
-  // CONVERT ArchivedProduct LIST → Product LIST
-  // so we can pass it to ExpandableProductTable
+  // INIT STATE
   // ================================================
-  List<Product> _convertToProducts() {
+  @override
+  void initState() {
+    super.initState();
+    _loadArchived();
+  }
 
-    List<Product> result = [];
+  // ================================================
+  // LOAD ARCHIVED PRODUCTS FROM SUPABASE
+  // ================================================
+  Future<void> _loadArchived() async {
+    setState(() => _isLoading = true);
 
-    for (int i = 0; i < fakeArchivedProducts.length; i = i + 1) {
+    final List<Product> products = await _service.fetchArchivedProducts();
 
-      ArchivedProduct archived = fakeArchivedProducts[i];
-
-      // flatten ArchivedVariant + ArchivedSizeRow → ProductVariant
-      List<ProductVariant> variants = [];
-
-      for (int j = 0; j < archived.variants.length; j = j + 1) {
-
-        ArchivedVariant archivedVariant = archived.variants[j];
-
-        for (int k = 0; k < archivedVariant.sizeRows.length; k = k + 1) {
-
-          ArchivedSizeRow sizeRow = archivedVariant.sizeRows[k];
-
-          variants.add(
-            ProductVariant(
-              color: archivedVariant.colorName,
-              size: sizeRow.size,
-              stockQty: sizeRow.stockQty,
-              costPrice: sizeRow.costPrice,
-              retailPrice: sizeRow.retailPrice,
-            ),
-          );
-        }
-      }
-
-      // create Product with archivedDate attached
-      result.add(
-        Product(
-          productId: 'archived_$i',
-          productName: archived.productName,
-          brand: archived.brand,
-          category: archived.category,
-          variants: variants,
-          archivedDate: archived.archivedDate,
-        ),
-      );
-    }
-
-    return result;
+    setState(() {
+      _products = products;
+      _isLoading = false;
+    });
   }
 
   // ================================================
   // HANDLE RESTORE
-  // shows confirm dialog then pops and shows snackbar
   // ================================================
   Future<void> _handleRestore(Product product) async {
-
     final bool? confirmed = await showConfirmDialog(
       context: context,
       title: 'Restore this product in the inventory?',
@@ -193,8 +64,24 @@ class _ArchivedItemsDialogState extends State<ArchivedItemsDialog> {
       confirmColor: const Color(0xFF2563EB),
     );
 
-    if (confirmed == true) {
-      Navigator.pop(context);
+    if (confirmed != true) return;
+
+    final String? error = await _service.restoreProduct(
+      productId: product.productId,
+    );
+
+    if (error != null) {
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(content: Text(error), backgroundColor: Colors.red),
+        );
+      }
+      return;
+    }
+
+    await _loadArchived();
+
+    if (mounted) {
       ScaffoldMessenger.of(context).showSnackBar(
         SnackBar(
           content: Text('${product.productName} has been restored!'),
@@ -209,7 +96,6 @@ class _ArchivedItemsDialogState extends State<ArchivedItemsDialog> {
   // ================================================
   @override
   Widget build(BuildContext context) {
-
     final double screenHeight = MediaQuery.of(context).size.height;
     final double screenWidth = MediaQuery.of(context).size.width;
 
@@ -255,50 +141,74 @@ class _ArchivedItemsDialogState extends State<ArchivedItemsDialog> {
               ),
             ),
 
-            // ── TABLE ──
+            // ── BODY ──
             Expanded(
-              child: SingleChildScrollView(
-                padding: const EdgeInsets.fromLTRB(24, 16, 24, 16),
-                child: ExpandableProductTable(
-                  products: _convertToProducts(),
-
-                  // extra column — archived date
-                  extraHeaderLabel: 'Archived Date',
-                  extraValueBuilder: (Product product) {
-                    return product.archivedDate ?? '';
-                  },
-
-                  // restore button as the action
-                  actionBuilder: (Product product) {
-                    return SizedBox(
-                      height: 32,
-                      child: ElevatedButton(
-                        onPressed: () {
-                          _handleRestore(product);
-                        },
-                        style: ElevatedButton.styleFrom(
-                          backgroundColor: const Color(0xFF16A34A),
-                          foregroundColor: Colors.white,
-                          elevation: 0,
-                          padding: const EdgeInsets.symmetric(horizontal: 10),
-                          shape: RoundedRectangleBorder(
-                            borderRadius: BorderRadius.circular(6),
-                          ),
-                          minimumSize: Size.zero,
-                          tapTargetSize: MaterialTapTargetSize.shrinkWrap,
-                        ),
-                        child: const Text(
-                          'Restore',
-                          style: TextStyle(
-                            fontSize: 12,
-                            fontWeight: FontWeight.w500,
-                          ),
-                        ),
+              child: _isLoading
+                  ? const Center(
+                      child: CircularProgressIndicator(
+                        color: Color(0xFF2563EB),
+                        strokeWidth: 2,
                       ),
-                    );
-                  },
-                ),
-              ),
+                    )
+                  : _products.isEmpty
+                      ? const Center(
+                          child: Column(
+                            mainAxisSize: MainAxisSize.min,
+                            children: [
+                              Icon(
+                                Icons.inventory_2_outlined,
+                                size: 40,
+                                color: Color(0xFF9CA3AF),
+                              ),
+                              SizedBox(height: 12),
+                              Text(
+                                'No archived products.',
+                                style: TextStyle(
+                                  fontSize: 13,
+                                  color: Color(0xFF6B7280),
+                                ),
+                              ),
+                            ],
+                          ),
+                        )
+                      : SingleChildScrollView(
+                          padding: const EdgeInsets.fromLTRB(24, 16, 24, 16),
+                          child: ExpandableProductTable(
+                            products: _products,
+                            extraHeaderLabel: 'Archived Date',
+                            extraValueBuilder: (Product product) {
+                              return product.archivedDate ?? '';
+                            },
+                            actionBuilder: (Product product) {
+                              return SizedBox(
+                                height: 32,
+                                child: ElevatedButton(
+                                  onPressed: () => _handleRestore(product),
+                                  style: ElevatedButton.styleFrom(
+                                    backgroundColor: const Color(0xFF16A34A),
+                                    foregroundColor: Colors.white,
+                                    elevation: 0,
+                                    padding: const EdgeInsets.symmetric(
+                                        horizontal: 10),
+                                    shape: RoundedRectangleBorder(
+                                      borderRadius: BorderRadius.circular(6),
+                                    ),
+                                    minimumSize: Size.zero,
+                                    tapTargetSize:
+                                        MaterialTapTargetSize.shrinkWrap,
+                                  ),
+                                  child: const Text(
+                                    'Restore',
+                                    style: TextStyle(
+                                      fontSize: 12,
+                                      fontWeight: FontWeight.w500,
+                                    ),
+                                  ),
+                                ),
+                              );
+                            },
+                          ),
+                        ),
             ),
 
             // ── BACK BUTTON ──

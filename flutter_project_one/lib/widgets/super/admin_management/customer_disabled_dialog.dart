@@ -147,94 +147,134 @@ class _CustomerDisabledDialogState extends State<CustomerDisabledDialog> {
 
   // ================================================
   // BUILD
-  // fixed header + scrollable CommonTable + footer
+  // fixed header + scrollable CommonTable + fixed footer
+  // same pattern as feedback_details_dialog.dart
   // ================================================
   @override
   Widget build(BuildContext context) {
-    double screenHeight = MediaQuery.of(context).size.height;
-
     return Dialog(
-      shape: RoundedRectangleBorder(
-        borderRadius: BorderRadius.circular(12),
-      ),
+      shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
       backgroundColor: Colors.white,
-      child: Container(
-        width: 680,
+      insetPadding: const EdgeInsets.symmetric(horizontal: 40, vertical: 24),
+      child: ConstrainedBox(
         constraints: BoxConstraints(
-          maxHeight: screenHeight * 0.75,
+          maxWidth: 700,
+          maxHeight: MediaQuery.of(context).size.height * 0.85,
         ),
-        padding: const EdgeInsets.all(24),
         child: Column(
           mainAxisSize: MainAxisSize.min,
-          crossAxisAlignment: CrossAxisAlignment.start,
           children: [
 
-            // ── TITLE ──
-            const Text(
-              'Disabled Accounts',
-              style: TextStyle(
-                fontSize: 18,
-                fontWeight: FontWeight.bold,
-                color: Color(0xFF111827),
+            // ── FIXED HEADER ──
+            Container(
+              padding: const EdgeInsets.fromLTRB(24, 20, 16, 16),
+              decoration: const BoxDecoration(
+                color: Colors.white,
+                border: Border(
+                  bottom: BorderSide(color: Color(0xFFE5E7EB)),
+                ),
+                borderRadius: BorderRadius.only(
+                  topLeft: Radius.circular(12),
+                  topRight: Radius.circular(12),
+                ),
+              ),
+              child: Row(
+                mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                children: [
+                  const Column(
+                    crossAxisAlignment: CrossAxisAlignment.start,
+                    children: [
+                      Text(
+                        'Disabled Accounts',
+                        style: TextStyle(
+                          fontSize: 18,
+                          fontWeight: FontWeight.bold,
+                          color: Color(0xFF111827),
+                        ),
+                      ),
+                      SizedBox(height: 2),
+                      Text(
+                        'Manage and review disabled user accounts.',
+                        style: TextStyle(
+                          fontSize: 12,
+                          color: Color(0xFF9CA3AF),
+                        ),
+                      ),
+                    ],
+                  ),
+                  IconButton(
+                    onPressed: () => Navigator.pop(context),
+                    icon: const Icon(
+                      Icons.close,
+                      size: 20,
+                      color: Color(0xFF6B7280),
+                    ),
+                  ),
+                ],
               ),
             ),
 
-            const SizedBox(height: 4),
-
-            const Text(
-              'Manage and review disabled user accounts',
-              style: TextStyle(
-                fontSize: 13,
-                color: Color(0xFF6B7280),
-              ),
-            ),
-
-            const SizedBox(height: 20),
-
-            // ── COMMON TABLE ──
+            // ── SCROLLABLE CONTENT ──
             Flexible(
               child: SingleChildScrollView(
-                child: CommonTable(
-                  headers: const [
-                    'Name',
-                    'Email',
-                    'Reason',
-                    'Date Disabled',
-                    'Action',
-                  ],
-                  rows: _buildRows(),
-                ),
+                padding: const EdgeInsets.all(24),
+                child: widget.disabledAccounts.isEmpty
+                    ? const Center(
+                        child: Padding(
+                          padding: EdgeInsets.all(32),
+                          child: Text(
+                            'No disabled accounts found.',
+                            style: TextStyle(
+                              fontSize: 13,
+                              color: Color(0xFF9CA3AF),
+                            ),
+                          ),
+                        ),
+                      )
+                    : CommonTable(
+                        headers: const [
+                          'Name',
+                          'Email',
+                          'Reason',
+                          'Date Disabled',
+                          'Action',
+                        ],
+                        rows: _buildRows(),
+                      ),
               ),
             ),
 
-            const SizedBox(height: 20),
-
-            // ── FOOTER ──
-            Row(
-              mainAxisAlignment: MainAxisAlignment.end,
-              children: [
-                OutlinedButton(
-                  onPressed: () => Navigator.pop(context),
-                  style: OutlinedButton.styleFrom(
-                    foregroundColor: const Color(0xFF374151),
-                    side: const BorderSide(color: Color(0xFFD1D5DB)),
-                    padding: const EdgeInsets.symmetric(
-                      horizontal: 20,
-                      vertical: 12,
-                    ),
-                    shape: RoundedRectangleBorder(
-                      borderRadius: BorderRadius.circular(8),
-                    ),
-                  ),
-                  child: const Text(
-                    'Cancel',
-                    style: TextStyle(
-                      fontSize: 13,
-                      fontWeight: FontWeight.w500,
-                    ),
-                  ),
+            // ── FIXED FOOTER ──
+            Container(
+              padding: const EdgeInsets.fromLTRB(24, 12, 24, 16),
+              decoration: const BoxDecoration(
+                border: Border(
+                  top: BorderSide(color: Color(0xFFE5E7EB)),
                 ),
-              ],
+              ),
+              child: Row(
+                mainAxisAlignment: MainAxisAlignment.end,
+                children: [
+                  OutlinedButton(
+                    onPressed: () => Navigator.pop(context),
+                    style: OutlinedButton.styleFrom(
+                      foregroundColor: const Color(0xFF374151),
+                      side: const BorderSide(color: Color(0xFFD1D5DB)),
+                      padding: const EdgeInsets.symmetric(
+                        horizontal: 20,
+                        vertical: 11,
+                      ),
+                      shape: RoundedRectangleBorder(
+                        borderRadius: BorderRadius.circular(8),
+                      ),
+                    ),
+                    child: const Text(
+                      'Cancel',
+                      style: TextStyle(fontSize: 13),
+                    ),
+                  ),
+                ],
+              ),
             ),
           ],
         ),

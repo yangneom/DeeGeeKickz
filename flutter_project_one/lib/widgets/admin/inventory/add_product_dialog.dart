@@ -1,15 +1,29 @@
+import 'dart:io';
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:flutter_colorpicker/flutter_colorpicker.dart';
+import 'package:file_picker/file_picker.dart';
+import 'package:supabase_flutter/supabase_flutter.dart';
 import 'package:flutter_project_one/widgets/common/confirm_dialog.dart';
+import 'package:flutter_project_one/services/admin/inventory/inventory_service.dart';
 
-void showAddProductDialog(BuildContext context) {
-  showDialog(
+// ================================================
+// SHOW ADD PRODUCT DIALOG
+// onProductAdded → called after product is saved
+// so inventory_screen.dart can refresh its list
+// ================================================
+Future<void> showAddProductDialog(
+  BuildContext context, {
+  required VoidCallback onProductAdded,
+}) async {
+  await showDialog(
     context: context,
     barrierDismissible: false,
     builder: (BuildContext dialogContext) {
-      return const AddProductDialog();
+      return AddProductDialog(
+        onProductAdded: onProductAdded,
+      );
     },
   );
 }
@@ -35,6 +49,9 @@ class SizeStockRow {
 
 // ================================================
 // VARIANT MODEL
+// holds all data for one color variant
+// pickedImageFiles → files selected by file_picker
+// uploadedImageUrls → urls after upload to Supabase
 // ================================================
 class VariantData {
   final TextEditingController colorNameController;
@@ -43,12 +60,16 @@ class VariantData {
   Color selectedColor;
   List<SizeStockRow> sizeRows;
 
+  // image files picked by the user (not yet uploaded)
+  List<PlatformFile> pickedImageFiles;
+
   VariantData()
       : colorNameController = TextEditingController(),
         costController = TextEditingController(),
         retailController = TextEditingController(),
         selectedColor = Colors.black,
-        sizeRows = [SizeStockRow()];
+        sizeRows = [SizeStockRow()],
+        pickedImageFiles = [];
 
   void dispose() {
     colorNameController.dispose();
@@ -64,7 +85,12 @@ class VariantData {
 // ADD PRODUCT DIALOG
 // ================================================
 class AddProductDialog extends ConsumerStatefulWidget {
-  const AddProductDialog({super.key});
+  final VoidCallback onProductAdded;
+
+  const AddProductDialog({
+    super.key,
+    required this.onProductAdded,
+  });
 
   @override
   ConsumerState<AddProductDialog> createState() => _AddProductDialogState();
@@ -72,26 +98,60 @@ class AddProductDialog extends ConsumerStatefulWidget {
 
 class _AddProductDialogState extends ConsumerState<AddProductDialog> {
 
+  // ── SUPABASE ──
+  final SupabaseClient _supabase = Supabase.instance.client;
+  final InventoryService _service = InventoryService();
+
+  // ── FORM ──
   final TextEditingController _productNameController = TextEditingController();
   final TextEditingController _detailsController = TextEditingController();
+  final GlobalKey<FormState> _formKey = GlobalKey<FormState>();
 
   String? _selectedBrand;
   String? _selectedCategory;
 
-  final List<String> _brands = [
-    'Nike', 'Adidas', 'Puma', 'New Balance',
-    'Converse', 'Vans', 'Reebok', 'Under Armour',
-  ];
-
-  final List<String> _categories = [
-    'Running Shoes', 'Sneakers', 'Basketball Shoes',
-    'Sandals', 'Boots', 'Casual Shoes', 'Formal Shoes',
-  ];
+  // loaded from Supabase
+  List<String> _brands = [];
+  List<String> _categories = [];
+  bool _isLoadingDropdowns = true;
 
   final List<VariantData> _variants = [VariantData()];
-  final GlobalKey<FormState> _formKey = GlobalKey<FormState>();
   bool _isLoading = false;
 
+  // ================================================
+  // INIT STATE — load brands and categories
+  // ================================================
+  @override
+  void initState() {
+    super.initState();
+    _loadDropdowns();
+  }
+
+  // ================================================
+  // LOAD BRANDS AND CATEGORIES FROM SUPABASE
+  // ================================================
+  Future<void> _loadDropdowns() async {
+    try {
+      List<String> brands = await _service.fetchBrands();
+      List<String> categories = await _service.fetchCategories();
+
+      setState(() {
+        _brands = brands;
+        _categories = categories;
+        _isLoadingDropdowns = false;
+      });
+
+    } catch (error) {
+      print('_loadDropdowns error: $error');
+      setState(() {
+        _isLoadingDropdowns = false;
+      });
+    }
+  }
+
+  // ================================================
+  // DISPOSE
+  // ================================================
   @override
   void dispose() {
     _productNameController.dispose();
@@ -111,9 +171,13 @@ class _AddProductDialogState extends ConsumerState<AddProductDialog> {
       context: context,
       builder: (BuildContext colorContext) {
         return AlertDialog(
-          shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
-          title: const Text('Pick a Color',
-              style: TextStyle(fontSize: 15, fontWeight: FontWeight.w600)),
+          shape: RoundedRectangleBorder(
+            borderRadius: BorderRadius.circular(12),
+          ),
+          title: const Text(
+            'Pick a Color',
+            style: TextStyle(fontSize: 15, fontWeight: FontWeight.w600),
+          ),
           content: SingleChildScrollView(
             child: ColorPicker(
               pickerColor: tempColor,
@@ -125,12 +189,16 @@ class _AddProductDialogState extends ConsumerState<AddProductDialog> {
           actions: [
             TextButton(
               onPressed: () => Navigator.pop(colorContext),
-              child: const Text('Cancel',
-                  style: TextStyle(color: Color(0xFF374151))),
+              child: const Text(
+                'Cancel',
+                style: TextStyle(color: Color(0xFF374151)),
+              ),
             ),
             ElevatedButton(
               onPressed: () {
-                setState(() => _variants[variantIndex].selectedColor = tempColor);
+                setState(() {
+                  _variants[variantIndex].selectedColor = tempColor;
+                });
                 Navigator.pop(colorContext);
               },
               style: ElevatedButton.styleFrom(
@@ -138,7 +206,8 @@ class _AddProductDialogState extends ConsumerState<AddProductDialog> {
                 foregroundColor: Colors.white,
                 elevation: 0,
                 shape: RoundedRectangleBorder(
-                    borderRadius: BorderRadius.circular(8)),
+                  borderRadius: BorderRadius.circular(8),
+                ),
               ),
               child: const Text('Select'),
             ),
@@ -146,6 +215,123 @@ class _AddProductDialogState extends ConsumerState<AddProductDialog> {
         );
       },
     );
+  }
+
+  // ================================================
+  // PICK IMAGES
+  // uses file_picker to let admin select images
+  // max 4 images per variant
+  // ================================================
+  Future<void> _pickImages(int variantIndex) async {
+    try {
+      FilePickerResult? result = await FilePicker.platform.pickFiles(
+        type: FileType.image,
+        allowMultiple: true,
+      );
+
+      if (result == null) return;
+
+      // max 4 images per variant
+      List<PlatformFile> currentFiles =
+          _variants[variantIndex].pickedImageFiles;
+
+      int remaining = 4 - currentFiles.length;
+
+      if (remaining <= 0) {
+        if (mounted) {
+          ScaffoldMessenger.of(context).showSnackBar(
+            const SnackBar(
+              content: Text('Maximum 4 images per variant.'),
+              backgroundColor: Colors.orange,
+            ),
+          );
+        }
+        return;
+      }
+
+      // only take up to the remaining slots
+      List<PlatformFile> newFiles = result.files.take(remaining).toList();
+
+      setState(() {
+        _variants[variantIndex].pickedImageFiles.addAll(newFiles);
+      });
+
+    } catch (error) {
+      print('_pickImages error: $error');
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          const SnackBar(
+            content: Text('Failed to pick images. Please try again.'),
+            backgroundColor: Colors.red,
+          ),
+        );
+      }
+    }
+  }
+
+  // ================================================
+  // REMOVE PICKED IMAGE
+  // removes a selected image before upload
+  // ================================================
+  void _removeImage(int variantIndex, int imageIndex) {
+    setState(() {
+      _variants[variantIndex].pickedImageFiles.removeAt(imageIndex);
+    });
+  }
+
+  // ================================================
+  // UPLOAD IMAGES TO SUPABASE STORAGE
+  // uploads all picked images for one variant
+  // returns list of public URLs
+  // ================================================
+  Future<List<String>> _uploadImages(
+    int variantId,
+    List<PlatformFile> files,
+  ) async {
+    List<String> urls = [];
+
+    for (int i = 0; i < files.length; i = i + 1) {
+      PlatformFile file = files[i];
+
+      try {
+        // build a unique file path inside the bucket
+        // format: variant_{id}/{timestamp}_{filename}
+        String timestamp = DateTime.now().millisecondsSinceEpoch.toString();
+        String fileName = file.name;
+        String filePath = 'variant_$variantId/${timestamp}_$fileName';
+
+        // get the file bytes
+        Uint8List? fileBytes = file.bytes;
+
+        // on mobile, bytes may be null — read from path instead
+        if (fileBytes == null && file.path != null) {
+          fileBytes = await File(file.path!).readAsBytes();
+        }
+
+        if (fileBytes == null) {
+          print('_uploadImages: skipping ${file.name} — no bytes');
+          continue;
+        }
+
+        // upload to Supabase Storage
+        await _supabase.storage
+            .from('product-images')
+            .uploadBinary(filePath, fileBytes);
+
+        // get public URL
+        String publicUrl = _supabase.storage
+            .from('product-images')
+            .getPublicUrl(filePath);
+
+        urls.add(publicUrl);
+
+      } catch (error) {
+        print('_uploadImages: failed to upload ${file.name}: $error');
+        // skip this file and continue with the rest
+      }
+    }
+
+    return urls;
   }
 
   void _addVariant() => setState(() => _variants.add(VariantData()));
@@ -171,7 +357,7 @@ class _AddProductDialogState extends ConsumerState<AddProductDialog> {
 
   // ================================================
   // HANDLE PUBLISH
-  // Now uses the reusable showConfirmDialog
+  // validate → confirm → save
   // ================================================
   Future<void> _handlePublish() async {
     if (_formKey.currentState!.validate() == false) return;
@@ -193,27 +379,104 @@ class _AddProductDialogState extends ConsumerState<AddProductDialog> {
 
   // ================================================
   // SAVE PRODUCT
+  // builds variant data map → calls service → uploads images
   // ================================================
   Future<void> _saveProduct() async {
     setState(() => _isLoading = true);
+
     try {
-      // TODO: Replace with real Firestore logic
-      print('---- SAVING PRODUCT ----');
-      print('Product Name: ${_productNameController.text}');
-      print('Brand: $_selectedBrand');
-      print('Category: $_selectedCategory');
-      print('Details: ${_detailsController.text}');
-      for (int i = 0; i < _variants.length; i++) {
+      // build variants data list for service
+      List<Map<String, dynamic>> variantsData = [];
+
+      for (int i = 0; i < _variants.length; i = i + 1) {
         VariantData v = _variants[i];
-        print('-- Variant ${i + 1}: ${v.colorNameController.text}');
-        print('   Cost: ${v.costController.text}');
-        print('   Retail: ${v.retailController.text}');
-        for (int j = 0; j < v.sizeRows.length; j++) {
-          print('   Size ${j + 1}: '
-              '${v.sizeRows[j].sizeController.text} / '
-              '${v.sizeRows[j].stockController.text}');
+
+        // build size rows list
+        List<Map<String, dynamic>> sizeRows = [];
+        for (int j = 0; j < v.sizeRows.length; j = j + 1) {
+          sizeRows.add({
+            'size': v.sizeRows[j].sizeController.text.trim(),
+            'stockQty': int.tryParse(
+                  v.sizeRows[j].stockController.text.trim(),
+                ) ??
+                0,
+          });
         }
+
+        variantsData.add({
+          'colorName': v.colorNameController.text.trim(),
+          'costPrice': double.tryParse(v.costController.text.trim()) ?? 0,
+          'retailPrice': double.tryParse(v.retailController.text.trim()) ?? 0,
+          'sizeRows': sizeRows,
+          // pass picked files so we can upload after product is saved
+          'pickedFiles': v.pickedImageFiles,
+        });
       }
+
+      // save product + variants + sizes to Supabase
+      // service returns null on success, error string on failure
+      String? error = await _service.addProduct(
+        productName: _productNameController.text.trim(),
+        brandName: _selectedBrand!,
+        categoryName: _selectedCategory!,
+        description: _detailsController.text.trim(),
+        variants: variantsData,
+      );
+
+      if (error != null) {
+        if (mounted) {
+          ScaffoldMessenger.of(context).showSnackBar(
+            SnackBar(
+              content: Text(error),
+              backgroundColor: Colors.red,
+            ),
+          );
+        }
+        return;
+      }
+
+      // ── UPLOAD IMAGES ──
+      // fetch the newly created variants to get their IDs
+      // then upload images for each variant
+      try {
+        List<dynamic> newVariants = await _supabase
+            .from('product_variant')
+            .select('variant_id')
+            .order('variant_id', ascending: false)
+            .limit(_variants.length);
+
+        // newVariants are in reverse order (newest first)
+        // so we reverse to match our _variants order
+        List<dynamic> orderedVariants = newVariants.reversed.toList();
+
+        for (int i = 0; i < _variants.length; i = i + 1) {
+          List<PlatformFile> files = _variants[i].pickedImageFiles;
+
+          if (files.isEmpty) continue;
+
+          int variantId = orderedVariants[i]['variant_id'] as int;
+
+          // upload images and get public URLs
+          List<String> imageUrls = await _uploadImages(variantId, files);
+
+          // save image URLs to product_image table
+          for (int j = 0; j < imageUrls.length; j = j + 1) {
+            await _supabase.from('product_image').insert({
+              'variant_id': variantId,
+              'image_url': imageUrls[j],
+              // first image is the primary image
+              'is_primary': j == 0,
+            });
+          }
+        }
+      } catch (imageError) {
+        // images failed but product was saved — not critical
+        print('Image upload error: $imageError');
+      }
+
+      // tell inventory_screen to refresh
+      widget.onProductAdded();
+
       if (mounted) {
         Navigator.pop(context);
         ScaffoldMessenger.of(context).showSnackBar(
@@ -223,8 +486,9 @@ class _AddProductDialogState extends ConsumerState<AddProductDialog> {
           ),
         );
       }
+
     } catch (error) {
-      print('Error saving product: $error');
+      print('_saveProduct error: $error');
       if (mounted) {
         ScaffoldMessenger.of(context).showSnackBar(
           const SnackBar(
@@ -244,15 +508,17 @@ class _AddProductDialogState extends ConsumerState<AddProductDialog> {
   Widget _buildLabel(String label) {
     return Padding(
       padding: const EdgeInsets.only(bottom: 6),
-      child: Text(label,
-          style: const TextStyle(
-              fontSize: 13,
-              fontWeight: FontWeight.w500,
-              color: Color(0xFF374151))),
+      child: Text(
+        label,
+        style: const TextStyle(
+          fontSize: 13,
+          fontWeight: FontWeight.w500,
+          color: Color(0xFF374151),
+        ),
+      ),
     );
   }
 
-  // Base input decoration shared by all fields
   InputDecoration _inputDecoration(String hint) {
     return InputDecoration(
       hintText: hint,
@@ -260,22 +526,29 @@ class _AddProductDialogState extends ConsumerState<AddProductDialog> {
       filled: true,
       fillColor: const Color(0xFFF9FAFB),
       border: OutlineInputBorder(
-          borderRadius: BorderRadius.circular(8),
-          borderSide: const BorderSide(color: Color(0xFFD1D5DB))),
+        borderRadius: BorderRadius.circular(8),
+        borderSide: const BorderSide(color: Color(0xFFD1D5DB)),
+      ),
       enabledBorder: OutlineInputBorder(
-          borderRadius: BorderRadius.circular(8),
-          borderSide: const BorderSide(color: Color(0xFFD1D5DB))),
+        borderRadius: BorderRadius.circular(8),
+        borderSide: const BorderSide(color: Color(0xFFD1D5DB)),
+      ),
       focusedBorder: OutlineInputBorder(
-          borderRadius: BorderRadius.circular(8),
-          borderSide: const BorderSide(color: Color(0xFF2563EB))),
+        borderRadius: BorderRadius.circular(8),
+        borderSide: const BorderSide(color: Color(0xFF2563EB)),
+      ),
       errorBorder: OutlineInputBorder(
-          borderRadius: BorderRadius.circular(8),
-          borderSide: const BorderSide(color: Color(0xFFDC2626))),
+        borderRadius: BorderRadius.circular(8),
+        borderSide: const BorderSide(color: Color(0xFFDC2626)),
+      ),
       focusedErrorBorder: OutlineInputBorder(
-          borderRadius: BorderRadius.circular(8),
-          borderSide: const BorderSide(color: Color(0xFFDC2626))),
-      contentPadding:
-          const EdgeInsets.symmetric(horizontal: 12, vertical: 12),
+        borderRadius: BorderRadius.circular(8),
+        borderSide: const BorderSide(color: Color(0xFFDC2626)),
+      ),
+      contentPadding: const EdgeInsets.symmetric(
+        horizontal: 12,
+        vertical: 12,
+      ),
     );
   }
 
@@ -294,11 +567,6 @@ class _AddProductDialogState extends ConsumerState<AddProductDialog> {
     );
   }
 
-  // ================================================
-  // NUMERIC-ONLY FIELD
-  // Uses FilteringTextInputFormatter to block
-  // letters — only digits allowed (no decimals)
-  // ================================================
   Widget _buildNumericField({
     required TextEditingController controller,
     required String hint,
@@ -308,7 +576,6 @@ class _AddProductDialogState extends ConsumerState<AddProductDialog> {
     return TextFormField(
       controller: controller,
       keyboardType: const TextInputType.numberWithOptions(decimal: true),
-      // This formatter blocks any non-numeric character as the user types
       inputFormatters: [
         allowDecimal
             ? FilteringTextInputFormatter.allow(RegExp(r'^\d+\.?\d{0,2}'))
@@ -332,8 +599,10 @@ class _AddProductDialogState extends ConsumerState<AddProductDialog> {
       validator: validator,
       style: const TextStyle(fontSize: 13, color: Color(0xFF374151)),
       decoration: _inputDecoration(hint).copyWith(hintText: null),
-      hint: Text(hint,
-          style: const TextStyle(fontSize: 13, color: Color(0xFF9CA3AF))),
+      hint: Text(
+        hint,
+        style: const TextStyle(fontSize: 13, color: Color(0xFF9CA3AF)),
+      ),
       items: items
           .map((item) =>
               DropdownMenuItem<String>(value: item, child: Text(item)))
@@ -345,27 +614,173 @@ class _AddProductDialogState extends ConsumerState<AddProductDialog> {
   Widget _buildSectionHeading(String title) {
     return Padding(
       padding: const EdgeInsets.only(bottom: 16),
-      child: Text(title,
-          style: const TextStyle(
-              fontSize: 15,
-              fontWeight: FontWeight.w600,
-              color: Color(0xFF111827))),
+      child: Text(
+        title,
+        style: const TextStyle(
+          fontSize: 15,
+          fontWeight: FontWeight.w600,
+          color: Color(0xFF111827),
+        ),
+      ),
     );
   }
 
-  Widget _buildUploadBox(String label) {
-    return Container(
-      width: double.infinity,
-      height: 52,
-      decoration: BoxDecoration(
-        color: const Color(0xFFF9FAFB),
-        border: Border.all(color: const Color(0xFFD1D5DB)),
-        borderRadius: BorderRadius.circular(8),
-      ),
-      child: Center(
-        child: Text(label,
-            style: const TextStyle(fontSize: 12, color: Color(0xFF9CA3AF))),
-      ),
+  // ================================================
+  // BUILD IMAGE UPLOAD BOX
+  // clickable — opens file picker
+  // shows previews of picked images
+  // ================================================
+  Widget _buildImageUploadBox(int variantIndex) {
+    List<PlatformFile> pickedFiles =
+        _variants[variantIndex].pickedImageFiles;
+
+    return Column(
+      crossAxisAlignment: CrossAxisAlignment.start,
+      children: [
+
+        // clickable upload area
+        GestureDetector(
+          onTap: () => _pickImages(variantIndex),
+          child: Container(
+            width: double.infinity,
+            height: 56,
+            decoration: BoxDecoration(
+              color: const Color(0xFFF9FAFB),
+              border: Border.all(
+                color: const Color(0xFFD1D5DB),
+                style: BorderStyle.solid,
+              ),
+              borderRadius: BorderRadius.circular(8),
+            ),
+            child: Row(
+              mainAxisAlignment: MainAxisAlignment.center,
+              children: const [
+                Icon(
+                  Icons.upload_outlined,
+                  size: 18,
+                  color: Color(0xFF6B7280),
+                ),
+                SizedBox(width: 8),
+                Text(
+                  'Click to browse images',
+                  style: TextStyle(
+                    fontSize: 12,
+                    color: Color(0xFF6B7280),
+                  ),
+                ),
+              ],
+            ),
+          ),
+        ),
+
+        // image previews — shown after picking
+        if (pickedFiles.isNotEmpty) ...[
+          const SizedBox(height: 8),
+          Wrap(
+            spacing: 8,
+            runSpacing: 8,
+            children: List.generate(pickedFiles.length, (int imgIndex) {
+              PlatformFile file = pickedFiles[imgIndex];
+
+              return Stack(
+                children: [
+
+                  // image preview box
+                  Container(
+                    width: 72,
+                    height: 72,
+                    decoration: BoxDecoration(
+                      color: const Color(0xFFE5E7EB),
+                      borderRadius: BorderRadius.circular(6),
+                      border: Border.all(color: const Color(0xFFD1D5DB)),
+                    ),
+                    child: file.bytes != null
+                        ? ClipRRect(
+                            borderRadius: BorderRadius.circular(6),
+                            child: Image.memory(
+                              file.bytes!,
+                              fit: BoxFit.cover,
+                            ),
+                          )
+                        : file.path != null
+                            ? ClipRRect(
+                                borderRadius: BorderRadius.circular(6),
+                                child: Image.file(
+                                  File(file.path!),
+                                  fit: BoxFit.cover,
+                                ),
+                              )
+                            : const Icon(
+                                Icons.image_outlined,
+                                size: 24,
+                                color: Color(0xFF9CA3AF),
+                              ),
+                  ),
+
+                  // remove button on top right
+                  Positioned(
+                    top: -4,
+                    right: -4,
+                    child: GestureDetector(
+                      onTap: () => _removeImage(variantIndex, imgIndex),
+                      child: Container(
+                        width: 18,
+                        height: 18,
+                        decoration: const BoxDecoration(
+                          color: Color(0xFFEF4444),
+                          shape: BoxShape.circle,
+                        ),
+                        child: const Icon(
+                          Icons.close,
+                          size: 11,
+                          color: Colors.white,
+                        ),
+                      ),
+                    ),
+                  ),
+
+                  // primary badge on first image
+                  if (imgIndex == 0)
+                    Positioned(
+                      bottom: 2,
+                      left: 2,
+                      child: Container(
+                        padding: const EdgeInsets.symmetric(
+                          horizontal: 4,
+                          vertical: 1,
+                        ),
+                        decoration: BoxDecoration(
+                          color: const Color(0xFF2563EB),
+                          borderRadius: BorderRadius.circular(3),
+                        ),
+                        child: const Text(
+                          'Main',
+                          style: TextStyle(
+                            fontSize: 8,
+                            color: Colors.white,
+                            fontWeight: FontWeight.w600,
+                          ),
+                        ),
+                      ),
+                    ),
+                ],
+              );
+            }),
+          ),
+
+          // count hint
+          Padding(
+            padding: const EdgeInsets.only(top: 4),
+            child: Text(
+              '${pickedFiles.length}/4 images selected',
+              style: const TextStyle(
+                fontSize: 11,
+                color: Color(0xFF6B7280),
+              ),
+            ),
+          ),
+        ],
+      ],
     );
   }
 
@@ -389,26 +804,51 @@ class _AddProductDialogState extends ConsumerState<AddProductDialog> {
         const SizedBox(height: 14),
 
         _buildLabel('Brand'),
-        _buildDropdown(
-          hint: 'Select Brand',
-          value: _selectedBrand,
-          items: _brands,
-          onChanged: (v) => setState(() => _selectedBrand = v),
-          validator: (v) =>
-              (v == null || v.isEmpty) ? 'Please select a brand' : null,
-        ),
+
+        // show loading spinner while brands load
+        _isLoadingDropdowns
+            ? const SizedBox(
+                height: 48,
+                child: Center(
+                  child: CircularProgressIndicator(
+                    strokeWidth: 2,
+                    color: Color(0xFF2563EB),
+                  ),
+                ),
+              )
+            : _buildDropdown(
+                hint: 'Select Brand',
+                value: _selectedBrand,
+                items: _brands,
+                onChanged: (v) => setState(() => _selectedBrand = v),
+                validator: (v) =>
+                    (v == null || v.isEmpty) ? 'Please select a brand' : null,
+              ),
 
         const SizedBox(height: 14),
 
         _buildLabel('Category'),
-        _buildDropdown(
-          hint: 'Select Category',
-          value: _selectedCategory,
-          items: _categories,
-          onChanged: (v) => setState(() => _selectedCategory = v),
-          validator: (v) =>
-              (v == null || v.isEmpty) ? 'Please select a category' : null,
-        ),
+
+        _isLoadingDropdowns
+            ? const SizedBox(
+                height: 48,
+                child: Center(
+                  child: CircularProgressIndicator(
+                    strokeWidth: 2,
+                    color: Color(0xFF2563EB),
+                  ),
+                ),
+              )
+            : _buildDropdown(
+                hint: 'Select Category',
+                value: _selectedCategory,
+                items: _categories,
+                onChanged: (v) => setState(() => _selectedCategory = v),
+                validator: (v) =>
+                    (v == null || v.isEmpty)
+                        ? 'Please select a category'
+                        : null,
+              ),
 
         const SizedBox(height: 14),
 
@@ -440,20 +880,26 @@ class _AddProductDialogState extends ConsumerState<AddProductDialog> {
         crossAxisAlignment: CrossAxisAlignment.start,
         children: [
 
-          // Variant header + remove button
+          // variant header + remove button
           Row(
             mainAxisAlignment: MainAxisAlignment.spaceBetween,
             children: [
-              Text('Variant ${variantIndex + 1}',
-                  style: const TextStyle(
-                      fontSize: 13,
-                      fontWeight: FontWeight.w600,
-                      color: Color(0xFF374151))),
+              Text(
+                'Variant ${variantIndex + 1}',
+                style: const TextStyle(
+                  fontSize: 13,
+                  fontWeight: FontWeight.w600,
+                  color: Color(0xFF374151),
+                ),
+              ),
               if (_variants.length > 1)
                 GestureDetector(
                   onTap: () => _removeVariant(variantIndex),
-                  child: const Icon(Icons.close,
-                      size: 18, color: Color(0xFF9CA3AF)),
+                  child: const Icon(
+                    Icons.close,
+                    size: 18,
+                    color: Color(0xFF9CA3AF),
+                  ),
                 ),
             ],
           ),
@@ -489,33 +935,35 @@ class _AddProductDialogState extends ConsumerState<AddProductDialog> {
                   foregroundColor: const Color(0xFF374151),
                   side: const BorderSide(color: Color(0xFFD1D5DB)),
                   padding: const EdgeInsets.symmetric(
-                      horizontal: 16, vertical: 10),
+                    horizontal: 16,
+                    vertical: 10,
+                  ),
                   shape: RoundedRectangleBorder(
-                      borderRadius: BorderRadius.circular(8)),
+                    borderRadius: BorderRadius.circular(8),
+                  ),
                 ),
-                child: const Text('Pick Color',
-                    style: TextStyle(fontSize: 13)),
+                child: const Text(
+                  'Pick Color',
+                  style: TextStyle(fontSize: 13),
+                ),
               ),
             ],
           ),
 
           const SizedBox(height: 14),
 
+          // ── IMAGE UPLOAD — now clickable! ──
           _buildLabel('Upload Image'),
-          const Text('JPG or PNG format • Max 4 images per color',
-              style: TextStyle(fontSize: 11, color: Color(0xFF9CA3AF))),
+          const Text(
+            'JPG or PNG format • Max 4 images per color',
+            style: TextStyle(fontSize: 11, color: Color(0xFF9CA3AF)),
+          ),
           const SizedBox(height: 6),
-          _buildUploadBox('Drag & Drop your images or Browse'),
+          _buildImageUploadBox(variantIndex),
 
           const SizedBox(height: 14),
 
-          _buildLabel('Upload Video'),
-          const SizedBox(height: 6),
-          _buildUploadBox('Drag & Drop your video or Browse'),
-
-          const SizedBox(height: 14),
-
-          // Cost — numeric only, decimals allowed
+          // cost
           _buildLabel('Cost'),
           _buildNumericField(
             controller: variant.costController,
@@ -527,15 +975,16 @@ class _AddProductDialogState extends ConsumerState<AddProductDialog> {
 
           const SizedBox(height: 14),
 
-          // Retail — numeric only, decimals allowed
+          // retail
           _buildLabel('Retail'),
           _buildNumericField(
             controller: variant.retailController,
             hint: 'Enter Retail Price',
             allowDecimal: true,
-            validator: (v) => (v == null || v.isEmpty)
-                ? 'Please enter a retail price'
-                : null,
+            validator: (v) =>
+                (v == null || v.isEmpty)
+                    ? 'Please enter a retail price'
+                    : null,
           ),
 
           const SizedBox(height: 14),
@@ -550,7 +999,7 @@ class _AddProductDialogState extends ConsumerState<AddProductDialog> {
                 child: Row(
                   children: [
 
-                    // Size field — text (sizes can be like "8", "8.5", "XL")
+                    // size field
                     Expanded(
                       child: TextFormField(
                         controller: row.sizeController,
@@ -558,7 +1007,9 @@ class _AddProductDialogState extends ConsumerState<AddProductDialog> {
                         decoration: _inputDecoration('Enter Size').copyWith(
                           fillColor: Colors.white,
                           contentPadding: const EdgeInsets.symmetric(
-                              horizontal: 10, vertical: 10),
+                            horizontal: 10,
+                            vertical: 10,
+                          ),
                         ),
                         validator: (v) =>
                             (v == null || v.isEmpty) ? 'Required' : null,
@@ -567,12 +1018,11 @@ class _AddProductDialogState extends ConsumerState<AddProductDialog> {
 
                     const SizedBox(width: 8),
 
-                    // Stock field — digits only, no letters
+                    // stock field
                     Expanded(
                       child: TextFormField(
                         controller: row.stockController,
                         keyboardType: TextInputType.number,
-                        // Blocks anything that isn't a digit
                         inputFormatters: [
                           FilteringTextInputFormatter.digitsOnly,
                         ],
@@ -580,7 +1030,9 @@ class _AddProductDialogState extends ConsumerState<AddProductDialog> {
                         decoration: _inputDecoration('Enter Stock').copyWith(
                           fillColor: Colors.white,
                           contentPadding: const EdgeInsets.symmetric(
-                              horizontal: 10, vertical: 10),
+                            horizontal: 10,
+                            vertical: 10,
+                          ),
                         ),
                         validator: (v) =>
                             (v == null || v.isEmpty) ? 'Required' : null,
@@ -589,7 +1041,7 @@ class _AddProductDialogState extends ConsumerState<AddProductDialog> {
 
                     const SizedBox(width: 8),
 
-                    // Delete row button
+                    // delete row button
                     ElevatedButton(
                       onPressed: () => _removeSizeRow(variantIndex, rowIndex),
                       style: ElevatedButton.styleFrom(
@@ -597,19 +1049,24 @@ class _AddProductDialogState extends ConsumerState<AddProductDialog> {
                         foregroundColor: Colors.white,
                         elevation: 0,
                         padding: const EdgeInsets.symmetric(
-                            horizontal: 12, vertical: 10),
+                          horizontal: 12,
+                          vertical: 10,
+                        ),
                         shape: RoundedRectangleBorder(
-                            borderRadius: BorderRadius.circular(8)),
+                          borderRadius: BorderRadius.circular(8),
+                        ),
                         minimumSize: Size.zero,
                         tapTargetSize: MaterialTapTargetSize.shrinkWrap,
                       ),
-                      child: const Text('Delete',
-                          style: TextStyle(fontSize: 12)),
+                      child: const Text(
+                        'Delete',
+                        style: TextStyle(fontSize: 12),
+                      ),
                     ),
 
                     const SizedBox(width: 8),
 
-                    // Add row button
+                    // add row button
                     ElevatedButton(
                       onPressed: () => _addSizeRow(variantIndex),
                       style: ElevatedButton.styleFrom(
@@ -617,14 +1074,19 @@ class _AddProductDialogState extends ConsumerState<AddProductDialog> {
                         foregroundColor: Colors.white,
                         elevation: 0,
                         padding: const EdgeInsets.symmetric(
-                            horizontal: 12, vertical: 10),
+                          horizontal: 12,
+                          vertical: 10,
+                        ),
                         shape: RoundedRectangleBorder(
-                            borderRadius: BorderRadius.circular(8)),
+                          borderRadius: BorderRadius.circular(8),
+                        ),
                         minimumSize: Size.zero,
                         tapTargetSize: MaterialTapTargetSize.shrinkWrap,
                       ),
-                      child: const Text('Add Option',
-                          style: TextStyle(fontSize: 12)),
+                      child: const Text(
+                        'Add Option',
+                        style: TextStyle(fontSize: 12),
+                      ),
                     ),
                   ],
                 ),
@@ -646,20 +1108,28 @@ class _AddProductDialogState extends ConsumerState<AddProductDialog> {
         _buildSectionHeading('Variant List'),
         Column(
           children: List.generate(
-              _variants.length, (index) => _buildVariantBlock(index)),
+            _variants.length,
+            (index) => _buildVariantBlock(index),
+          ),
         ),
         ElevatedButton.icon(
           onPressed: _addVariant,
           icon: const Icon(Icons.add, size: 16),
-          label: const Text('Add Variant', style: TextStyle(fontSize: 13)),
+          label: const Text(
+            'Add Variant',
+            style: TextStyle(fontSize: 13),
+          ),
           style: ElevatedButton.styleFrom(
             backgroundColor: const Color(0xFF2563EB),
             foregroundColor: Colors.white,
             elevation: 0,
-            padding:
-                const EdgeInsets.symmetric(horizontal: 16, vertical: 12),
+            padding: const EdgeInsets.symmetric(
+              horizontal: 16,
+              vertical: 12,
+            ),
             shape: RoundedRectangleBorder(
-                borderRadius: BorderRadius.circular(8)),
+              borderRadius: BorderRadius.circular(8),
+            ),
           ),
         ),
       ],
@@ -691,29 +1161,36 @@ class _AddProductDialogState extends ConsumerState<AddProductDialog> {
             crossAxisAlignment: CrossAxisAlignment.start,
             children: [
 
-              // Header
+              // ── HEADER ──
               Padding(
                 padding: const EdgeInsets.fromLTRB(24, 24, 24, 0),
                 child: Column(
                   crossAxisAlignment: CrossAxisAlignment.start,
                   children: const [
-                    Text('ADD PRODUCT',
-                        style: TextStyle(
-                            fontSize: 20,
-                            fontWeight: FontWeight.bold,
-                            color: Color(0xFF111827),
-                            letterSpacing: 1.0)),
+                    Text(
+                      'ADD PRODUCT',
+                      style: TextStyle(
+                        fontSize: 20,
+                        fontWeight: FontWeight.bold,
+                        color: Color(0xFF111827),
+                        letterSpacing: 1.0,
+                      ),
+                    ),
                     SizedBox(height: 4),
-                    Text('Fill in the product details below',
-                        style: TextStyle(
-                            fontSize: 13, color: Color(0xFF6B7280))),
+                    Text(
+                      'Fill in the product details below',
+                      style: TextStyle(
+                        fontSize: 13,
+                        color: Color(0xFF6B7280),
+                      ),
+                    ),
                     SizedBox(height: 20),
                     Divider(color: Color(0xFFE5E7EB), height: 1),
                   ],
                 ),
               ),
 
-              // Scrollable content
+              // ── SCROLLABLE CONTENT ──
               Expanded(
                 child: SingleChildScrollView(
                   physics: const AlwaysScrollableScrollPhysics(),
@@ -730,29 +1207,40 @@ class _AddProductDialogState extends ConsumerState<AddProductDialog> {
                 ),
               ),
 
-              // Bottom buttons
+              // ── BOTTOM BUTTONS ──
               Container(
                 padding: const EdgeInsets.fromLTRB(24, 16, 24, 24),
                 decoration: const BoxDecoration(
                   color: Colors.white,
-                  border: Border(top: BorderSide(color: Color(0xFFE5E7EB))),
+                  border: Border(
+                    top: BorderSide(color: Color(0xFFE5E7EB)),
+                  ),
                 ),
                 child: Row(
                   mainAxisAlignment: MainAxisAlignment.end,
                   children: [
                     OutlinedButton(
-                      onPressed: () => Navigator.pop(context),
+                      onPressed: _isLoading
+                          ? null
+                          : () => Navigator.pop(context),
                       style: OutlinedButton.styleFrom(
                         foregroundColor: const Color(0xFF374151),
                         side: const BorderSide(color: Color(0xFFD1D5DB)),
                         padding: const EdgeInsets.symmetric(
-                            horizontal: 20, vertical: 12),
+                          horizontal: 20,
+                          vertical: 12,
+                        ),
                         shape: RoundedRectangleBorder(
-                            borderRadius: BorderRadius.circular(8)),
+                          borderRadius: BorderRadius.circular(8),
+                        ),
                       ),
-                      child: const Text('Cancel',
-                          style: TextStyle(
-                              fontSize: 13, fontWeight: FontWeight.w500)),
+                      child: const Text(
+                        'Cancel',
+                        style: TextStyle(
+                          fontSize: 13,
+                          fontWeight: FontWeight.w500,
+                        ),
+                      ),
                     ),
                     const SizedBox(width: 12),
                     ElevatedButton(
@@ -761,9 +1249,12 @@ class _AddProductDialogState extends ConsumerState<AddProductDialog> {
                         backgroundColor: const Color(0xFF2563EB),
                         foregroundColor: Colors.white,
                         padding: const EdgeInsets.symmetric(
-                            horizontal: 20, vertical: 12),
+                          horizontal: 20,
+                          vertical: 12,
+                        ),
                         shape: RoundedRectangleBorder(
-                            borderRadius: BorderRadius.circular(8)),
+                          borderRadius: BorderRadius.circular(8),
+                        ),
                         elevation: 0,
                       ),
                       child: _isLoading
@@ -771,12 +1262,17 @@ class _AddProductDialogState extends ConsumerState<AddProductDialog> {
                               height: 18,
                               width: 18,
                               child: CircularProgressIndicator(
-                                  color: Colors.white, strokeWidth: 2),
+                                color: Colors.white,
+                                strokeWidth: 2,
+                              ),
                             )
-                          : const Text('Publish',
+                          : const Text(
+                              'Publish',
                               style: TextStyle(
-                                  fontSize: 13,
-                                  fontWeight: FontWeight.w500)),
+                                fontSize: 13,
+                                fontWeight: FontWeight.w500,
+                              ),
+                            ),
                     ),
                   ],
                 ),

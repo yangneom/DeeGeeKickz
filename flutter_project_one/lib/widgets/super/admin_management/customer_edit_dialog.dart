@@ -203,241 +203,203 @@ class _CustomerEditDialogState extends State<CustomerEditDialog> {
 
   // ================================================
   // BUILD
-  // follows feedback_details_dialog pattern:
   // fixed header + scrollable content + fixed footer
+  // same pattern as feedback_details_dialog.dart
   // ================================================
   @override
   Widget build(BuildContext context) {
-    double screenHeight = MediaQuery.of(context).size.height;
-    double screenWidth = MediaQuery.of(context).size.width;
-
     return Dialog(
-      insetPadding: EdgeInsets.zero,
       backgroundColor: Colors.white,
-      shape: RoundedRectangleBorder(
-        borderRadius: BorderRadius.circular(12),
-      ),
-      child: Container(
-        width: screenWidth < 700 ? screenWidth * 0.95 : 540,
-        height: screenHeight * 0.85,
-        decoration: BoxDecoration(
-          color: Colors.white,
-          borderRadius: BorderRadius.circular(12),
+      shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
+      insetPadding: const EdgeInsets.symmetric(horizontal: 40, vertical: 24),
+      child: ConstrainedBox(
+        constraints: BoxConstraints(
+          maxWidth: 540,
+          maxHeight: MediaQuery.of(context).size.height * 0.85,
         ),
         child: Column(
-          crossAxisAlignment: CrossAxisAlignment.start,
+          mainAxisSize: MainAxisSize.min,
           children: [
 
             // ── FIXED HEADER ──
-            Padding(
-              padding: const EdgeInsets.fromLTRB(24, 24, 24, 0),
-              child: Column(
-                crossAxisAlignment: CrossAxisAlignment.start,
+            Container(
+              padding: const EdgeInsets.fromLTRB(24, 20, 16, 16),
+              decoration: const BoxDecoration(
+                color: Colors.white,
+                border: Border(
+                  bottom: BorderSide(color: Color(0xFFE5E7EB)),
+                ),
+                borderRadius: BorderRadius.only(
+                  topLeft: Radius.circular(12),
+                  topRight: Radius.circular(12),
+                ),
+              ),
+              child: Row(
+                mainAxisAlignment: MainAxisAlignment.spaceBetween,
                 children: [
-                  const Text(
-                    'Edit & View',
-                    style: TextStyle(
-                      fontSize: 20,
-                      fontWeight: FontWeight.bold,
-                      color: Color(0xFF111827),
-                    ),
+                  const Column(
+                    crossAxisAlignment: CrossAxisAlignment.start,
+                    children: [
+                      Text(
+                        'Edit & View',
+                        style: TextStyle(
+                          fontSize: 18,
+                          fontWeight: FontWeight.bold,
+                          color: Color(0xFF111827),
+                        ),
+                      ),
+                      SizedBox(height: 2),
+                      Text(
+                        'Update user account details',
+                        style: TextStyle(
+                          fontSize: 12,
+                          color: Color(0xFF9CA3AF),
+                        ),
+                      ),
+                    ],
                   ),
-                  const SizedBox(height: 4),
-                  const Text(
-                    'Update user account details',
-                    style: TextStyle(
-                      fontSize: 13,
+                  IconButton(
+                    onPressed: () => Navigator.pop(context),
+                    icon: const Icon(
+                      Icons.close,
+                      size: 20,
                       color: Color(0xFF6B7280),
                     ),
                   ),
-                  const SizedBox(height: 20),
-                  const Divider(color: Color(0xFFE5E7EB), height: 1),
                 ],
               ),
             ),
 
             // ── SCROLLABLE CONTENT ──
-            Expanded(
+            Flexible(
               child: SingleChildScrollView(
                 padding: const EdgeInsets.all(24),
-                child: Row(
+                child: Column(
                   crossAxisAlignment: CrossAxisAlignment.start,
                   children: [
 
-                    // ── LEFT — editable name fields ──
-                    Expanded(
-                      child: Column(
-                        crossAxisAlignment: CrossAxisAlignment.start,
-                        children: [
-
-                          _buildInputField(
+                    // first name + last name side by side
+                    Row(
+                      children: [
+                        Expanded(
+                          child: _buildInputField(
                             label: 'First Name',
                             controller: _firstNameController,
                           ),
-
-                          const SizedBox(height: 16),
-
-                          _buildInputField(
+                        ),
+                        const SizedBox(width: 16),
+                        Expanded(
+                          child: _buildInputField(
                             label: 'Last Name',
                             controller: _lastNameController,
                           ),
+                        ),
+                      ],
+                    ),
 
-                          const SizedBox(height: 20),
+                    const SizedBox(height: 16),
 
-                          // read only info
-                          _buildInfoRow(
-                            'Contact Number',
-                            widget.account.phone,
-                          ),
+                    // read only info rows
+                    _buildInfoRow('Contact Number', widget.account.phone),
+                    const SizedBox(height: 12),
+                    _buildInfoRow('Email', widget.account.email),
+                    const SizedBox(height: 12),
+                    _buildInfoRow('Address', widget.account.address),
+                    const SizedBox(height: 12),
+                    _buildInfoRow('Landmark', widget.account.landmark),
 
-                          const SizedBox(height: 12),
+                    const SizedBox(height: 24),
 
-                          _buildInfoRow(
-                            'Email',
-                            widget.account.email,
-                          ),
-
-                          const SizedBox(height: 12),
-
-                          _buildInfoRow(
-                            'Address',
-                            widget.account.address,
-                          ),
-
-                          const SizedBox(height: 12),
-
-                          _buildInfoRow(
-                            'Landmark',
-                            widget.account.landmark,
-                          ),
-                        ],
+                    // ── PASSWORD SECTION ──
+                    const Text(
+                      'Password and Security',
+                      style: TextStyle(
+                        fontSize: 14,
+                        fontWeight: FontWeight.w600,
+                        color: Color(0xFF111827),
                       ),
                     ),
 
-                    const SizedBox(width: 24),
+                    const SizedBox(height: 12),
 
-                    // ── RIGHT — password section ──
-                    SizedBox(
-                      width: 180,
-                      child: Column(
-                        crossAxisAlignment: CrossAxisAlignment.start,
-                        children: [
+                    _buildInputField(
+                      label: 'Password',
+                      controller: _passwordController,
+                      obscureText: true,
+                    ),
 
-                          const Text(
-                            'Password and Security',
-                            style: TextStyle(
-                              fontSize: 13,
-                              fontWeight: FontWeight.w600,
-                              color: Color(0xFF374151),
-                            ),
-                          ),
+                    const SizedBox(height: 12),
 
-                          const SizedBox(height: 12),
-
-                          // password field — masked
-                          _buildInputField(
-                            label: 'Password',
-                            controller: _passwordController,
-                            obscureText: true,
-                            readOnly: true,
-                          ),
-
-                          const SizedBox(height: 10),
-
-                          // update password button
-                          SizedBox(
-                            width: double.infinity,
-                            child: ElevatedButton(
-                              onPressed: () {
-                                // TODO: trigger password reset
-                              },
-                              style: ElevatedButton.styleFrom(
-                                backgroundColor: const Color(0xFF2563EB),
-                                foregroundColor: Colors.white,
-                                elevation: 0,
-                                padding: const EdgeInsets.symmetric(
-                                  vertical: 10,
-                                ),
-                                shape: RoundedRectangleBorder(
-                                  borderRadius: BorderRadius.circular(8),
-                                ),
-                              ),
-                              child: const Text(
-                                'Update Password',
-                                style: TextStyle(fontSize: 12),
-                              ),
-                            ),
-                          ),
-                        ],
+                    ElevatedButton(
+                      onPressed: () {
+                        // TODO: trigger password reset
+                      },
+                      style: ElevatedButton.styleFrom(
+                        backgroundColor: const Color(0xFF2563EB),
+                        foregroundColor: Colors.white,
+                        elevation: 0,
+                        padding: const EdgeInsets.symmetric(
+                          horizontal: 16,
+                          vertical: 10,
+                        ),
+                        shape: RoundedRectangleBorder(
+                          borderRadius: BorderRadius.circular(8),
+                        ),
                       ),
+                      child: const Text(
+                        'Update Password',
+                        style: TextStyle(fontSize: 13),
+                      ),
+                    ),
+
+                    const SizedBox(height: 24),
+
+                    // ── FOOTER BUTTONS ──
+                    Row(
+                      mainAxisAlignment: MainAxisAlignment.end,
+                      children: [
+                        OutlinedButton(
+                          onPressed: () => Navigator.pop(context),
+                          style: OutlinedButton.styleFrom(
+                            foregroundColor: const Color(0xFF374151),
+                            side: const BorderSide(color: Color(0xFFD1D5DB)),
+                            padding: const EdgeInsets.symmetric(
+                              horizontal: 20,
+                              vertical: 11,
+                            ),
+                            shape: RoundedRectangleBorder(
+                              borderRadius: BorderRadius.circular(8),
+                            ),
+                          ),
+                          child: const Text(
+                            'Cancel',
+                            style: TextStyle(fontSize: 13),
+                          ),
+                        ),
+                        const SizedBox(width: 10),
+                        ElevatedButton(
+                          onPressed: _handleSave,
+                          style: ElevatedButton.styleFrom(
+                            backgroundColor: const Color(0xFF2563EB),
+                            foregroundColor: Colors.white,
+                            elevation: 0,
+                            padding: const EdgeInsets.symmetric(
+                              horizontal: 20,
+                              vertical: 11,
+                            ),
+                            shape: RoundedRectangleBorder(
+                              borderRadius: BorderRadius.circular(8),
+                            ),
+                          ),
+                          child: const Text(
+                            'Update',
+                            style: TextStyle(fontSize: 13),
+                          ),
+                        ),
+                      ],
                     ),
                   ],
                 ),
-              ),
-            ),
-
-            // ── FIXED FOOTER ──
-            Container(
-              padding: const EdgeInsets.fromLTRB(24, 16, 24, 24),
-              decoration: const BoxDecoration(
-                color: Colors.white,
-                border: Border(
-                  top: BorderSide(color: Color(0xFFE5E7EB)),
-                ),
-              ),
-              child: Row(
-                mainAxisAlignment: MainAxisAlignment.end,
-                children: [
-
-                  // cancel
-                  OutlinedButton(
-                    onPressed: () => Navigator.pop(context),
-                    style: OutlinedButton.styleFrom(
-                      foregroundColor: const Color(0xFF374151),
-                      side: const BorderSide(color: Color(0xFFD1D5DB)),
-                      padding: const EdgeInsets.symmetric(
-                        horizontal: 20,
-                        vertical: 12,
-                      ),
-                      shape: RoundedRectangleBorder(
-                        borderRadius: BorderRadius.circular(8),
-                      ),
-                    ),
-                    child: const Text(
-                      'Cancel',
-                      style: TextStyle(
-                        fontSize: 13,
-                        fontWeight: FontWeight.w500,
-                      ),
-                    ),
-                  ),
-
-                  const SizedBox(width: 12),
-
-                  // update
-                  ElevatedButton(
-                    onPressed: _handleSave,
-                    style: ElevatedButton.styleFrom(
-                      backgroundColor: const Color(0xFF2563EB),
-                      foregroundColor: Colors.white,
-                      elevation: 0,
-                      padding: const EdgeInsets.symmetric(
-                        horizontal: 20,
-                        vertical: 12,
-                      ),
-                      shape: RoundedRectangleBorder(
-                        borderRadius: BorderRadius.circular(8),
-                      ),
-                    ),
-                    child: const Text(
-                      'Update',
-                      style: TextStyle(
-                        fontSize: 13,
-                        fontWeight: FontWeight.w500,
-                      ),
-                    ),
-                  ),
-                ],
               ),
             ),
           ],

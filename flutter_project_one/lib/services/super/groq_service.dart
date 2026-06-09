@@ -19,7 +19,7 @@ class GroqService {
       'https://api.groq.com/openai/v1/chat/completions';
 
   // model to use — fast and free
-  static const String _model = 'llama3-70b-8192';
+  static const String _model = 'llama-3.3-70b-versatile';
 
   // get API key from .env
   String get _apiKey => dotenv.env['GROQ_API_KEY'] ?? '';

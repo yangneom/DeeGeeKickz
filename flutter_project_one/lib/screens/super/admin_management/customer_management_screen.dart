@@ -590,40 +590,40 @@ class _CustomerManagementScreenState
             crossAxisAlignment: CrossAxisAlignment.start,
             children: [
 
-              // ── TOP ROW — TITLE + BUTTONS ──
+              // ── TITLE ──
+              const Column(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  Text(
+                    'Customer Account Management',
+                    style: TextStyle(
+                      fontSize: 24,
+                      fontWeight: FontWeight.bold,
+                      color: Color(0xFF111827),
+                    ),
+                  ),
+                  SizedBox(height: 4),
+                  Text(
+                    'Manage customer accounts and permissions.',
+                    style: TextStyle(
+                      fontSize: 13,
+                      color: Color(0xFF9CA3AF),
+                    ),
+                  ),
+                ],
+              ),
+
+              const SizedBox(height: 24),
+
+              // ── SEARCH + FILTER + BUTTONS ──
               Row(
                 crossAxisAlignment: CrossAxisAlignment.center,
                 children: [
 
-                  // title + subtitle
-                  const Column(
-                    crossAxisAlignment: CrossAxisAlignment.start,
-                    children: [
-                      Text(
-                        'Customer Account Management',
-                        style: TextStyle(
-                          fontSize: 24,
-                          fontWeight: FontWeight.bold,
-                          color: Color(0xFF111827),
-                        ),
-                      ),
-                      SizedBox(height: 4),
-                      Text(
-                        'Manage customer accounts and permissions.',
-                        style: TextStyle(
-                          fontSize: 13,
-                          color: Color(0xFF9CA3AF),
-                        ),
-                      ),
-                    ],
-                  ),
-
-                  const Spacer(),
-
                   // search bar
                   CommonSearchBar(
                     controller: _searchController,
-                    hintText: 'Search',
+                    hintText: 'Search customers...',
                     onChanged: (String value) {
                       _applyFilters();
                     },
@@ -667,7 +667,7 @@ class _CustomerManagementScreenState
                     ],
                   ),
 
-                  const SizedBox(width: 8),
+                  const Spacer(),
 
                   // disabled account button
                   ElevatedButton(
@@ -733,7 +733,7 @@ class _CustomerManagementScreenState
                 ],
               ),
 
-              const SizedBox(height: 24),
+              const SizedBox(height: 16),
 
               // ── TABLE ──
               Expanded(

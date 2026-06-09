@@ -26,18 +26,41 @@ class _CashierInventoryScreenState
   // controls the search text field
   final TextEditingController _searchController = TextEditingController();
 
-  // our inventory service for logic
-  final InventoryService _service = InventoryService();
+    final InventoryService _service = InventoryService();
 
-  // list of products shown in table
-  List<Product> _filteredProducts = fakeProducts;
+    // products loaded from Supabase
+    List<Product> _allProducts = [];
 
-  // controls if filter panel is visible
-  bool _showFilterPanel = false;
+    // products currently shown in table
+    List<Product> _filteredProducts = [];
 
-  // currently selected filter values
-  String? _selectedStatus;
-  String? _selectedCategory;
+    // loading state
+    bool _isLoading = true;
+
+    // filter panel state
+    bool _showFilterPanel = false;
+
+    // selected filters
+    String? _selectedStatus;
+    String? _selectedCategory;
+
+    @override
+    void initState() {
+      super.initState();
+      _loadProducts();
+    }
+
+    Future<void> _loadProducts() async {
+    final List<Product> products = await _service.fetchProducts();
+
+    if (!mounted) return;
+
+    setState(() {
+      _allProducts = products;
+      _filteredProducts = products;
+      _isLoading = false;
+    });
+  }
 
   // ================================================
   // DISPOSE
@@ -51,10 +74,10 @@ class _CashierInventoryScreenState
   // ================================================
   // APPLY FILTERS
   // ================================================
-  void _applyFilters() {
+    void _applyFilters() {
     setState(() {
       _filteredProducts = _service.applyFilters(
-        allProducts: fakeProducts,
+        allProducts: _allProducts,
         searchQuery: _searchController.text.toLowerCase(),
         selectedCategory: _selectedCategory,
         selectedStatus: _selectedStatus,
@@ -65,12 +88,12 @@ class _CashierInventoryScreenState
   // ================================================
   // CLEAR FILTERS
   // ================================================
-  void _clearFilters() {
+    void _clearFilters() {
     setState(() {
       _selectedStatus = null;
       _selectedCategory = null;
       _searchController.clear();
-      _filteredProducts = fakeProducts;
+      _filteredProducts = _allProducts;
       _showFilterPanel = false;
     });
   }
@@ -205,7 +228,7 @@ class _CashierInventoryScreenState
                       FilterSection(
                         title: 'Category',
                         options: _service
-                            .getCategories(fakeProducts)
+                            .getCategories(_allProducts)
                             .map((String category) {
                           return FilterOption(
                             label: category,
@@ -227,14 +250,18 @@ class _CashierInventoryScreenState
               // cashier can only VIEW products!
               // ================================================
               Expanded(
-                child: SingleChildScrollView(
-                  child: ExpandableProductTable(
-                    products: _filteredProducts,
-
-                    // null means no action column shown!
-                    actionBuilder: null,
-                  ),
-                ),
+                child: _isLoading
+                    ? const Center(
+                        child: CircularProgressIndicator(
+                          color: Color(0xFF2563EB),
+                        ),
+                      )
+                    : SingleChildScrollView(
+                        child: ExpandableProductTable(
+                          products: _filteredProducts,
+                          actionBuilder: null,
+                        ),
+                      ),
               ),
             ],
           ),

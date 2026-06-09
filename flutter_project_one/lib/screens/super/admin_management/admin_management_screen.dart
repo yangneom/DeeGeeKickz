@@ -4,9 +4,11 @@ import '../../../widgets/common/common_table.dart';
 import '../../../widgets/common/search_bar.dart';
 import '../../../widgets/common/filter_button.dart';
 import '../../../widgets/common/filter_panel.dart';
-import '../../../widgets/common/confirm_dialog.dart';
 import '../../../widgets/super/admin_management/admin_edit_dialog.dart';
 import '../../../widgets/super/admin_management/admin_archived_dialog.dart';
+import '../../../widgets/super/admin_management/admin_add_dialog.dart';
+import '../../../providers/admin_provider/admin_account_provider.dart';
+import '../../../models/admin_account.dart';
 
 class AdminManagementScreen extends ConsumerStatefulWidget {
   const AdminManagementScreen({super.key});
@@ -28,66 +30,15 @@ class _AdminManagementScreenState
   String? _selectedStatus;
 
   // ================================================
-  // FAKE DATA — replace with Supabase later
-  // ================================================
-  final List<Map<String, dynamic>> _allAccounts = [
-    {
-      'id': 'acc_001',
-      'firstName': 'Angel',
-      'lastName': 'Tuazon',
-      'email': 'TuazonAngel363@gmail.com',
-      'phone': '0991606274',
-      'role': 'Cashier',
-      'status': 'Active',
-      'lastLogin': '03-03-2026  09:30 am',
-      'isArchived': false,
-    },
-    {
-      'id': 'acc_002',
-      'firstName': 'Jay',
-      'lastName': 'Galang',
-      'email': 'jaygalang@gmail.com',
-      'phone': '09171234567',
-      'role': 'Admin',
-      'status': 'Inactive',
-      'lastLogin': '02-28-2026  02:15 pm',
-      'isArchived': false,
-    },
-    {
-      'id': 'acc_003',
-      'firstName': 'Maria',
-      'lastName': 'Santos',
-      'email': 'mariasantos@gmail.com',
-      'phone': '09281112222',
-      'role': 'Admin',
-      'status': 'Active',
-      'lastLogin': '03-01-2026  10:00 am',
-      'isArchived': false,
-    },
-  ];
-
-  // archived accounts
-  final List<Map<String, dynamic>> _archivedAccounts = [
-    {
-      'id': 'acc_archived_001',
-      'firstName': 'Angel',
-      'lastName': 'Tuazon',
-      'email': 'Angel363@gmail.com',
-      'role': 'Cashier',
-      'archiveDate': '03-03-2026  09:30 am',
-    },
-  ];
-
-  // filtered list shown in table
-  List<Map<String, dynamic>> _filteredAccounts = [];
-
-  // ================================================
   // INIT STATE
   // ================================================
   @override
   void initState() {
     super.initState();
-    _filteredAccounts = _allAccounts;
+
+    Future.microtask(() {
+      ref.read(adminAccountsProvider.notifier).loadAccounts();
+    });
   }
 
   // ================================================
@@ -101,52 +52,8 @@ class _AdminManagementScreenState
 
   // ================================================
   // APPLY FILTERS
-  // same pattern as feedback_screen.dart
   // ================================================
-  void _applyFilters() {
-    String searchQuery = _searchController.text.toLowerCase();
-    List<Map<String, dynamic>> results = [];
-
-    for (int i = 0; i < _allAccounts.length; i = i + 1) {
-      Map<String, dynamic> item = _allAccounts[i];
-
-      // skip archived accounts
-      if (item['isArchived'] == true) continue;
-
-      // search filter
-      bool matchesSearch = true;
-      if (searchQuery.isNotEmpty) {
-        bool nameMatch =
-            '${item['firstName']} ${item['lastName']}'
-                .toLowerCase()
-                .contains(searchQuery);
-        bool emailMatch =
-            item['email'].toString().toLowerCase().contains(searchQuery);
-        matchesSearch = nameMatch || emailMatch;
-      }
-      if (matchesSearch == false) continue;
-
-      // role filter
-      bool matchesRole = true;
-      if (_selectedRole != null) {
-        matchesRole = item['role'] == _selectedRole;
-      }
-      if (matchesRole == false) continue;
-
-      // status filter
-      bool matchesStatus = true;
-      if (_selectedStatus != null) {
-        matchesStatus = item['status'] == _selectedStatus;
-      }
-      if (matchesStatus == false) continue;
-
-      results.add(item);
-    }
-
-    setState(() {
-      _filteredAccounts = results;
-    });
-  }
+  void _applyFilters() {}
 
   // ================================================
   // CLEAR FILTERS
@@ -156,9 +63,6 @@ class _AdminManagementScreenState
       _selectedRole = null;
       _selectedStatus = null;
       _searchController.clear();
-      _filteredAccounts = _allAccounts
-          .where((a) => a['isArchived'] == false)
-          .toList();
       _showFilterPanel = false;
     });
   }
@@ -168,6 +72,9 @@ class _AdminManagementScreenState
   // same pattern as feedback_screen
   // ================================================
   Widget _buildStatusBadge(String status) {
+
+    print('ADMIN MANAGEMENT SCREEN BUILDING');
+
     Color backgroundColor = Colors.grey.shade100;
     Color textColor = Colors.grey;
     Color borderColor = Colors.grey.shade300;
@@ -211,81 +118,81 @@ class _AdminManagementScreenState
   // ================================================
   // HANDLE ARCHIVE
   // ================================================
-  Future<void> _handleArchive(Map<String, dynamic> account) async {
-    final confirmed = await showConfirmDialog(
-      context: context,
-      title: 'Archive this account?',
-      message:
-          'This account will be archived and the user '
-          'will no longer be able to log in.',
-      confirmLabel: 'Archive',
-      confirmColor: const Color(0xFFEF4444),
-    );
+  Future<void> _handleArchive(
+        AdminAccount account,
+      ) async {
 
-    if (confirmed == true) {
-      setState(() {
+        print('====================');
+        print('ARCHIVE BUTTON CLICKED');
+        print('EMAIL = ${account.email}');
+        print('USER ID = ${account.id}');
+        print('====================');
 
-        // move to archived
-        _archivedAccounts.add({
-          'id': account['id'],
-          'firstName': account['firstName'],
-          'lastName': account['lastName'],
-          'email': account['email'],
-          'role': account['role'],
-          'archiveDate': '03-03-2026  09:30 am',
-        });
+        await ref
+            .read(adminAccountsProvider.notifier)
+            .archiveAccount(account.id);
 
-        // remove from active
-        for (int i = 0; i < _allAccounts.length; i = i + 1) {
-          if (_allAccounts[i]['id'] == account['id']) {
-            _allAccounts[i]['isArchived'] = true;
-            break;
-          }
+        if (mounted) {
+          await ref
+              .read(adminAccountsProvider.notifier)
+              .loadAccounts();
         }
-
-        _applyFilters();
-      });
-    }
-  }
+      }
 
   // ================================================
   // HANDLE RESTORE
   // ================================================
-  void _handleRestore(Map<String, dynamic> archivedAccount) {
-    setState(() {
+  Future<void> _handleRestore(
+    AdminAccount account,
+  ) async {
+    await ref
+        .read(adminAccountsProvider.notifier)
+        .restoreAccount(account.id);
 
-      // restore in active list
-      for (int i = 0; i < _allAccounts.length; i = i + 1) {
-        if (_allAccounts[i]['id'] == archivedAccount['id']) {
-          _allAccounts[i]['isArchived'] = false;
-          break;
-        }
-      }
-
-      // remove from archived list
-      _archivedAccounts.removeWhere(
-        (a) => a['id'] == archivedAccount['id'],
-      );
-
-      _applyFilters();
-    });
+    if (mounted) {
+      ref.read(adminAccountsProvider.notifier)
+         .loadAccounts();
+    }
   }
 
   // ================================================
   // BUILD TABLE ROWS
-  // same pattern as feedback_screen _buildRows()
   // ================================================
-  List<List<Widget>> _buildRows() {
-    List<List<Widget>> tableRows = [];
+      List<List<Widget>> _buildRows(
+      List<AdminAccount> accounts,
+    ) {
 
-    for (int i = 0; i < _filteredAccounts.length; i = i + 1) {
-      Map<String, dynamic> account = _filteredAccounts[i];
+      print('========== BUILD ROWS ==========');
+
+      for (final account in accounts) {
+        print(
+          'NAME=${account.firstName} ${account.lastName} | '
+          'EMAIL=${account.email} | '
+          'ROLE=${account.role} | '
+          'ARCHIVED=${account.isArchived}',
+        );
+      }
+
+      print('===============================');
+
+      List<List<Widget>> tableRows = [];
+
+      for (final account in accounts) {
+
+        print(
+          'BUILDING ROW -> '
+          'ID=${account.id} | '
+          '${account.firstName} '
+          '${account.lastName} | '
+          '${account.email} | '
+          '${account.role}',
+        );
 
       List<Widget> oneRow = [
 
         // column 1 — full name
         Text(
-          '${account['firstName']} ${account['lastName']}',
+          '${account.firstName} ${account.lastName}',
           style: const TextStyle(
             fontSize: 13,
             color: Color(0xFF111827),
@@ -294,7 +201,7 @@ class _AdminManagementScreenState
 
         // column 2 — email
         Text(
-          account['email'],
+          account.email,
           style: const TextStyle(
             fontSize: 13,
             color: Color(0xFF111827),
@@ -304,7 +211,7 @@ class _AdminManagementScreenState
 
         // column 3 — role
         Text(
-          account['role'],
+          account.role,
           style: const TextStyle(
             fontSize: 13,
             color: Color(0xFF111827),
@@ -312,12 +219,14 @@ class _AdminManagementScreenState
         ),
 
         // column 4 — status badge
-        _buildStatusBadge(account['status']),
+        _buildStatusBadge(
+          account.isArchived ? 'Inactive' : 'Active',
+        ),
 
-        // column 5 — last login
-        Text(
-          account['lastLogin'],
-          style: const TextStyle(
+        // column 5 — last login (placeholder until field exists)
+        const Text(
+          '-',
+          style: TextStyle(
             fontSize: 13,
             color: Color(0xFF111827),
           ),
@@ -333,31 +242,16 @@ class _AdminManagementScreenState
               alignment: Alignment.centerLeft,
               child: OutlinedButton(
                 onPressed: () {
-                  showDialog(
-                    context: context,
-                    builder: (BuildContext dialogContext) {
-                      return AdminEditDialog(
-                        account: account,
-                        onSave: (Map<String, dynamic> updatedAccount) {
-                          setState(() {
-                            for (int j = 0;
-                                j < _allAccounts.length;
-                                j = j + 1) {
-                              if (_allAccounts[j]['id'] == account['id']) {
-                                _allAccounts[j] = {
-                                  ..._allAccounts[j],
-                                  ...updatedAccount,
-                                };
-                                break;
-                              }
-                            }
-                            _applyFilters();
-                          });
-                        },
-                      );
-                    },
-                  );
-                },
+                showAdminEditDialog(
+                  context,
+                  account,
+                  (AdminAccount updatedAccount) async {
+                    await ref
+                        .read(adminAccountsProvider.notifier)
+                        .updateAccount(updatedAccount);
+                  },
+                );
+              },
                 style: OutlinedButton.styleFrom(
                   foregroundColor: const Color(0xFF374151),
                   side: const BorderSide(color: Color(0xFFD1D5DB)),
@@ -382,7 +276,10 @@ class _AdminManagementScreenState
             Align(
               alignment: Alignment.centerLeft,
               child: ElevatedButton(
-                onPressed: () => _handleArchive(account),
+                onPressed: () async {
+                  print('RED BUTTON PRESSED');
+                  await _handleArchive(account);
+                },
                 style: ElevatedButton.styleFrom(
                   backgroundColor: const Color(0xFFEF4444),
                   foregroundColor: Colors.white,
@@ -417,6 +314,21 @@ class _AdminManagementScreenState
   // ================================================
   @override
   Widget build(BuildContext context) {
+
+    final accounts = ref.watch(adminAccountsProvider);
+
+    print('========== UI RECEIVED ACCOUNTS ==========');
+
+    for (final account in accounts) {
+      print(
+        '${account.email} | '
+        '${account.role} | '
+        'archived=${account.isArchived}',
+      );
+    }
+
+    print('=========================================');
+
     return Scaffold(
       backgroundColor: const Color(0xFFF8F9FA),
       body: GestureDetector(
@@ -521,7 +433,26 @@ class _AdminManagementScreenState
                   // add account button
                   ElevatedButton(
                     onPressed: () {
-                      // TODO: show add account dialog
+                      showAdminAddDialog(
+                        context,
+                        ({
+                          required String firstName,
+                          required String lastName,
+                          required String email,
+                          required String role,
+                        }) async {
+                        final provider =
+                            ref.read(adminAccountsProvider.notifier);
+
+                        await provider.createAccount(
+                          firstName: firstName,
+                          lastName: lastName,
+                          email: email,
+                          password: 'TempPassword123!',
+                          role: role,
+                        );
+                      },
+                      );
                     },
                     style: ElevatedButton.styleFrom(
                       backgroundColor: const Color(0xFF2563EB),
@@ -548,12 +479,24 @@ class _AdminManagementScreenState
 
                   // archived button
                   ElevatedButton(
-                    onPressed: () {
+                    onPressed: () async {
+                      await ref
+                          .read(adminAccountsProvider.notifier)
+                          .loadAccounts();
+
+                      if (!mounted) return;
+
+                      // Read AFTER the await, so state is fresh
+                      final archivedAccounts = ref
+                          .read(adminAccountsProvider)
+                          .where((a) => a.isArchived)
+                          .toList();
+
                       showDialog(
                         context: context,
                         builder: (BuildContext dialogContext) {
                           return AdminArchivedDialog(
-                            archivedAccounts: _archivedAccounts,
+                            archivedAccounts: archivedAccounts,
                             onRestore: _handleRestore,
                           );
                         },
@@ -596,7 +539,15 @@ class _AdminManagementScreenState
                       'Last Login',
                       'Action',
                     ],
-                    rows: _buildRows(),
+                    rows: _buildRows(
+                      accounts
+                          .where((a) =>
+                              !a.isArchived &&
+                              (a.role == 'Admin' ||
+                              a.role == 'Cashier' ||
+                              a.role == 'Super Admin'))
+                          .toList(),
+                    ),
                   ),
                 ),
               ),

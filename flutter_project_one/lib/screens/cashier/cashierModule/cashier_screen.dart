@@ -5,30 +5,13 @@ import '../../../models/product.dart';
 import '../../../models/sale.dart';
 import '../../../widgets/cashier/inventory/select_variant_dialog.dart';
 import '../../../widgets/cashier/receipt/receipt_dialog.dart';
+import '../../../providers/product/product_provider.dart';
+import '../../../providers/cashier_provider/cashier_provider.dart';
+import '../../../models/cart_item.dart';
+import '../../../widgets/common/search_bar.dart';
+import '../../../widgets/common/confirm_dialog.dart';
 
-// ================================================
-// CART ITEM MODEL
-// One item in the cashier's cart
-// ================================================
-class CartItem {
-  final String productId;
-  final String productName;
-  final String color;
-  final String size;
-  final double retailPrice;
-  int quantity;
 
-  CartItem({
-    required this.productId,
-    required this.productName,
-    required this.color,
-    required this.size,
-    required this.retailPrice,
-    this.quantity = 1,
-  });
-
-  double get subtotal => retailPrice * quantity;
-}
 
 // ================================================
 // CASHIER SCREEN
@@ -53,7 +36,16 @@ class CartItem {
 // NOTE: Sale is ALWAYS saved on payment confirmation.
 //       Printing is optional — closing receipt does
 //       NOT cancel or undo the sale.
+//
+// CART STATE is now managed by cashierProvider.
+// Screen handles: checkout, payments, sales, stock validation, totals.
 // ================================================
+
+enum PaymentMethod {
+  cash,
+  online,
+}
+
 class CashierScreen extends ConsumerStatefulWidget {
   const CashierScreen({super.key});
 
@@ -67,12 +59,9 @@ class _CashierScreenState extends ConsumerState<CashierScreen> {
   final TextEditingController _searchController = TextEditingController();
   String _searchQuery = '';
 
-  // ── CART ──
-  final List<CartItem> _cartItems = [];
-
   // ── PAYMENT ──
   // 'cash' or 'online'
-  String _paymentMethod = 'online';
+  PaymentMethod _paymentMethod = PaymentMethod.online;
   final TextEditingController _cashPaidController = TextEditingController();
   double _discountAmount = 0;
   final TextEditingController _discountController = TextEditingController();
@@ -86,11 +75,19 @@ class _CashierScreenState extends ConsumerState<CashierScreen> {
   }
 
   // ================================================
+  // CART ITEMS — read from cashierProvider
+  // ================================================
+  List<CartItem> get _cartItems => ref.watch(cashierProvider);
+
+  // ================================================
   // FILTERED PRODUCTS based on search
   // ================================================
-  List<Product> get _filteredProducts {
-    if (_searchQuery.isEmpty) return fakeProducts;
-    return fakeProducts.where((Product p) {
+  List<Product> _filterProducts(List<Product> products) {
+    if (_searchQuery.isEmpty) {
+      return products;
+    }
+
+    return products.where((p) {
       return p.productName.toLowerCase().contains(_searchQuery) ||
           p.brand.toLowerCase().contains(_searchQuery);
     }).toList();
@@ -109,6 +106,20 @@ class _CashierScreenState extends ConsumerState<CashierScreen> {
 
   double get _total => (_subtotal - _discountAmount).clamp(0, double.infinity);
 
+    double get _discountPercent {
+    if (_subtotal <= 0) return 0;
+    return (_discountAmount / _subtotal) * 100;
+  }
+
+  bool get _isDiscountTooLarge {
+    return _discountPercent > 50;
+  }
+
+  bool get _requiresDiscountConfirmation {
+    return _discountPercent >= 20 &&
+          _discountPercent <= 50;
+  }
+
   double get _cashPaid {
     return double.tryParse(_cashPaidController.text) ?? 0;
   }
@@ -119,6 +130,16 @@ class _CashierScreenState extends ConsumerState<CashierScreen> {
 
   bool get _isInsufficientAmount {
     return _cashPaid < _total && _cashPaid > 0;
+  }
+
+    bool get _canCheckout {
+    if (_cartItems.isEmpty) return false;
+
+    if (_paymentMethod == PaymentMethod.cash) {
+      return _cashPaid >= _total && _cashPaid > 0;
+    }
+
+    return true;
   }
 
   // ================================================
@@ -134,6 +155,8 @@ class _CashierScreenState extends ConsumerState<CashierScreen> {
 
   // ================================================
   // ADD TO CART
+  // Stock validation stays here — provider only
+  // manages cart state, not product data.
   // ================================================
   void _addToCart({
     required Product product,
@@ -142,62 +165,113 @@ class _CashierScreenState extends ConsumerState<CashierScreen> {
     required int quantity,
     required double price,
   }) {
-    setState(() {
 
-      // check if same item already in cart
-      final int existingIndex = _cartItems.indexWhere(
-        (CartItem item) =>
-            item.productId == product.productId &&
-            item.color == color &&
-            item.size == size,
+    // FIND SELECTED VARIANT
+    final ProductVariant selectedVariant = product.variants.firstWhere(
+      (variant) => variant.color == color && variant.size == size,
+    );
+
+    // AVAILABLE STOCK
+    final int availableStock =
+        selectedVariant.stockQty - selectedVariant.reservedQty;
+
+    // CHECK EXISTING CART QTY for this variant
+    final CartItem? existing = _cartItems.cast<CartItem?>().firstWhere(
+      (CartItem? item) =>
+          item!.productId == product.productId &&
+          item.color == color &&
+          item.size == size,
+      orElse: () => null,
+    );
+
+    final int existingCartQty = existing?.quantity ?? 0;
+
+    // TOTAL REQUESTED QUANTITY
+    final int requestedQty = existingCartQty + quantity;
+
+    // BLOCK IF EXCEEDS STOCK
+    if (requestedQty > availableStock) {
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(
+          content: Text('Only $availableStock items available'),
+          backgroundColor: Colors.red,
+        ),
       );
+      return;
+    }
 
-      if (existingIndex >= 0) {
-        // just increase quantity
-        _cartItems[existingIndex].quantity += quantity;
-      } else {
-        // add new cart item
-        _cartItems.add(CartItem(
-          productId: product.productId,
-          productName: product.productName,
-          color: color,
-          size: size,
-          retailPrice: price,
-          quantity: quantity,
-        ));
-      }
-    });
+    // DELEGATE TO PROVIDER
+    ref.read(cashierProvider.notifier).addToCart(
+      productId: product.productId,
+      productName: product.productName,
+      color: color,
+      size: size,
+      retailPrice: price,
+      quantity: quantity,
+    );
   }
 
   // ================================================
-  // REMOVE FROM CART
+  // REMOVE FROM CART — delegates to provider
   // ================================================
   void _removeFromCart(int index) {
-    setState(() => _cartItems.removeAt(index));
+    ref.read(cashierProvider.notifier).removeFromCart(index);
   }
 
   // ================================================
-  // UPDATE QUANTITY in cart
+  // UPDATE QUANTITY
+  // Stock validation stays here for increases.
+  // Decreases go straight to provider.
   // ================================================
   void _updateQuantity(int index, int delta) {
-    setState(() {
-      _cartItems[index].quantity += delta;
-      if (_cartItems[index].quantity <= 0) {
-        _cartItems.removeAt(index);
-      }
-    });
+
+    final CartItem cartItem = _cartItems[index];
+
+    // DECREASE — provider handles removal if qty hits 0
+    if (delta < 0) {
+      ref.read(cashierProvider.notifier).decreaseQuantity(index);
+      return;
+    }
+
+    // INCREASE — validate stock first
+    final List<Product> products = ref.read(productsProvider).value ?? [];
+
+    final Product product = products.firstWhere(
+      (Product p) => p.productId == cartItem.productId,
+    );
+
+    final ProductVariant variant = product.variants.firstWhere(
+      (ProductVariant v) =>
+          v.color == cartItem.color && v.size == cartItem.size,
+    );
+
+    final int availableStock = variant.stockQty - variant.reservedQty;
+    final int nextQty = cartItem.quantity + delta;
+
+    if (nextQty > availableStock) {
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(
+          content: Text('Only $availableStock items available'),
+          backgroundColor: Colors.red,
+        ),
+      );
+      return;
+    }
+
+    ref.read(cashierProvider.notifier).increaseQuantity(index);
   }
 
   // ================================================
   // NEW TRANSACTION — clears everything
   // ================================================
   void _newTransaction() {
+    ref.read(cashierProvider.notifier).clearCart();
+
     setState(() {
-      _cartItems.clear();
       _cashPaidController.clear();
       _discountController.clear();
       _discountAmount = 0;
-      _paymentMethod = 'online';
+      _paymentMethod = PaymentMethod.cash;
       _searchController.clear();
       _searchQuery = '';
     });
@@ -216,7 +290,6 @@ class _CashierScreenState extends ConsumerState<CashierScreen> {
     final String month = now.month.toString().padLeft(2, '0');
     final String day = now.day.toString().padLeft(2, '0');
 
-    // next order number = current count + 1
     final int nextNumber = fakeSales.length + 1;
     final String orderSeq = nextNumber.toString().padLeft(4, '0');
 
@@ -233,7 +306,6 @@ class _CashierScreenState extends ConsumerState<CashierScreen> {
   // ================================================
   Sale _saveSale() {
 
-    // convert CartItems → SaleItems
     final List<SaleItem> saleItems = _cartItems.map((CartItem item) {
       return SaleItem(
         productName: item.productName,
@@ -244,22 +316,24 @@ class _CashierScreenState extends ConsumerState<CashierScreen> {
       );
     }).toList();
 
-    // build the Sale object
     final Sale sale = Sale(
-      orderNumber: _generateOrderNumber(),
-      items: saleItems,
-      subtotal: _subtotal,
-      discount: _discountAmount,
-      total: _total,
-      paymentMethod: _paymentMethod,
-      cashPaid: _paymentMethod == 'cash' ? _cashPaid : 0,
-      change: _paymentMethod == 'cash' ? _change : 0,
-      cashierName: 'Cashier DeeGee', // replace with real auth user later
-      transactionDate: DateTime.now(),
-    );
-
-    // save to fakeSales
-    // this is what Admin Sales Management reads
+        orderNumber: _generateOrderNumber(),
+        items: saleItems,
+        subtotal: _subtotal,
+        discount: _discountAmount,
+        total: _total,
+        paymentMethod: _paymentMethod == PaymentMethod.cash
+            ? 'cash'
+            : 'online',
+        cashPaid: _paymentMethod == PaymentMethod.cash
+            ? _cashPaid
+            : 0,
+        change: _paymentMethod == PaymentMethod.cash
+            ? _change
+            : 0,
+        cashierName: 'Cashier DeeGee',
+        transactionDate: DateTime.now(),
+      );
     fakeSales.add(sale);
 
     return sale;
@@ -270,165 +344,130 @@ class _CashierScreenState extends ConsumerState<CashierScreen> {
   // cash    → save sale → clear cart → show receipt
   // online  → show PayMongo placeholder
   // ================================================
-  void _handleCheckout() {
+    Future<void> _handleCheckout() async {
     if (_cartItems.isEmpty) return;
 
-    if (_paymentMethod == 'cash') {
+    if (_isDiscountTooLarge) {
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(
+          content: Text(
+            'Discount cannot exceed 50% of subtotal.',
+          ),
+          backgroundColor: Colors.red,
+        ),
+      );
+      return;
+    }
 
-      // save to sales immediately
+    if (_requiresDiscountConfirmation) {
+      final bool? confirmed = await showConfirmDialog(
+        context: context,
+        title: 'Large Discount Applied',
+        message:
+            'A discount of ${_discountPercent.toStringAsFixed(0)}% '
+            'has been applied to this transaction.\n\n'
+            'Are you sure you want to continue?',
+        confirmLabel: 'Continue',
+        confirmColor: const Color(0xFF2563EB),
+      );
+
+      if (confirmed != true) {
+        return;
+      }
+    }
+
+    if (_paymentMethod == PaymentMethod.cash) {
       final Sale sale = _saveSale();
 
-      // clear the cart
       _newTransaction();
 
-      // show receipt dialog
-      // sale is already saved — closing receipt does NOT cancel it
       showReceiptDialog(
         context: context,
         sale: sale,
       );
     }
-
-    if (_paymentMethod == 'online') {
-      // sale saved inside _showPayMongoPlaceholder after Mark Paid
-      _showPayMongoPlaceholder();
-    }
   }
 
   // ================================================
-  // SHOW PAYMONGO PLACEHOLDER
-  // Mark Paid → save sale → clear cart → show receipt
-  // will be replaced with real PayMongo API call later
+  // BUILD
   // ================================================
-  void _showPayMongoPlaceholder() {
-    showDialog(
-      context: context,
-      builder: (BuildContext ctx) {
-        return AlertDialog(
-          shape: RoundedRectangleBorder(
-            borderRadius: BorderRadius.circular(12),
-          ),
-          content: Column(
-            mainAxisSize: MainAxisSize.min,
+  @override
+  Widget build(BuildContext context) {
+    final productsAsync = ref.watch(productsProvider);
+
+    return productsAsync.when(
+      loading: () => const Scaffold(
+        body: Center(child: CircularProgressIndicator()),
+      ),
+
+      error: (error, stack) => Scaffold(
+        body: Center(child: Text('Error: $error')),
+      ),
+
+      data: (products) {
+        final filteredProducts = _filterProducts(products);
+
+        return Scaffold(
+          backgroundColor: const Color(0xFFF3F4F6),
+
+          body: Row(
             children: [
 
-              // blue payment icon
-              Container(
-                width: 56,
-                height: 56,
-                decoration: const BoxDecoration(
-                  color: Color(0xFFEFF6FF),
-                  shape: BoxShape.circle,
-                ),
-                child: const Icon(
-                  Icons.qr_code,
-                  color: Color(0xFF2563EB),
-                  size: 28,
-                ),
-              ),
+              // LEFT SIDE
+              Expanded(
+                child: Padding(
+                  padding: const EdgeInsets.all(24),
+                  child: Column(
+                    crossAxisAlignment: CrossAxisAlignment.start,
+                    children: [
 
-              const SizedBox(height: 16),
-
-              const Text(
-                'Online Payment',
-                style: TextStyle(
-                  fontSize: 16,
-                  fontWeight: FontWeight.bold,
-                  color: Color(0xFF111827),
-                ),
-              ),
-
-              const SizedBox(height: 8),
-
-              Text(
-                'Total: ₱${_total.toStringAsFixed(0)}',
-                style: const TextStyle(
-                  fontSize: 20,
-                  fontWeight: FontWeight.bold,
-                  color: Color(0xFF2563EB),
-                ),
-              ),
-
-              const SizedBox(height: 8),
-
-              // placeholder message — PayMongo not yet connected
-              Container(
-                padding: const EdgeInsets.all(12),
-                decoration: BoxDecoration(
-                  color: const Color(0xFFFEF9C3),
-                  borderRadius: BorderRadius.circular(8),
-                  border: Border.all(color: const Color(0xFFFDE047)),
-                ),
-                child: const Text(
-                  'PayMongo integration coming soon.\nA payment link / QR will appear here.',
-                  textAlign: TextAlign.center,
-                  style: TextStyle(
-                    fontSize: 12,
-                    color: Color(0xFF92400E),
-                  ),
-                ),
-              ),
-
-              const SizedBox(height: 20),
-
-              Row(
-                children: [
-
-                  // cancel
-                  Expanded(
-                    child: OutlinedButton(
-                      onPressed: () => Navigator.pop(ctx),
-                      style: OutlinedButton.styleFrom(
-                        foregroundColor: const Color(0xFF374151),
-                        side: const BorderSide(color: Color(0xFFD1D5DB)),
-                        padding: const EdgeInsets.symmetric(vertical: 12),
-                        shape: RoundedRectangleBorder(
-                          borderRadius: BorderRadius.circular(8),
+                      const Text(
+                        'Cashier',
+                        style: TextStyle(
+                          fontSize: 24,
+                          fontWeight: FontWeight.bold,
+                          color: Color(0xFF111827),
                         ),
                       ),
-                      child: const Text('Cancel'),
-                    ),
-                  ),
 
-                  const SizedBox(width: 8),
+                      const SizedBox(height: 16),
 
-                  // mark as paid — saves sale + shows receipt
-                  Expanded(
-                    child: ElevatedButton(
-                      onPressed: () {
-
-                        // close PayMongo dialog first
-                        Navigator.pop(ctx);
-
-                        // save sale immediately
-                        final Sale sale = _saveSale();
-
-                        // clear cart
-                        _newTransaction();
-
-                        // show receipt dialog
-                        showReceiptDialog(
-                          context: context,
-                          sale: sale,
-                        );
-                      },
-                      style: ElevatedButton.styleFrom(
-                        backgroundColor: const Color(0xFF2563EB),
-                        foregroundColor: Colors.white,
-                        elevation: 0,
-                        padding: const EdgeInsets.symmetric(vertical: 12),
-                        shape: RoundedRectangleBorder(
-                          borderRadius: BorderRadius.circular(8),
-                        ),
+                      CommonSearchBar(
+                        controller: _searchController,
+                        hintText: 'Search Product',
+                        onChanged: (value) {
+                          setState(() {
+                            _searchQuery = value.trim().toLowerCase();
+                          });
+                        },
                       ),
-                      child: const Text(
-                        'Mark Paid',
-                        style: TextStyle(fontSize: 12),
+                      const SizedBox(height: 16),
+                      Expanded(
+                        child: filteredProducts.isEmpty
+                            ? _buildEmptyState()
+                            : GridView.builder(
+                                gridDelegate:
+                                    const SliverGridDelegateWithFixedCrossAxisCount(
+                                  crossAxisCount: 3,
+                                  crossAxisSpacing: 12,
+                                  mainAxisSpacing: 12,
+                                  childAspectRatio: 0.8,
+                                ),
+                                itemCount: filteredProducts.length,
+                                itemBuilder: (context, index) {
+                                  return _buildProductCard(
+                                    filteredProducts[index],
+                                  );
+                                },
+                              ),
                       ),
-                    ),
+                    ],
                   ),
-                ],
+                ),
               ),
+
+              // RIGHT SIDE CART
+              _buildCartPanel(),
             ],
           ),
         );
@@ -437,126 +476,15 @@ class _CashierScreenState extends ConsumerState<CashierScreen> {
   }
 
   // ================================================
-  // BUILD
-  // ================================================
-  @override
-  Widget build(BuildContext context) {
-    return Scaffold(
-      backgroundColor: const Color(0xFFF3F4F6),
-      body: Row(
-        children: [
-
-          // ── LEFT: PRODUCT GRID ──
-          Expanded(
-            child: Padding(
-              padding: const EdgeInsets.all(24),
-              child: Column(
-                crossAxisAlignment: CrossAxisAlignment.start,
-                children: [
-
-                  // title
-                  const Text(
-                    'Cashier',
-                    style: TextStyle(
-                      fontSize: 24,
-                      fontWeight: FontWeight.bold,
-                      color: Color(0xFF111827),
-                    ),
-                  ),
-
-                  const SizedBox(height: 16),
-
-                  // search bar
-                  SizedBox(
-                    width: 280,
-                    child: TextField(
-                      controller: _searchController,
-                      onChanged: (String value) {
-                        setState(() => _searchQuery = value.toLowerCase());
-                      },
-                      style: const TextStyle(fontSize: 13),
-                      decoration: InputDecoration(
-                        hintText: 'Search Product',
-                        hintStyle: const TextStyle(
-                          fontSize: 13,
-                          color: Color(0xFF9CA3AF),
-                        ),
-                        prefixIcon: const Icon(
-                          Icons.search,
-                          size: 18,
-                          color: Color(0xFF9CA3AF),
-                        ),
-                        filled: true,
-                        fillColor: Colors.white,
-                        border: OutlineInputBorder(
-                          borderRadius: BorderRadius.circular(8),
-                          borderSide:
-                              const BorderSide(color: Color(0xFFE5E7EB)),
-                        ),
-                        enabledBorder: OutlineInputBorder(
-                          borderRadius: BorderRadius.circular(8),
-                          borderSide:
-                              const BorderSide(color: Color(0xFFE5E7EB)),
-                        ),
-                        focusedBorder: OutlineInputBorder(
-                          borderRadius: BorderRadius.circular(8),
-                          borderSide:
-                              const BorderSide(color: Color(0xFF2563EB)),
-                        ),
-                        contentPadding: const EdgeInsets.symmetric(
-                          horizontal: 12,
-                          vertical: 12,
-                        ),
-                      ),
-                    ),
-                  ),
-
-                  const SizedBox(height: 16),
-
-                  // ── PRODUCT GRID ──
-                  Expanded(
-                    child: _filteredProducts.isEmpty
-                        ? _buildEmptyState()
-                        : GridView.builder(
-                            gridDelegate:
-                                const SliverGridDelegateWithFixedCrossAxisCount(
-                              crossAxisCount: 3,
-                              crossAxisSpacing: 12,
-                              mainAxisSpacing: 12,
-                              childAspectRatio: 0.78,
-                            ),
-                            itemCount: _filteredProducts.length,
-                            itemBuilder: (BuildContext context, int index) {
-                              return _buildProductCard(
-                                  _filteredProducts[index]);
-                            },
-                          ),
-                  ),
-                ],
-              ),
-            ),
-          ),
-
-          // ── RIGHT: CART PANEL ──
-          _buildCartPanel(),
-        ],
-      ),
-    );
-  }
-
-  // ================================================
   // PRODUCT CARD
   // ================================================
   Widget _buildProductCard(Product product) {
 
-    // check if ALL variants are fully reserved
-    // if so → gray out the card visually
     final bool isFullyReserved = product.isFullyReserved;
 
     return GestureDetector(
       onTap: () {
 
-        // fully reserved → show error popup instead of variant dialog
         if (isFullyReserved == true) {
           showDialog(
             context: context,
@@ -578,7 +506,6 @@ class _CashierScreenState extends ConsumerState<CashierScreen> {
                     crossAxisAlignment: CrossAxisAlignment.start,
                     children: [
 
-                      // title
                       const Text(
                         'Product Fully Reserved',
                         style: TextStyle(
@@ -590,7 +517,6 @@ class _CashierScreenState extends ConsumerState<CashierScreen> {
 
                       const SizedBox(height: 10),
 
-                      // message
                       Text(
                         'All variants of ${product.productName} are currently reserved for online orders.',
                         style: const TextStyle(
@@ -602,7 +528,6 @@ class _CashierScreenState extends ConsumerState<CashierScreen> {
 
                       const SizedBox(height: 10),
 
-                      // hint box
                       Container(
                         padding: const EdgeInsets.all(10),
                         decoration: BoxDecoration(
@@ -622,7 +547,6 @@ class _CashierScreenState extends ConsumerState<CashierScreen> {
 
                       const SizedBox(height: 24),
 
-                      // OK button — right aligned
                       Row(
                         mainAxisAlignment: MainAxisAlignment.end,
                         children: [
@@ -659,7 +583,6 @@ class _CashierScreenState extends ConsumerState<CashierScreen> {
           return;
         }
 
-        // not reserved → open normal variant dialog
         showSelectVariantDialog(
           context: context,
           product: product,
@@ -676,10 +599,7 @@ class _CashierScreenState extends ConsumerState<CashierScreen> {
       },
 
       child: Opacity(
-
-        // gray out if fully reserved
         opacity: isFullyReserved ? 0.5 : 1.0,
-
         child: Container(
           decoration: BoxDecoration(
             color: isFullyReserved
@@ -694,31 +614,51 @@ class _CashierScreenState extends ConsumerState<CashierScreen> {
           ),
           child: Column(
             crossAxisAlignment: CrossAxisAlignment.start,
+            mainAxisSize: MainAxisSize.min,
             children: [
 
-              // image placeholder
-              Expanded(
+              AspectRatio(
+                aspectRatio: 1.0,
                 child: Stack(
                   children: [
-
-                    // image area
-                    Container(
-                      width: double.infinity,
-                      decoration: BoxDecoration(
-                        color: const Color(0xFFE5E7EB),
-                        borderRadius: const BorderRadius.only(
-                          topLeft: Radius.circular(8),
-                          topRight: Radius.circular(8),
-                        ),
-                      ),
-                      child: const Icon(
-                        Icons.image_outlined,
-                        size: 36,
-                        color: Color(0xFF9CA3AF),
-                      ),
+                    Builder(
+                      builder: (_) {
+                        final String? imageUrl =
+                            product.variants.isNotEmpty
+                                ? product.variants.first.primaryImageUrl
+                                : null;
+                        if (imageUrl != null && imageUrl.isNotEmpty) {
+                          return ClipRRect(
+                            borderRadius: const BorderRadius.only(
+                              topLeft: Radius.circular(8),
+                              topRight: Radius.circular(8),
+                            ),
+                            child: Image.network(
+                              imageUrl,
+                              fit: BoxFit.cover,
+                              width: double.infinity,
+                              height: double.infinity,
+                            ),
+                          );
+                        }
+                        return Container(
+                          width: double.infinity,
+                          decoration: const BoxDecoration(
+                            color: Color(0xFFE5E7EB),
+                            borderRadius: BorderRadius.only(
+                              topLeft: Radius.circular(8),
+                              topRight: Radius.circular(8),
+                            ),
+                          ),
+                          child: const Icon(
+                            Icons.image_outlined,
+                            size: 36,
+                            color: Color(0xFF9CA3AF),
+                          ),
+                        );
+                      },
                     ),
 
-                    // reserved badge on top-left
                     if (isFullyReserved == true)
                       Positioned(
                         top: 8,
@@ -735,11 +675,7 @@ class _CashierScreenState extends ConsumerState<CashierScreen> {
                           child: const Row(
                             mainAxisSize: MainAxisSize.min,
                             children: [
-                              Icon(
-                                Icons.lock,
-                                size: 10,
-                                color: Colors.white,
-                              ),
+                              Icon(Icons.lock, size: 10, color: Colors.white),
                               SizedBox(width: 4),
                               Text(
                                 'Reserved',
@@ -757,11 +693,11 @@ class _CashierScreenState extends ConsumerState<CashierScreen> {
                 ),
               ),
 
-              // product info
               Padding(
-                padding: const EdgeInsets.all(10),
+                padding: const EdgeInsets.fromLTRB(10, 8, 10, 8),
                 child: Column(
                   crossAxisAlignment: CrossAxisAlignment.start,
+                  mainAxisSize: MainAxisSize.min,
                   children: [
                     Text(
                       product.productName,
@@ -813,7 +749,6 @@ class _CashierScreenState extends ConsumerState<CashierScreen> {
         crossAxisAlignment: CrossAxisAlignment.start,
         children: [
 
-          // ── CART HEADER with item count ──
           Padding(
             padding: const EdgeInsets.fromLTRB(16, 16, 16, 12),
             child: Row(
@@ -830,7 +765,6 @@ class _CashierScreenState extends ConsumerState<CashierScreen> {
 
                 const SizedBox(width: 8),
 
-                // item count badge — only shows when cart has items
                 if (_totalItemCount > 0)
                   Container(
                     padding: const EdgeInsets.symmetric(
@@ -857,7 +791,6 @@ class _CashierScreenState extends ConsumerState<CashierScreen> {
 
           const Divider(height: 1, color: Color(0xFFE5E7EB)),
 
-          // ── CART ITEMS LIST ──
           Expanded(
             child: _cartItems.isEmpty
                 ? _buildEmptyCart()
@@ -873,7 +806,6 @@ class _CashierScreenState extends ConsumerState<CashierScreen> {
 
           const Divider(height: 1, color: Color(0xFFE5E7EB)),
 
-          // ── PAYMENT SECTION ──
           _buildPaymentSection(),
         ],
       ),
@@ -945,7 +877,6 @@ class _CashierScreenState extends ConsumerState<CashierScreen> {
       child: Row(
         children: [
 
-          // image placeholder
           Container(
             width: 44,
             height: 44,
@@ -962,7 +893,6 @@ class _CashierScreenState extends ConsumerState<CashierScreen> {
 
           const SizedBox(width: 10),
 
-          // item details
           Expanded(
             child: Column(
               crossAxisAlignment: CrossAxisAlignment.start,
@@ -978,7 +908,6 @@ class _CashierScreenState extends ConsumerState<CashierScreen> {
                   ),
                 ),
 
-                // size + color
                 Text(
                   'Size ${item.size}  ·  ${item.color}',
                   style: const TextStyle(
@@ -993,7 +922,6 @@ class _CashierScreenState extends ConsumerState<CashierScreen> {
                   mainAxisAlignment: MainAxisAlignment.spaceBetween,
                   children: [
 
-                    // price
                     Text(
                       '₱${item.retailPrice.toStringAsFixed(0)}',
                       style: const TextStyle(
@@ -1003,7 +931,6 @@ class _CashierScreenState extends ConsumerState<CashierScreen> {
                       ),
                     ),
 
-                    // quantity controls
                     Row(
                       children: [
                         _buildSmallQtyButton(
@@ -1035,7 +962,6 @@ class _CashierScreenState extends ConsumerState<CashierScreen> {
 
           const SizedBox(width: 6),
 
-          // delete button
           GestureDetector(
             onTap: () => _removeFromCart(index),
             child: const Icon(
@@ -1059,15 +985,10 @@ class _CashierScreenState extends ConsumerState<CashierScreen> {
         crossAxisAlignment: CrossAxisAlignment.start,
         children: [
 
-          // subtotal
-          _buildSummaryRow(
-            'Subtotal',
-            '₱${_subtotal.toStringAsFixed(0)}',
-          ),
+          _buildSummaryRow('Subtotal', '₱${_subtotal.toStringAsFixed(0)}'),
 
           const SizedBox(height: 6),
 
-          // discount row
           Row(
             mainAxisAlignment: MainAxisAlignment.spaceBetween,
             children: [
@@ -1081,7 +1002,10 @@ class _CashierScreenState extends ConsumerState<CashierScreen> {
                 child: TextField(
                   controller: _discountController,
                   keyboardType: TextInputType.number,
-                  inputFormatters: [FilteringTextInputFormatter.digitsOnly],
+                  inputFormatters: [
+                    FilteringTextInputFormatter.digitsOnly,
+                    LengthLimitingTextInputFormatter(6),
+                    ],
                   textAlign: TextAlign.right,
                   style: const TextStyle(
                     fontSize: 12,
@@ -1102,23 +1026,46 @@ class _CashierScreenState extends ConsumerState<CashierScreen> {
                     fillColor: const Color(0xFFF9FAFB),
                     border: OutlineInputBorder(
                       borderRadius: BorderRadius.circular(6),
-                      borderSide:
-                          const BorderSide(color: Color(0xFFE5E7EB)),
+                      borderSide: const BorderSide(color: Color(0xFFE5E7EB)),
                     ),
                     enabledBorder: OutlineInputBorder(
                       borderRadius: BorderRadius.circular(6),
-                      borderSide:
-                          const BorderSide(color: Color(0xFFE5E7EB)),
+                      borderSide: const BorderSide(color: Color(0xFFE5E7EB)),
                     ),
                     focusedBorder: OutlineInputBorder(
                       borderRadius: BorderRadius.circular(6),
-                      borderSide:
-                          const BorderSide(color: Color(0xFF2563EB)),
+                      borderSide: const BorderSide(color: Color(0xFF2563EB)),
                     ),
                   ),
                   onChanged: (String value) {
+                    final double entered =
+                        double.tryParse(value) ?? 0;
+
+                    if (entered > _subtotal) {
+                      ScaffoldMessenger.of(context).showSnackBar(
+                        const SnackBar(
+                          content: Text(
+                            'Discount cannot exceed the subtotal.',
+                          ),
+                          backgroundColor: Colors.red,
+                        ),
+                      );
+
+                      _discountController.text =
+                          _subtotal.toStringAsFixed(0);
+
+                      _discountController.selection =
+                          TextSelection.fromPosition(
+                        TextPosition(
+                          offset: _discountController.text.length,
+                        ),
+                      );
+                    }
+
                     setState(() {
-                      _discountAmount = double.tryParse(value) ?? 0;
+                      _discountAmount = entered
+                          .clamp(0, _subtotal)
+                          .toDouble();
                     });
                   },
                 ),
@@ -1132,7 +1079,6 @@ class _CashierScreenState extends ConsumerState<CashierScreen> {
 
           const SizedBox(height: 8),
 
-          // total
           Row(
             mainAxisAlignment: MainAxisAlignment.spaceBetween,
             children: [
@@ -1157,7 +1103,6 @@ class _CashierScreenState extends ConsumerState<CashierScreen> {
 
           const SizedBox(height: 14),
 
-          // payment method label
           const Text(
             'Payment Method',
             style: TextStyle(
@@ -1169,35 +1114,25 @@ class _CashierScreenState extends ConsumerState<CashierScreen> {
 
           const SizedBox(height: 8),
 
-          // payment method toggle
           Row(
-            children: [
-
-              // GCash / Maya / Card = online
-              Expanded(
-                child: _buildPaymentMethodChip(
-                  label: 'GCash / Maya / Card',
-                  value: 'online',
-                ),
+                children: [
+                  Expanded(
+                    child: _buildPaymentMethodChip(
+                      label: 'GCash / Maya / Card',
+                      value: PaymentMethod.online,
+                    ),
+                  ),
+                  const SizedBox(width: 8),
+                  Expanded(
+                    child: _buildPaymentMethodChip(
+                      label: 'Cash',
+                      value: PaymentMethod.cash,
+                    ),
+                  ),
+                ],
               ),
-
-              const SizedBox(width: 8),
-
-              // Cash
-              Expanded(
-                child: _buildPaymentMethodChip(
-                  label: 'Cash',
-                  value: 'cash',
-                ),
-              ),
-            ],
-          ),
-
           const SizedBox(height: 12),
-
-          // ── CASH INPUT — only when cash selected ──
-          if (_paymentMethod == 'cash') ...[
-
+          if (_paymentMethod == PaymentMethod.cash) ...[
             Row(
               mainAxisAlignment: MainAxisAlignment.spaceBetween,
               children: [
@@ -1214,9 +1149,7 @@ class _CashierScreenState extends ConsumerState<CashierScreen> {
                   child: TextField(
                     controller: _cashPaidController,
                     keyboardType: TextInputType.number,
-                    inputFormatters: [
-                      FilteringTextInputFormatter.digitsOnly,
-                    ],
+                    inputFormatters: [FilteringTextInputFormatter.digitsOnly],
                     textAlign: TextAlign.right,
                     style: const TextStyle(
                       fontSize: 12,
@@ -1265,7 +1198,6 @@ class _CashierScreenState extends ConsumerState<CashierScreen> {
               ],
             ),
 
-            // insufficient warning
             if (_isInsufficientAmount) ...[
               const SizedBox(height: 4),
               const Text(
@@ -1279,20 +1211,14 @@ class _CashierScreenState extends ConsumerState<CashierScreen> {
 
             const SizedBox(height: 8),
 
-            // change
-            _buildSummaryRow(
-              'Change',
-              '₱${_change.toStringAsFixed(0)}',
-            ),
+            _buildSummaryRow('Change', '₱${_change.toStringAsFixed(0)}'),
 
             const SizedBox(height: 12),
           ],
 
-          // ── BOTTOM BUTTONS ──
           Row(
             children: [
 
-              // New Transaction
               Expanded(
                 child: OutlinedButton(
                   onPressed: _newTransaction,
@@ -1316,13 +1242,11 @@ class _CashierScreenState extends ConsumerState<CashierScreen> {
 
               const SizedBox(width: 8),
 
-              // Checkout / Print Receipt
-              // label changes based on payment method
               Expanded(
                 child: ElevatedButton(
-                  onPressed: _cartItems.isEmpty ? null : _handleCheckout,
+                  onPressed: _canCheckout ? _handleCheckout : null,
                   style: ElevatedButton.styleFrom(
-                    backgroundColor: _paymentMethod == 'online'
+                    backgroundColor: _paymentMethod == PaymentMethod.online
                         ? const Color(0xFF2563EB)
                         : const Color(0xFF111827),
                     foregroundColor: Colors.white,
@@ -1334,9 +1258,7 @@ class _CashierScreenState extends ConsumerState<CashierScreen> {
                     elevation: 0,
                   ),
                   child: Text(
-                    _paymentMethod == 'online'
-                        ? 'Checkout'
-                        : 'Print Receipt',
+                    _paymentMethod == PaymentMethod.online ? 'Checkout' : 'Print Receipt',
                     style: const TextStyle(
                       fontSize: 11,
                       fontWeight: FontWeight.w500,
@@ -1355,8 +1277,8 @@ class _CashierScreenState extends ConsumerState<CashierScreen> {
   // PAYMENT METHOD CHIP
   // ================================================
   Widget _buildPaymentMethodChip({
-    required String label,
-    required String value,
+      required String label,
+      required PaymentMethod value,
   }) {
     final bool isSelected = _paymentMethod == value;
 
@@ -1395,17 +1317,11 @@ class _CashierScreenState extends ConsumerState<CashierScreen> {
       children: [
         Text(
           label,
-          style: const TextStyle(
-            fontSize: 12,
-            color: Color(0xFF6B7280),
-          ),
+          style: const TextStyle(fontSize: 12, color: Color(0xFF6B7280)),
         ),
         Text(
           value,
-          style: const TextStyle(
-            fontSize: 12,
-            color: Color(0xFF111827),
-          ),
+          style: const TextStyle(fontSize: 12, color: Color(0xFF111827)),
         ),
       ],
     );
@@ -1445,10 +1361,7 @@ class _CashierScreenState extends ConsumerState<CashierScreen> {
           const SizedBox(height: 12),
           Text(
             'No products found',
-            style: TextStyle(
-              fontSize: 14,
-              color: Colors.grey.shade500,
-            ),
+            style: TextStyle(fontSize: 14, color: Colors.grey.shade500),
           ),
         ],
       ),

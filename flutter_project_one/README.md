@@ -21,3 +21,5 @@ samples, guidance on mobile development, and a full API reference.
 git add .
 git commit -m "fixing the account management"
 git push origin main
+
+cd flutter_project_one

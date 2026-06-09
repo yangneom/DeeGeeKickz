@@ -1,6 +1,7 @@
 import 'package:flutter/material.dart';
 import '../../../widgets/common/common_table.dart';
 import '../../../widgets/common/confirm_dialog.dart';
+import '../../../models/admin_account.dart';
 
 // ================================================
 // ADMIN ARCHIVED DIALOG
@@ -9,8 +10,8 @@ import '../../../widgets/common/confirm_dialog.dart';
 // ================================================
 
 class AdminArchivedDialog extends StatefulWidget {
-  final List<Map<String, dynamic>> archivedAccounts;
-  final Function(Map<String, dynamic>) onRestore;
+  final List<AdminAccount> archivedAccounts;
+  final Function(AdminAccount) onRestore;
 
   const AdminArchivedDialog({
     super.key,
@@ -27,7 +28,7 @@ class _AdminArchivedDialogState extends State<AdminArchivedDialog> {
   // ================================================
   // HANDLE RESTORE
   // ================================================
-  Future<void> _handleRestore(Map<String, dynamic> account) async {
+  Future<void> _handleRestore(AdminAccount account,) async {
     final confirmed = await showConfirmDialog(
       context: context,
       title: 'Restore this account?',
@@ -52,22 +53,22 @@ class _AdminArchivedDialogState extends State<AdminArchivedDialog> {
     List<List<Widget>> tableRows = [];
 
     for (int i = 0; i < widget.archivedAccounts.length; i = i + 1) {
-      Map<String, dynamic> account = widget.archivedAccounts[i];
+      AdminAccount account = widget.archivedAccounts[i];
 
       List<Widget> oneRow = [
 
         // name
         Text(
-          '${account['firstName']} ${account['lastName']}',
+          '${account.firstName} ${account.lastName}',
           style: const TextStyle(
             fontSize: 13,
             color: Color(0xFF111827),
           ),
-        ),
+        ),  
 
         // email
         Text(
-          account['email'],
+          account.email,
           style: const TextStyle(
             fontSize: 13,
             color: Color(0xFF111827),
@@ -77,7 +78,7 @@ class _AdminArchivedDialogState extends State<AdminArchivedDialog> {
 
         // role
         Text(
-          account['role'],
+          account.role,
           style: const TextStyle(
             fontSize: 13,
             color: Color(0xFF111827),
@@ -86,7 +87,7 @@ class _AdminArchivedDialogState extends State<AdminArchivedDialog> {
 
         // archive date
         Text(
-          account['archiveDate'],
+          '-',
           style: const TextStyle(
             fontSize: 13,
             color: Color(0xFF111827),

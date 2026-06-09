@@ -5,6 +5,10 @@ import '../../widgets/super/topbar/super_top_bar.dart';
 import 'dashboard/super_dashboard_screen.dart';
 import 'admin_management/admin_management_screen.dart';
 import 'admin_management/customer_management_screen.dart';
+import '../super/sales/sales_report_screen.dart';                  // ← FIXED
+import 'activity_log/activity_log_screen.dart';
+import '../../screens/admin/feedback/feedback_screen.dart';
+
 
 // ================================================
 // SUPER ADMIN LAYOUT
@@ -60,11 +64,11 @@ class _SuperLayoutState extends ConsumerState<SuperLayout> {
     }
 
     if (_currentIndex == 3) {
-      return _buildComingSoon('Sales Report');
+      return const SalesReportScreen();
     }
 
     if (_currentIndex == 4) {
-      return _buildComingSoon('Feedback Management');
+      return const FeedbackScreen();    
     }
 
     if (_currentIndex == 5) {
@@ -72,7 +76,7 @@ class _SuperLayoutState extends ConsumerState<SuperLayout> {
     }
 
     if (_currentIndex == 6) {
-      return _buildComingSoon('Activity Log');
+       return const ActivityLogScreen();
     }
 
     // default

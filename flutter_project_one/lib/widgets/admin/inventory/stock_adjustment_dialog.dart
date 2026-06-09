@@ -1,26 +1,10 @@
-// Basic Flutter import
 import 'package:flutter/material.dart';
-
-// This import lets us use FilteringTextInputFormatter
-// which restricts text fields to numbers only
 import 'package:flutter/services.dart';
-
-// This brings in the reusable confirm dialog
 import 'package:flutter_project_one/widgets/common/confirm_dialog.dart';
-
-// This brings in the Product and ProductVariant classes
-// so we can read the fake product data
 import '../../../models/product.dart';
+import '../../../services/admin/inventory/inventory_service.dart';
+import '../../../services/admin/inventory/stock_service.dart';
 
-// ================================================
-// HOW TO USE THIS DIALOG
-//
-// Call this function from your inventory screen
-// when the admin clicks the "Stock Adj" button:
-//
-//   showStockAdjustmentDialog(context);
-//
-// ================================================
 void showStockAdjustmentDialog(BuildContext context) {
   showDialog(
     context: context,
@@ -31,9 +15,6 @@ void showStockAdjustmentDialog(BuildContext context) {
   );
 }
 
-// ================================================
-// STOCK ADJUSTMENT DIALOG WIDGET
-// ================================================
 class StockAdjustmentDialog extends StatefulWidget {
   const StockAdjustmentDialog({super.key});
 
@@ -44,20 +25,28 @@ class StockAdjustmentDialog extends StatefulWidget {
 class _StockAdjustmentDialogState extends State<StockAdjustmentDialog> {
 
   // ================================================
-  // TEXT CONTROLLERS
+  // SERVICES
+  // ================================================
+  final InventoryService _inventoryService = InventoryService();
+  final StockService _stockService = StockService();
+
+  // ================================================
+  // CONTROLLERS
   // ================================================
   final TextEditingController _searchController = TextEditingController();
   final TextEditingController _sizeController = TextEditingController();
   final TextEditingController _quantityController = TextEditingController();
 
   // ================================================
-  // STATE VARIABLES
+  // STATE
   // ================================================
+  List<Product> _allProducts = [];
+  List<_FlatVariantRow> _filteredRows = [];
+  bool _isLoading = true;
   String? _selectedCategory;
   ProductVariant? _selectedVariant;
   Product? _selectedProduct;
   bool _isAddStock = true;
-  List<_FlatVariantRow> _filteredRows = [];
 
   // ================================================
   // INIT STATE
@@ -65,10 +54,8 @@ class _StockAdjustmentDialogState extends State<StockAdjustmentDialog> {
   @override
   void initState() {
     super.initState();
-    _filteredRows = _buildAllRows();
-    _quantityController.addListener(() {
-      setState(() {});
-    });
+    _loadProducts();
+    _quantityController.addListener(() => setState(() {}));
   }
 
   // ================================================
@@ -83,17 +70,34 @@ class _StockAdjustmentDialogState extends State<StockAdjustmentDialog> {
   }
 
   // ================================================
+  // LOAD PRODUCTS FROM SUPABASE
+  // ================================================
+  Future<void> _loadProducts() async {
+    setState(() => _isLoading = true);
+
+    final List<Product> products = await _inventoryService.fetchProducts();
+
+    setState(() {
+      _allProducts = products;
+      _isLoading = false;
+      _filteredRows = _buildAllRows();
+    });
+  }
+
+  // ================================================
   // BUILD ALL ROWS
   // ================================================
   List<_FlatVariantRow> _buildAllRows() {
     List<_FlatVariantRow> rows = [];
-    for (int i = 0; i < fakeProducts.length; i++) {
-      Product product = fakeProducts[i];
+
+    for (int i = 0; i < _allProducts.length; i++) {
+      Product product = _allProducts[i];
       for (int j = 0; j < product.variants.length; j++) {
         ProductVariant variant = product.variants[j];
         rows.add(_FlatVariantRow(product: product, variant: variant));
       }
     }
+
     return rows;
   }
 
@@ -102,8 +106,8 @@ class _StockAdjustmentDialogState extends State<StockAdjustmentDialog> {
   // ================================================
   List<String> _getCategories() {
     Set<String> categorySet = {};
-    for (int i = 0; i < fakeProducts.length; i++) {
-      categorySet.add(fakeProducts[i].category);
+    for (int i = 0; i < _allProducts.length; i++) {
+      categorySet.add(_allProducts[i].category);
     }
     return categorySet.toList();
   }
@@ -122,14 +126,18 @@ class _StockAdjustmentDialogState extends State<StockAdjustmentDialog> {
 
       bool matchesSearch = true;
       if (searchQuery.isNotEmpty) {
-        bool nameMatch = row.product.productName.toLowerCase().contains(searchQuery);
-        bool brandMatch = row.product.brand.toLowerCase().contains(searchQuery);
+        bool nameMatch = row.product.productName
+            .toLowerCase()
+            .contains(searchQuery);
+        bool brandMatch =
+            row.product.brand.toLowerCase().contains(searchQuery);
         matchesSearch = nameMatch || brandMatch;
       }
 
       bool matchesSize = true;
       if (sizeQuery.isNotEmpty) {
-        matchesSize = row.variant.size.toString().contains(sizeQuery);
+        matchesSize =
+            row.variant.size.toString().toLowerCase().contains(sizeQuery);
       }
 
       bool matchesCategory = true;
@@ -162,31 +170,26 @@ class _StockAdjustmentDialogState extends State<StockAdjustmentDialog> {
   }
 
   int _getNewStockPreview() {
-    int currentStock = _getCurrentStock();
-    int adjustmentQty = _getAdjustmentQty();
+    int current = _getCurrentStock();
+    int adjustment = _getAdjustmentQty();
     if (_isAddStock) {
-      return currentStock + adjustmentQty;
+      return current + adjustment;
     } else {
-      int result = currentStock - adjustmentQty;
+      int result = current - adjustment;
       return result < 0 ? 0 : result;
     }
   }
 
   // ================================================
   // SAVE ADJUSTMENT
-  // Now shows a confirm dialog before saving
   // ================================================
   Future<void> _saveAdjustment() async {
-
-    // Do nothing if nothing is selected
     if (_selectedVariant == null) return;
 
-    // Build a clear message showing what will happen
     String action = _isAddStock ? 'Add' : 'Remove';
     int qty = _getAdjustmentQty();
     int newStock = _getNewStockPreview();
 
-    // Show the confirm dialog and wait for the user's choice
     final bool? confirmed = await showConfirmDialog(
       context: context,
       title: 'Save this stock adjustment?',
@@ -199,36 +202,29 @@ class _StockAdjustmentDialogState extends State<StockAdjustmentDialog> {
       confirmColor: const Color(0xFF2563EB),
     );
 
-    // If user tapped Cancel, do nothing
     if (confirmed != true) return;
 
-    // User confirmed — save the adjustment
-    try {
-      // TODO: Connect to Firestore to update the stock
-      print('Saving adjustment...');
-      print('Product: ${_selectedProduct!.productName}');
-      print('Color: ${_selectedVariant!.color}');
-      print('Size: ${_selectedVariant!.size}');
-      print('Current Stock: ${_getCurrentStock()}');
-      print('Adjustment: $action ${_getAdjustmentQty()}');
-      print('New Stock: $newStock');
+    final String? error = await _stockService.adjustStock(
+      sizeId: _selectedVariant!.sizeId,
+      adjustment: qty,
+      isAddStock: _isAddStock,
+    );
 
-      // Close the dialog
+    if (error != null) {
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(content: Text(error), backgroundColor: Colors.red),
+        );
+      }
+      return;
+    }
+
+    if (mounted) {
       Navigator.of(context).pop();
-
-      // Show success message
       ScaffoldMessenger.of(context).showSnackBar(
         const SnackBar(
           content: Text('Stock adjustment saved successfully!'),
           backgroundColor: Color(0xFF16A34A),
-        ),
-      );
-    } catch (error) {
-      print('Error saving adjustment: $error');
-      ScaffoldMessenger.of(context).showSnackBar(
-        const SnackBar(
-          content: Text('Failed to save adjustment. Please try again.'),
-          backgroundColor: Colors.red,
         ),
       );
     }
@@ -243,7 +239,8 @@ class _StockAdjustmentDialogState extends State<StockAdjustmentDialog> {
       hintStyle: const TextStyle(fontSize: 12, color: Color(0xFF9CA3AF)),
       filled: true,
       fillColor: Colors.white,
-      contentPadding: const EdgeInsets.symmetric(horizontal: 10, vertical: 8),
+      contentPadding:
+          const EdgeInsets.symmetric(horizontal: 10, vertical: 8),
       border: OutlineInputBorder(
         borderRadius: BorderRadius.circular(6),
         borderSide: const BorderSide(color: Color(0xFFD1D5DB)),
@@ -260,7 +257,7 @@ class _StockAdjustmentDialogState extends State<StockAdjustmentDialog> {
   }
 
   // ================================================
-  // BUILD FILTERS SECTION
+  // BUILD FILTERS
   // ================================================
   Widget _buildFilters() {
     List<String> categories = _getCategories();
@@ -269,13 +266,14 @@ class _StockAdjustmentDialogState extends State<StockAdjustmentDialog> {
       crossAxisAlignment: CrossAxisAlignment.start,
       children: [
 
-        // Search by product name
+        // Search product
         Row(
           children: [
             const SizedBox(
               width: 110,
               child: Text('Search Product :',
-                  style: TextStyle(fontSize: 13, color: Color(0xFF374151))),
+                  style:
+                      TextStyle(fontSize: 13, color: Color(0xFF374151))),
             ),
             const SizedBox(width: 8),
             SizedBox(
@@ -293,13 +291,14 @@ class _StockAdjustmentDialogState extends State<StockAdjustmentDialog> {
 
         const SizedBox(height: 10),
 
-        // Search by size
+        // Search size
         Row(
           children: [
             const SizedBox(
               width: 110,
               child: Text('Search Size :',
-                  style: TextStyle(fontSize: 13, color: Color(0xFF374151))),
+                  style:
+                      TextStyle(fontSize: 13, color: Color(0xFF374151))),
             ),
             const SizedBox(width: 8),
             SizedBox(
@@ -325,7 +324,8 @@ class _StockAdjustmentDialogState extends State<StockAdjustmentDialog> {
             const SizedBox(
               width: 110,
               child: Text('Category :',
-                  style: TextStyle(fontSize: 13, color: Color(0xFF374151))),
+                  style:
+                      TextStyle(fontSize: 13, color: Color(0xFF374151))),
             ),
             const SizedBox(width: 8),
             SizedBox(
@@ -348,7 +348,8 @@ class _StockAdjustmentDialogState extends State<StockAdjustmentDialog> {
                     items: [
                       const DropdownMenuItem<String>(
                         value: null,
-                        child: Text('All', style: TextStyle(fontSize: 12)),
+                        child: Text('All',
+                            style: TextStyle(fontSize: 12)),
                       ),
                       ...categories.map((String category) {
                         return DropdownMenuItem<String>(
@@ -385,12 +386,14 @@ class _StockAdjustmentDialogState extends State<StockAdjustmentDialog> {
       child: Column(
         children: [
 
-          // Header row
+          // Header
           Container(
-            padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 10),
+            padding:
+                const EdgeInsets.symmetric(horizontal: 12, vertical: 10),
             decoration: const BoxDecoration(
               color: Color(0xFFF9FAFB),
-              borderRadius: BorderRadius.vertical(top: Radius.circular(8)),
+              borderRadius:
+                  BorderRadius.vertical(top: Radius.circular(8)),
             ),
             child: Row(
               children: const [
@@ -433,25 +436,38 @@ class _StockAdjustmentDialogState extends State<StockAdjustmentDialog> {
 
           const Divider(height: 1, color: Color(0xFFE5E7EB)),
 
-          // Data rows
+          // Rows
           Expanded(
-            child: _filteredRows.isEmpty
+            child: _isLoading
                 ? const Center(
-                    child: Text('No products found.',
-                        style: TextStyle(
-                            fontSize: 13, color: Color(0xFF9CA3AF))),
+                    child: CircularProgressIndicator(
+                      color: Color(0xFF2563EB),
+                      strokeWidth: 2,
+                    ),
                   )
-                : ListView.separated(
-                    itemCount: _filteredRows.length,
-                    separatorBuilder: (BuildContext context, int index) =>
-                        const Divider(height: 1, color: Color(0xFFE5E7EB)),
-                    itemBuilder: (BuildContext context, int index) {
-                      _FlatVariantRow row = _filteredRows[index];
-                      bool isSelected = _selectedVariant == row.variant &&
-                          _selectedProduct == row.product;
-                      return _buildTableRow(row, isSelected);
-                    },
-                  ),
+                : _filteredRows.isEmpty
+                    ? const Center(
+                        child: Text('No products found.',
+                            style: TextStyle(
+                                fontSize: 13,
+                                color: Color(0xFF9CA3AF))),
+                      )
+                    : ListView.separated(
+                        itemCount: _filteredRows.length,
+                        separatorBuilder:
+                            (BuildContext context, int index) =>
+                                const Divider(
+                                    height: 1,
+                                    color: Color(0xFFE5E7EB)),
+                        itemBuilder:
+                            (BuildContext context, int index) {
+                          _FlatVariantRow row = _filteredRows[index];
+                          bool isSelected =
+                              _selectedVariant == row.variant &&
+                                  _selectedProduct == row.product;
+                          return _buildTableRow(row, isSelected);
+                        },
+                      ),
           ),
         ],
       ),
@@ -472,9 +488,12 @@ class _StockAdjustmentDialogState extends State<StockAdjustmentDialog> {
       },
       child: Container(
         decoration: BoxDecoration(
-          color: isSelected ? const Color(0xFFEFF6FF) : Colors.transparent,
+          color: isSelected
+              ? const Color(0xFFEFF6FF)
+              : Colors.transparent,
         ),
-        padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 12),
+        padding:
+            const EdgeInsets.symmetric(horizontal: 12, vertical: 12),
         child: Row(
           children: [
             SizedBox(
@@ -549,11 +568,13 @@ class _StockAdjustmentDialogState extends State<StockAdjustmentDialog> {
                     : const Color(0xFFD1D5DB),
                 width: 2,
               ),
-              color: isSelected ? const Color(0xFF2563EB) : Colors.white,
+              color:
+                  isSelected ? const Color(0xFF2563EB) : Colors.white,
             ),
             child: isSelected
                 ? const Center(
-                    child: Icon(Icons.circle, size: 6, color: Colors.white))
+                    child: Icon(Icons.circle,
+                        size: 6, color: Colors.white))
                 : null,
           ),
           const SizedBox(width: 8),
@@ -606,14 +627,17 @@ class _StockAdjustmentDialogState extends State<StockAdjustmentDialog> {
 
         if (_selectedVariant == null)
           const Text('Select a product row to see details.',
-              style: TextStyle(fontSize: 12, color: Color(0xFF9CA3AF)))
+              style:
+                  TextStyle(fontSize: 12, color: Color(0xFF9CA3AF)))
         else
           Column(
             crossAxisAlignment: CrossAxisAlignment.start,
             children: [
-              _buildInfoRow('Product Name :', _selectedProduct!.productName),
+              _buildInfoRow(
+                  'Product Name :', _selectedProduct!.productName),
               _buildInfoRow('Color :', _selectedVariant!.color),
-              _buildInfoRow('Size :', _selectedVariant!.size.toString()),
+              _buildInfoRow(
+                  'Size :', _selectedVariant!.size.toString()),
               _buildInfoRow('Current Stock Qty :',
                   _getCurrentStock().toString()),
             ],
@@ -647,7 +671,9 @@ class _StockAdjustmentDialogState extends State<StockAdjustmentDialog> {
               child: TextField(
                 controller: _quantityController,
                 keyboardType: TextInputType.number,
-                inputFormatters: [FilteringTextInputFormatter.digitsOnly],
+                inputFormatters: [
+                  FilteringTextInputFormatter.digitsOnly
+                ],
                 textAlign: TextAlign.center,
                 style: const TextStyle(fontSize: 13),
                 decoration: _buildInputDecoration(''),
@@ -666,11 +692,13 @@ class _StockAdjustmentDialogState extends State<StockAdjustmentDialog> {
                   style: TextStyle(
                       fontSize: 12, color: Color(0xFF374151))),
               const SizedBox(height: 4),
-              Text(_getNewStockPreview().toString(),
-                  style: const TextStyle(
-                      fontSize: 20,
-                      fontWeight: FontWeight.bold,
-                      color: Color(0xFF111827))),
+              Text(
+                _getNewStockPreview().toString(),
+                style: const TextStyle(
+                    fontSize: 20,
+                    fontWeight: FontWeight.bold,
+                    color: Color(0xFF111827)),
+              ),
             ],
           ),
       ],
@@ -684,10 +712,13 @@ class _StockAdjustmentDialogState extends State<StockAdjustmentDialog> {
   Widget build(BuildContext context) {
     return Dialog(
       backgroundColor: Colors.white,
-      shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
-      insetPadding: const EdgeInsets.symmetric(horizontal: 24, vertical: 24),
+      shape:
+          RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
+      insetPadding:
+          const EdgeInsets.symmetric(horizontal: 24, vertical: 24),
       child: ConstrainedBox(
-        constraints: const BoxConstraints(maxWidth: 960, maxHeight: 680),
+        constraints:
+            const BoxConstraints(maxWidth: 960, maxHeight: 680),
         child: Padding(
           padding: const EdgeInsets.all(32),
           child: Column(
@@ -735,7 +766,8 @@ class _StockAdjustmentDialogState extends State<StockAdjustmentDialog> {
                     const SizedBox(width: 32),
 
                     // Right — details panel
-                    SizedBox(width: 280, child: _buildRightPanel()),
+                    SizedBox(
+                        width: 280, child: _buildRightPanel()),
                   ],
                 ),
               ),
@@ -750,7 +782,8 @@ class _StockAdjustmentDialogState extends State<StockAdjustmentDialog> {
                     onPressed: () => Navigator.of(context).pop(),
                     style: OutlinedButton.styleFrom(
                       foregroundColor: const Color(0xFF374151),
-                      side: const BorderSide(color: Color(0xFFD1D5DB)),
+                      side:
+                          const BorderSide(color: Color(0xFFD1D5DB)),
                       padding: const EdgeInsets.symmetric(
                           horizontal: 24, vertical: 12),
                       shape: RoundedRectangleBorder(
@@ -760,13 +793,14 @@ class _StockAdjustmentDialogState extends State<StockAdjustmentDialog> {
                   ),
                   const SizedBox(width: 12),
                   ElevatedButton(
-                    // Disabled if nothing selected OR quantity is 0
-                    onPressed: (_selectedVariant != null && _getAdjustmentQty() > 0)
+                    onPressed: (_selectedVariant != null &&
+                            _getAdjustmentQty() > 0)
                         ? _saveAdjustment
                         : null,
                     style: ElevatedButton.styleFrom(
                       backgroundColor: const Color(0xFF2563EB),
-                      disabledBackgroundColor: const Color(0xFF93C5FD),
+                      disabledBackgroundColor:
+                          const Color(0xFF93C5FD),
                       foregroundColor: Colors.white,
                       padding: const EdgeInsets.symmetric(
                           horizontal: 24, vertical: 12),
