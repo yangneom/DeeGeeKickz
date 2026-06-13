@@ -1,10 +1,10 @@
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import '../../../models/product.dart';
-import '../../../widgets/common/expandable_product_table.dart';
-import '../../../widgets/common/search_bar.dart';
-import '../../../widgets/common/filter_button.dart';
-import '../../../widgets/common/filter_panel.dart';
+import '../../../widgets/common/tables/expandable_product_table.dart';
+import '../../../widgets/common/buttons/search_bar.dart';
+import '../../../widgets/common/buttons/filter_button.dart';
+import '../../../widgets/common/buttons/filter_panel.dart';
 import '../../../services/admin/inventory/inventory_service.dart';
 
 class CashierInventoryScreen extends ConsumerStatefulWidget {

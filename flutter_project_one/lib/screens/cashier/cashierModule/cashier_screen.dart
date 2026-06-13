@@ -8,10 +8,8 @@ import '../../../widgets/cashier/receipt/receipt_dialog.dart';
 import '../../../providers/product/product_provider.dart';
 import '../../../providers/cashier_provider/cashier_provider.dart';
 import '../../../models/cart_item.dart';
-import '../../../widgets/common/search_bar.dart';
-import '../../../widgets/common/confirm_dialog.dart';
-
-
+import '../../../widgets/common/buttons/search_bar.dart';
+import '../../../widgets/common/dialog/confirm_dialog.dart';
 
 // ================================================
 // CASHIER SCREEN
@@ -37,8 +35,16 @@ import '../../../widgets/common/confirm_dialog.dart';
 //       Printing is optional — closing receipt does
 //       NOT cancel or undo the sale.
 //
-// CART STATE is now managed by cashierProvider.
-// Screen handles: checkout, payments, sales, stock validation, totals.
+// RESERVATION FLOW:
+//   Online order placed → reserved_quantity increases in DB
+//   → SizeEntry.availableQty = stockQty - reservedQty drops
+//   → _addToCart blocks if requestedQty > availableQty
+//   → If ALL sizes of ALL variants are fully reserved,
+//     product card goes grey + shows "Product Fully Reserved"
+//     dialog before cashier can even pick a size.
+//
+// CART STATE is managed by cashierProvider.
+// Screen handles: checkout, payments, stock validation, totals.
 // ================================================
 
 enum PaymentMethod {
@@ -60,7 +66,6 @@ class _CashierScreenState extends ConsumerState<CashierScreen> {
   String _searchQuery = '';
 
   // ── PAYMENT ──
-  // 'cash' or 'online'
   PaymentMethod _paymentMethod = PaymentMethod.online;
   final TextEditingController _cashPaidController = TextEditingController();
   double _discountAmount = 0;
@@ -83,9 +88,7 @@ class _CashierScreenState extends ConsumerState<CashierScreen> {
   // FILTERED PRODUCTS based on search
   // ================================================
   List<Product> _filterProducts(List<Product> products) {
-    if (_searchQuery.isEmpty) {
-      return products;
-    }
+    if (_searchQuery.isEmpty) return products;
 
     return products.where((p) {
       return p.productName.toLowerCase().contains(_searchQuery) ||
@@ -98,47 +101,39 @@ class _CashierScreenState extends ConsumerState<CashierScreen> {
   // ================================================
   double get _subtotal {
     double total = 0;
-    for (CartItem item in _cartItems) {
+    for (final CartItem item in _cartItems) {
       total += item.subtotal;
     }
     return total;
   }
 
-  double get _total => (_subtotal - _discountAmount).clamp(0, double.infinity);
+  double get _total =>
+      (_subtotal - _discountAmount).clamp(0, double.infinity);
 
-    double get _discountPercent {
+  double get _discountPercent {
     if (_subtotal <= 0) return 0;
     return (_discountAmount / _subtotal) * 100;
   }
 
-  bool get _isDiscountTooLarge {
-    return _discountPercent > 50;
-  }
+  bool get _isDiscountTooLarge => _discountPercent > 50;
 
-  bool get _requiresDiscountConfirmation {
-    return _discountPercent >= 20 &&
-          _discountPercent <= 50;
-  }
+  bool get _requiresDiscountConfirmation =>
+      _discountPercent >= 20 && _discountPercent <= 50;
 
-  double get _cashPaid {
-    return double.tryParse(_cashPaidController.text) ?? 0;
-  }
+  double get _cashPaid =>
+      double.tryParse(_cashPaidController.text) ?? 0;
 
-  double get _change {
-    return (_cashPaid - _total).clamp(0, double.infinity);
-  }
+  double get _change =>
+      (_cashPaid - _total).clamp(0, double.infinity);
 
-  bool get _isInsufficientAmount {
-    return _cashPaid < _total && _cashPaid > 0;
-  }
+  bool get _isInsufficientAmount =>
+      _cashPaid < _total && _cashPaid > 0;
 
-    bool get _canCheckout {
+  bool get _canCheckout {
     if (_cartItems.isEmpty) return false;
-
     if (_paymentMethod == PaymentMethod.cash) {
       return _cashPaid >= _total && _cashPaid > 0;
     }
-
     return true;
   }
 
@@ -147,7 +142,7 @@ class _CashierScreenState extends ConsumerState<CashierScreen> {
   // ================================================
   int get _totalItemCount {
     int count = 0;
-    for (CartItem item in _cartItems) {
+    for (final CartItem item in _cartItems) {
       count += item.quantity;
     }
     return count;
@@ -155,8 +150,12 @@ class _CashierScreenState extends ConsumerState<CashierScreen> {
 
   // ================================================
   // ADD TO CART
-  // Stock validation stays here — provider only
-  // manages cart state, not product data.
+  //
+  // Reservation enforcement:
+  //   SizeEntry.availableQty = stockQty - reservedQty
+  //   If an online order reserved this size,
+  //   availableQty is already reduced.
+  //   requestedQty > availableQty → blocked.
   // ================================================
   void _addToCart({
     required Product product,
@@ -165,31 +164,41 @@ class _CashierScreenState extends ConsumerState<CashierScreen> {
     required int quantity,
     required double price,
   }) {
+    // Find the color variant
+    final ProductVariant? selectedVariant =
+        product.variants.cast<ProductVariant?>().firstWhere(
+          (v) => v!.color == color,
+          orElse: () => null,
+        );
 
-    // FIND SELECTED VARIANT
-    final ProductVariant selectedVariant = product.variants.firstWhere(
-      (variant) => variant.color == color && variant.size == size,
-    );
+    if (selectedVariant == null) return;
 
-    // AVAILABLE STOCK
-    final int availableStock =
-        selectedVariant.stockQty - selectedVariant.reservedQty;
+    // Find the size entry inside that variant
+    final SizeEntry? selectedSize =
+        selectedVariant.sizes.cast<SizeEntry?>().firstWhere(
+          (s) => s!.size == size,
+          orElse: () => null,
+        );
 
-    // CHECK EXISTING CART QTY for this variant
-    final CartItem? existing = _cartItems.cast<CartItem?>().firstWhere(
-      (CartItem? item) =>
-          item!.productId == product.productId &&
-          item.color == color &&
-          item.size == size,
-      orElse: () => null,
-    );
+    if (selectedSize == null) return;
+
+    // availableQty already accounts for reservations
+    final int availableStock = selectedSize.availableQty;
+
+    // Check how many of this exact variant+size are already in cart
+    final CartItem? existing =
+        _cartItems.cast<CartItem?>().firstWhere(
+          (item) =>
+              item!.productId == product.productId &&
+              item.color == color &&
+              item.size == size,
+          orElse: () => null,
+        );
 
     final int existingCartQty = existing?.quantity ?? 0;
-
-    // TOTAL REQUESTED QUANTITY
     final int requestedQty = existingCartQty + quantity;
 
-    // BLOCK IF EXCEEDS STOCK
+    // BLOCK if requested exceeds available (unreserved) stock
     if (requestedQty > availableStock) {
       ScaffoldMessenger.of(context).showSnackBar(
         SnackBar(
@@ -200,7 +209,6 @@ class _CashierScreenState extends ConsumerState<CashierScreen> {
       return;
     }
 
-    // DELEGATE TO PROVIDER
     ref.read(cashierProvider.notifier).addToCart(
       productId: product.productId,
       productName: product.productName,
@@ -212,7 +220,7 @@ class _CashierScreenState extends ConsumerState<CashierScreen> {
   }
 
   // ================================================
-  // REMOVE FROM CART — delegates to provider
+  // REMOVE FROM CART
   // ================================================
   void _removeFromCart(int index) {
     ref.read(cashierProvider.notifier).removeFromCart(index);
@@ -220,32 +228,51 @@ class _CashierScreenState extends ConsumerState<CashierScreen> {
 
   // ================================================
   // UPDATE QUANTITY
-  // Stock validation stays here for increases.
-  // Decreases go straight to provider.
+  //
+  // Decrease → straight to provider (no stock check needed).
+  // Increase → validate against SizeEntry.availableQty
+  //            which already reflects reservations.
   // ================================================
   void _updateQuantity(int index, int delta) {
-
     final CartItem cartItem = _cartItems[index];
 
-    // DECREASE — provider handles removal if qty hits 0
+    // Decrease — no stock check needed
     if (delta < 0) {
       ref.read(cashierProvider.notifier).decreaseQuantity(index);
       return;
     }
 
-    // INCREASE — validate stock first
-    final List<Product> products = ref.read(productsProvider).value ?? [];
+    // Increase — validate stock
+    final List<Product> products =
+        ref.read(productsProvider).value ?? [];
 
-    final Product product = products.firstWhere(
-      (Product p) => p.productId == cartItem.productId,
-    );
+    final Product? product =
+        products.cast<Product?>().firstWhere(
+          (p) => p!.productId == cartItem.productId,
+          orElse: () => null,
+        );
 
-    final ProductVariant variant = product.variants.firstWhere(
-      (ProductVariant v) =>
-          v.color == cartItem.color && v.size == cartItem.size,
-    );
+    if (product == null) return;
 
-    final int availableStock = variant.stockQty - variant.reservedQty;
+    // Find the color variant
+    final ProductVariant? variant =
+        product.variants.cast<ProductVariant?>().firstWhere(
+          (v) => v!.color == cartItem.color,
+          orElse: () => null,
+        );
+
+    if (variant == null) return;
+
+    // Find the size entry — availableQty respects reservations
+    final SizeEntry? sizeEntry =
+        variant.sizes.cast<SizeEntry?>().firstWhere(
+          (s) => s!.size == cartItem.size,
+          orElse: () => null,
+        );
+
+    if (sizeEntry == null) return;
+
+    final int availableStock = sizeEntry.availableQty;
     final int nextQty = cartItem.quantity + delta;
 
     if (nextQty > availableStock) {
@@ -280,33 +307,26 @@ class _CashierScreenState extends ConsumerState<CashierScreen> {
   // ================================================
   // GENERATE ORDER NUMBER
   // format: DG-YYYYMMDD-XXXX
-  // uses fakeSales length to get next number
-  // replace with Supabase query later
   // ================================================
   String _generateOrderNumber() {
     final DateTime now = DateTime.now();
-
     final String year = now.year.toString();
     final String month = now.month.toString().padLeft(2, '0');
     final String day = now.day.toString().padLeft(2, '0');
-
     final int nextNumber = fakeSales.length + 1;
     final String orderSeq = nextNumber.toString().padLeft(4, '0');
-
     return 'DG-$year$month$day-$orderSeq';
   }
 
   // ================================================
   // SAVE SALE
-  // converts cart items → Sale model
-  // adds to fakeSales list
-  // called BEFORE showing receipt dialog
-  // sale is saved regardless of whether cashier prints
-  // replace fakeSales.add() with Supabase insert later
+  // Converts cart → Sale model → adds to fakeSales.
+  // Called BEFORE showing receipt dialog.
+  // Sale is saved regardless of whether cashier prints.
   // ================================================
   Sale _saveSale() {
-
-    final List<SaleItem> saleItems = _cartItems.map((CartItem item) {
+    final List<SaleItem> saleItems =
+        _cartItems.map((CartItem item) {
       return SaleItem(
         productName: item.productName,
         color: item.color,
@@ -317,42 +337,37 @@ class _CashierScreenState extends ConsumerState<CashierScreen> {
     }).toList();
 
     final Sale sale = Sale(
-        orderNumber: _generateOrderNumber(),
-        items: saleItems,
-        subtotal: _subtotal,
-        discount: _discountAmount,
-        total: _total,
-        paymentMethod: _paymentMethod == PaymentMethod.cash
-            ? 'cash'
-            : 'online',
-        cashPaid: _paymentMethod == PaymentMethod.cash
-            ? _cashPaid
-            : 0,
-        change: _paymentMethod == PaymentMethod.cash
-            ? _change
-            : 0,
-        cashierName: 'Cashier DeeGee',
-        transactionDate: DateTime.now(),
-      );
-    fakeSales.add(sale);
+      orderNumber: _generateOrderNumber(),
+      items: saleItems,
+      subtotal: _subtotal,
+      discount: _discountAmount,
+      total: _total,
+      paymentMethod:
+          _paymentMethod == PaymentMethod.cash ? 'cash' : 'online',
+      cashPaid:
+          _paymentMethod == PaymentMethod.cash ? _cashPaid : 0,
+      change:
+          _paymentMethod == PaymentMethod.cash ? _change : 0,
+      cashierName: 'Cashier DeeGee',
+      transactionDate: DateTime.now(),
+    );
 
+    fakeSales.add(sale);
     return sale;
   }
 
   // ================================================
   // HANDLE CHECKOUT
-  // cash    → save sale → clear cart → show receipt
-  // online  → show PayMongo placeholder
+  // cash   → save sale → clear cart → show receipt
+  // online → PayMongo placeholder (future)
   // ================================================
-    Future<void> _handleCheckout() async {
+  Future<void> _handleCheckout() async {
     if (_cartItems.isEmpty) return;
 
     if (_isDiscountTooLarge) {
       ScaffoldMessenger.of(context).showSnackBar(
         const SnackBar(
-          content: Text(
-            'Discount cannot exceed 50% of subtotal.',
-          ),
+          content: Text('Discount cannot exceed 50% of subtotal.'),
           backgroundColor: Colors.red,
         ),
       );
@@ -371,21 +386,16 @@ class _CashierScreenState extends ConsumerState<CashierScreen> {
         confirmColor: const Color(0xFF2563EB),
       );
 
-      if (confirmed != true) {
-        return;
-      }
+      if (confirmed != true) return;
     }
 
     if (_paymentMethod == PaymentMethod.cash) {
       final Sale sale = _saveSale();
-
       _newTransaction();
-
-      showReceiptDialog(
-        context: context,
-        sale: sale,
-      );
+      showReceiptDialog(context: context, sale: sale);
     }
+
+    // TODO: online payment → PayMongo flow
   }
 
   // ================================================
@@ -399,21 +409,19 @@ class _CashierScreenState extends ConsumerState<CashierScreen> {
       loading: () => const Scaffold(
         body: Center(child: CircularProgressIndicator()),
       ),
-
       error: (error, stack) => Scaffold(
         body: Center(child: Text('Error: $error')),
       ),
-
       data: (products) {
-        final filteredProducts = _filterProducts(products);
+        final List<Product> filteredProducts =
+            _filterProducts(products);
 
         return Scaffold(
           backgroundColor: const Color(0xFFF3F4F6),
-
           body: Row(
             children: [
 
-              // LEFT SIDE
+              // ── LEFT: product grid ──
               Expanded(
                 child: Padding(
                   padding: const EdgeInsets.all(24),
@@ -437,11 +445,14 @@ class _CashierScreenState extends ConsumerState<CashierScreen> {
                         hintText: 'Search Product',
                         onChanged: (value) {
                           setState(() {
-                            _searchQuery = value.trim().toLowerCase();
+                            _searchQuery =
+                                value.trim().toLowerCase();
                           });
                         },
                       ),
+
                       const SizedBox(height: 16),
+
                       Expanded(
                         child: filteredProducts.isEmpty
                             ? _buildEmptyState()
@@ -454,11 +465,9 @@ class _CashierScreenState extends ConsumerState<CashierScreen> {
                                   childAspectRatio: 0.8,
                                 ),
                                 itemCount: filteredProducts.length,
-                                itemBuilder: (context, index) {
-                                  return _buildProductCard(
-                                    filteredProducts[index],
-                                  );
-                                },
+                                itemBuilder: (context, index) =>
+                                    _buildProductCard(
+                                        filteredProducts[index]),
                               ),
                       ),
                     ],
@@ -466,7 +475,7 @@ class _CashierScreenState extends ConsumerState<CashierScreen> {
                 ),
               ),
 
-              // RIGHT SIDE CART
+              // ── RIGHT: cart panel ──
               _buildCartPanel(),
             ],
           ),
@@ -477,26 +486,30 @@ class _CashierScreenState extends ConsumerState<CashierScreen> {
 
   // ================================================
   // PRODUCT CARD
+  //
+  // isFullyReserved uses ProductVariant.isFullyReserved
+  // which checks sizes.every((s) => s.availableQty == 0)
+  // so a partially reserved product still shows as tappable.
   // ================================================
   Widget _buildProductCard(Product product) {
-
     final bool isFullyReserved = product.isFullyReserved;
 
     return GestureDetector(
       onTap: () {
-
-        if (isFullyReserved == true) {
+        // Fully reserved → show info dialog, block selection
+        if (isFullyReserved) {
           showDialog(
             context: context,
             builder: (BuildContext ctx) {
               return Dialog(
                 shape: RoundedRectangleBorder(
-                  borderRadius: BorderRadius.circular(12),
-                ),
-                insetPadding: const EdgeInsets.symmetric(horizontal: 24),
+                    borderRadius: BorderRadius.circular(12)),
+                insetPadding:
+                    const EdgeInsets.symmetric(horizontal: 24),
                 child: Container(
                   width: 420,
-                  padding: const EdgeInsets.fromLTRB(24, 28, 24, 20),
+                  padding:
+                      const EdgeInsets.fromLTRB(24, 28, 24, 20),
                   decoration: BoxDecoration(
                     color: Colors.white,
                     borderRadius: BorderRadius.circular(12),
@@ -505,7 +518,6 @@ class _CashierScreenState extends ConsumerState<CashierScreen> {
                     mainAxisSize: MainAxisSize.min,
                     crossAxisAlignment: CrossAxisAlignment.start,
                     children: [
-
                       const Text(
                         'Product Fully Reserved',
                         style: TextStyle(
@@ -514,29 +526,29 @@ class _CashierScreenState extends ConsumerState<CashierScreen> {
                           color: Color(0xFF111827),
                         ),
                       ),
-
                       const SizedBox(height: 10),
-
                       Text(
-                        'All variants of ${product.productName} are currently reserved for online orders.',
+                        'All variants of ${product.productName} '
+                        'are currently reserved for online orders.',
                         style: const TextStyle(
                           fontSize: 13,
                           color: Color(0xFF6B7280),
                           height: 1.5,
                         ),
                       ),
-
                       const SizedBox(height: 10),
-
                       Container(
                         padding: const EdgeInsets.all(10),
                         decoration: BoxDecoration(
                           color: const Color(0xFFFEF9C3),
                           borderRadius: BorderRadius.circular(8),
-                          border: Border.all(color: const Color(0xFFFDE047)),
+                          border: Border.all(
+                              color: const Color(0xFFFDE047)),
                         ),
                         child: const Text(
-                          'This product will be available again once the admin approves or declines the pending online order.',
+                          'This product will be available again once '
+                          'the admin approves or declines the pending '
+                          'online order.',
                           style: TextStyle(
                             fontSize: 12,
                             color: Color(0xFF92400E),
@@ -544,25 +556,24 @@ class _CashierScreenState extends ConsumerState<CashierScreen> {
                           ),
                         ),
                       ),
-
                       const SizedBox(height: 24),
-
                       Row(
                         mainAxisAlignment: MainAxisAlignment.end,
                         children: [
                           ElevatedButton(
                             onPressed: () => Navigator.pop(ctx),
                             style: ElevatedButton.styleFrom(
-                              backgroundColor: const Color(0xFFDC2626),
+                              backgroundColor:
+                                  const Color(0xFFDC2626),
                               foregroundColor: Colors.white,
                               elevation: 0,
-                              padding: const EdgeInsets.symmetric(
-                                horizontal: 20,
-                                vertical: 11,
-                              ),
+                              padding:
+                                  const EdgeInsets.symmetric(
+                                      horizontal: 20,
+                                      vertical: 11),
                               shape: RoundedRectangleBorder(
-                                borderRadius: BorderRadius.circular(8),
-                              ),
+                                  borderRadius:
+                                      BorderRadius.circular(8)),
                             ),
                             child: const Text(
                               'OK, Got It',
@@ -583,10 +594,12 @@ class _CashierScreenState extends ConsumerState<CashierScreen> {
           return;
         }
 
+        // Not fully reserved → open variant/size picker
         showSelectVariantDialog(
           context: context,
           product: product,
-          onAddToCart: (String color, String size, int quantity, double price) {
+          onAddToCart: (String color, String size, int quantity,
+              double price) {
             _addToCart(
               product: product,
               color: color,
@@ -621,61 +634,63 @@ class _CashierScreenState extends ConsumerState<CashierScreen> {
                 aspectRatio: 1.0,
                 child: Stack(
                   children: [
-                    Builder(
-                      builder: (_) {
-                        final String? imageUrl =
-                            product.variants.isNotEmpty
-                                ? product.variants.first.primaryImageUrl
-                                : null;
-                        if (imageUrl != null && imageUrl.isNotEmpty) {
-                          return ClipRRect(
-                            borderRadius: const BorderRadius.only(
-                              topLeft: Radius.circular(8),
-                              topRight: Radius.circular(8),
-                            ),
-                            child: Image.network(
-                              imageUrl,
-                              fit: BoxFit.cover,
-                              width: double.infinity,
-                              height: double.infinity,
-                            ),
-                          );
-                        }
-                        return Container(
-                          width: double.infinity,
-                          decoration: const BoxDecoration(
-                            color: Color(0xFFE5E7EB),
-                            borderRadius: BorderRadius.only(
-                              topLeft: Radius.circular(8),
-                              topRight: Radius.circular(8),
-                            ),
+                    Builder(builder: (_) {
+                      final String? imageUrl =
+                          product.variants.isNotEmpty
+                              ? product
+                                  .variants.first.primaryImageUrl
+                              : null;
+
+                      if (imageUrl != null &&
+                          imageUrl.isNotEmpty) {
+                        return ClipRRect(
+                          borderRadius: const BorderRadius.only(
+                            topLeft: Radius.circular(8),
+                            topRight: Radius.circular(8),
                           ),
-                          child: const Icon(
-                            Icons.image_outlined,
-                            size: 36,
-                            color: Color(0xFF9CA3AF),
+                          child: Image.network(
+                            imageUrl,
+                            fit: BoxFit.cover,
+                            width: double.infinity,
+                            height: double.infinity,
                           ),
                         );
-                      },
-                    ),
+                      }
 
-                    if (isFullyReserved == true)
+                      return Container(
+                        width: double.infinity,
+                        decoration: const BoxDecoration(
+                          color: Color(0xFFE5E7EB),
+                          borderRadius: BorderRadius.only(
+                            topLeft: Radius.circular(8),
+                            topRight: Radius.circular(8),
+                          ),
+                        ),
+                        child: const Icon(
+                          Icons.image_outlined,
+                          size: 36,
+                          color: Color(0xFF9CA3AF),
+                        ),
+                      );
+                    }),
+
+                    if (isFullyReserved)
                       Positioned(
                         top: 8,
                         left: 8,
                         child: Container(
                           padding: const EdgeInsets.symmetric(
-                            horizontal: 8,
-                            vertical: 3,
-                          ),
+                              horizontal: 8, vertical: 3),
                           decoration: BoxDecoration(
                             color: const Color(0xFFDC2626),
-                            borderRadius: BorderRadius.circular(4),
+                            borderRadius:
+                                BorderRadius.circular(4),
                           ),
                           child: const Row(
                             mainAxisSize: MainAxisSize.min,
                             children: [
-                              Icon(Icons.lock, size: 10, color: Colors.white),
+                              Icon(Icons.lock,
+                                  size: 10, color: Colors.white),
                               SizedBox(width: 4),
                               Text(
                                 'Reserved',
@@ -694,7 +709,8 @@ class _CashierScreenState extends ConsumerState<CashierScreen> {
               ),
 
               Padding(
-                padding: const EdgeInsets.fromLTRB(10, 8, 10, 8),
+                padding:
+                    const EdgeInsets.fromLTRB(10, 8, 10, 8),
                 child: Column(
                   crossAxisAlignment: CrossAxisAlignment.start,
                   mainAxisSize: MainAxisSize.min,
@@ -753,7 +769,6 @@ class _CashierScreenState extends ConsumerState<CashierScreen> {
             padding: const EdgeInsets.fromLTRB(16, 16, 16, 12),
             child: Row(
               children: [
-
                 const Text(
                   'Cart',
                   style: TextStyle(
@@ -762,19 +777,16 @@ class _CashierScreenState extends ConsumerState<CashierScreen> {
                     color: Color(0xFF111827),
                   ),
                 ),
-
                 const SizedBox(width: 8),
-
                 if (_totalItemCount > 0)
                   Container(
                     padding: const EdgeInsets.symmetric(
-                      horizontal: 8,
-                      vertical: 2,
-                    ),
+                        horizontal: 8, vertical: 2),
                     decoration: BoxDecoration(
                       color: const Color(0xFFEFF6FF),
                       borderRadius: BorderRadius.circular(20),
-                      border: Border.all(color: const Color(0xFFBFDBFE)),
+                      border: Border.all(
+                          color: const Color(0xFFBFDBFE)),
                     ),
                     child: Text(
                       '$_totalItemCount item${_totalItemCount > 1 ? 's' : ''}',
@@ -797,10 +809,10 @@ class _CashierScreenState extends ConsumerState<CashierScreen> {
                 : ListView.separated(
                     padding: const EdgeInsets.all(12),
                     itemCount: _cartItems.length,
-                    separatorBuilder: (_, __) => const SizedBox(height: 8),
-                    itemBuilder: (BuildContext context, int index) {
-                      return _buildCartItem(index);
-                    },
+                    separatorBuilder: (_, __) =>
+                        const SizedBox(height: 8),
+                    itemBuilder: (context, index) =>
+                        _buildCartItem(index),
                   ),
           ),
 
@@ -820,14 +832,14 @@ class _CashierScreenState extends ConsumerState<CashierScreen> {
       child: Column(
         mainAxisAlignment: MainAxisAlignment.center,
         children: [
-
           Container(
             width: 56,
             height: 56,
             decoration: BoxDecoration(
               color: const Color(0xFFF3F4F6),
               shape: BoxShape.circle,
-              border: Border.all(color: const Color(0xFFE5E7EB)),
+              border:
+                  Border.all(color: const Color(0xFFE5E7EB)),
             ),
             child: const Icon(
               Icons.shopping_cart_outlined,
@@ -835,9 +847,7 @@ class _CashierScreenState extends ConsumerState<CashierScreen> {
               color: Color(0xFF9CA3AF),
             ),
           ),
-
           const SizedBox(height: 12),
-
           const Text(
             'No items yet',
             style: TextStyle(
@@ -846,15 +856,10 @@ class _CashierScreenState extends ConsumerState<CashierScreen> {
               color: Color(0xFF6B7280),
             ),
           ),
-
           const SizedBox(height: 4),
-
           const Text(
             'Click a product to add it',
-            style: TextStyle(
-              fontSize: 11,
-              color: Color(0xFF9CA3AF),
-            ),
+            style: TextStyle(fontSize: 11, color: Color(0xFF9CA3AF)),
           ),
         ],
       ),
@@ -907,7 +912,6 @@ class _CashierScreenState extends ConsumerState<CashierScreen> {
                     color: Color(0xFF111827),
                   ),
                 ),
-
                 Text(
                   'Size ${item.size}  ·  ${item.color}',
                   style: const TextStyle(
@@ -915,13 +919,11 @@ class _CashierScreenState extends ConsumerState<CashierScreen> {
                     color: Color(0xFF6B7280),
                   ),
                 ),
-
                 const SizedBox(height: 6),
-
                 Row(
-                  mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                  mainAxisAlignment:
+                      MainAxisAlignment.spaceBetween,
                   children: [
-
                     Text(
                       '₱${item.retailPrice.toStringAsFixed(0)}',
                       style: const TextStyle(
@@ -930,15 +932,16 @@ class _CashierScreenState extends ConsumerState<CashierScreen> {
                         color: Color(0xFF111827),
                       ),
                     ),
-
                     Row(
                       children: [
                         _buildSmallQtyButton(
                           icon: Icons.remove,
-                          onTap: () => _updateQuantity(index, -1),
+                          onTap: () =>
+                              _updateQuantity(index, -1),
                         ),
                         Padding(
-                          padding: const EdgeInsets.symmetric(horizontal: 8),
+                          padding: const EdgeInsets.symmetric(
+                              horizontal: 8),
                           child: Text(
                             '${item.quantity}',
                             style: const TextStyle(
@@ -950,7 +953,8 @@ class _CashierScreenState extends ConsumerState<CashierScreen> {
                         ),
                         _buildSmallQtyButton(
                           icon: Icons.add,
-                          onTap: () => _updateQuantity(index, 1),
+                          onTap: () =>
+                              _updateQuantity(index, 1),
                         ),
                       ],
                     ),
@@ -985,16 +989,19 @@ class _CashierScreenState extends ConsumerState<CashierScreen> {
         crossAxisAlignment: CrossAxisAlignment.start,
         children: [
 
-          _buildSummaryRow('Subtotal', '₱${_subtotal.toStringAsFixed(0)}'),
+          _buildSummaryRow(
+              'Subtotal', '₱${_subtotal.toStringAsFixed(0)}'),
 
           const SizedBox(height: 6),
 
+          // ── Discount row ──
           Row(
             mainAxisAlignment: MainAxisAlignment.spaceBetween,
             children: [
               const Text(
                 'Discount',
-                style: TextStyle(fontSize: 12, color: Color(0xFF6B7280)),
+                style: TextStyle(
+                    fontSize: 12, color: Color(0xFF6B7280)),
               ),
               SizedBox(
                 width: 70,
@@ -1005,36 +1012,33 @@ class _CashierScreenState extends ConsumerState<CashierScreen> {
                   inputFormatters: [
                     FilteringTextInputFormatter.digitsOnly,
                     LengthLimitingTextInputFormatter(6),
-                    ],
+                  ],
                   textAlign: TextAlign.right,
                   style: const TextStyle(
-                    fontSize: 12,
-                    color: Color(0xFF111827),
-                  ),
+                      fontSize: 12, color: Color(0xFF111827)),
                   decoration: InputDecoration(
                     hintText: '0',
                     hintStyle: const TextStyle(
-                      fontSize: 12,
-                      color: Color(0xFF9CA3AF),
-                    ),
+                        fontSize: 12, color: Color(0xFF9CA3AF)),
                     isDense: true,
                     contentPadding: const EdgeInsets.symmetric(
-                      horizontal: 8,
-                      vertical: 6,
-                    ),
+                        horizontal: 8, vertical: 6),
                     filled: true,
                     fillColor: const Color(0xFFF9FAFB),
                     border: OutlineInputBorder(
                       borderRadius: BorderRadius.circular(6),
-                      borderSide: const BorderSide(color: Color(0xFFE5E7EB)),
+                      borderSide: const BorderSide(
+                          color: Color(0xFFE5E7EB)),
                     ),
                     enabledBorder: OutlineInputBorder(
                       borderRadius: BorderRadius.circular(6),
-                      borderSide: const BorderSide(color: Color(0xFFE5E7EB)),
+                      borderSide: const BorderSide(
+                          color: Color(0xFFE5E7EB)),
                     ),
                     focusedBorder: OutlineInputBorder(
                       borderRadius: BorderRadius.circular(6),
-                      borderSide: const BorderSide(color: Color(0xFF2563EB)),
+                      borderSide: const BorderSide(
+                          color: Color(0xFF2563EB)),
                     ),
                   ),
                   onChanged: (String value) {
@@ -1045,27 +1049,21 @@ class _CashierScreenState extends ConsumerState<CashierScreen> {
                       ScaffoldMessenger.of(context).showSnackBar(
                         const SnackBar(
                           content: Text(
-                            'Discount cannot exceed the subtotal.',
-                          ),
+                              'Discount cannot exceed the subtotal.'),
                           backgroundColor: Colors.red,
                         ),
                       );
-
                       _discountController.text =
                           _subtotal.toStringAsFixed(0);
-
                       _discountController.selection =
-                          TextSelection.fromPosition(
-                        TextPosition(
-                          offset: _discountController.text.length,
-                        ),
-                      );
+                          TextSelection.fromPosition(TextPosition(
+                              offset:
+                                  _discountController.text.length));
                     }
 
                     setState(() {
-                      _discountAmount = entered
-                          .clamp(0, _subtotal)
-                          .toDouble();
+                      _discountAmount =
+                          entered.clamp(0, _subtotal).toDouble();
                     });
                   },
                 ),
@@ -1074,11 +1072,10 @@ class _CashierScreenState extends ConsumerState<CashierScreen> {
           ),
 
           const SizedBox(height: 8),
-
           const Divider(height: 1, color: Color(0xFFE5E7EB)),
-
           const SizedBox(height: 8),
 
+          // ── Total ──
           Row(
             mainAxisAlignment: MainAxisAlignment.spaceBetween,
             children: [
@@ -1115,23 +1112,26 @@ class _CashierScreenState extends ConsumerState<CashierScreen> {
           const SizedBox(height: 8),
 
           Row(
-                children: [
-                  Expanded(
-                    child: _buildPaymentMethodChip(
-                      label: 'GCash / Maya / Card',
-                      value: PaymentMethod.online,
-                    ),
-                  ),
-                  const SizedBox(width: 8),
-                  Expanded(
-                    child: _buildPaymentMethodChip(
-                      label: 'Cash',
-                      value: PaymentMethod.cash,
-                    ),
-                  ),
-                ],
+            children: [
+              Expanded(
+                child: _buildPaymentMethodChip(
+                  label: 'GCash / Maya / Card',
+                  value: PaymentMethod.online,
+                ),
               ),
+              const SizedBox(width: 8),
+              Expanded(
+                child: _buildPaymentMethodChip(
+                  label: 'Cash',
+                  value: PaymentMethod.cash,
+                ),
+              ),
+            ],
+          ),
+
           const SizedBox(height: 12),
+
+          // ── Cash fields ──
           if (_paymentMethod == PaymentMethod.cash) ...[
             Row(
               mainAxisAlignment: MainAxisAlignment.spaceBetween,
@@ -1139,9 +1139,7 @@ class _CashierScreenState extends ConsumerState<CashierScreen> {
                 const Text(
                   'Cash Paid',
                   style: TextStyle(
-                    fontSize: 12,
-                    color: Color(0xFF6B7280),
-                  ),
+                      fontSize: 12, color: Color(0xFF6B7280)),
                 ),
                 SizedBox(
                   width: 100,
@@ -1149,12 +1147,12 @@ class _CashierScreenState extends ConsumerState<CashierScreen> {
                   child: TextField(
                     controller: _cashPaidController,
                     keyboardType: TextInputType.number,
-                    inputFormatters: [FilteringTextInputFormatter.digitsOnly],
+                    inputFormatters: [
+                      FilteringTextInputFormatter.digitsOnly
+                    ],
                     textAlign: TextAlign.right,
                     style: const TextStyle(
-                      fontSize: 12,
-                      color: Color(0xFF111827),
-                    ),
+                        fontSize: 12, color: Color(0xFF111827)),
                     onChanged: (_) => setState(() {}),
                     decoration: InputDecoration(
                       hintText: '0',
@@ -1165,10 +1163,9 @@ class _CashierScreenState extends ConsumerState<CashierScreen> {
                             : const Color(0xFF9CA3AF),
                       ),
                       isDense: true,
-                      contentPadding: const EdgeInsets.symmetric(
-                        horizontal: 8,
-                        vertical: 6,
-                      ),
+                      contentPadding:
+                          const EdgeInsets.symmetric(
+                              horizontal: 8, vertical: 6),
                       filled: true,
                       fillColor: _isInsufficientAmount
                           ? const Color(0xFFFEF2F2)
@@ -1203,66 +1200,67 @@ class _CashierScreenState extends ConsumerState<CashierScreen> {
               const Text(
                 'Insufficient amount',
                 style: TextStyle(
-                  fontSize: 11,
-                  color: Color(0xFFEF4444),
-                ),
+                    fontSize: 11, color: Color(0xFFEF4444)),
               ),
             ],
 
             const SizedBox(height: 8),
 
-            _buildSummaryRow('Change', '₱${_change.toStringAsFixed(0)}'),
+            _buildSummaryRow(
+                'Change', '₱${_change.toStringAsFixed(0)}'),
 
             const SizedBox(height: 12),
           ],
 
+          // ── Action buttons ──
           Row(
             children: [
-
               Expanded(
                 child: OutlinedButton(
                   onPressed: _newTransaction,
                   style: OutlinedButton.styleFrom(
                     foregroundColor: const Color(0xFF374151),
-                    side: const BorderSide(color: Color(0xFFD1D5DB)),
-                    padding: const EdgeInsets.symmetric(vertical: 12),
+                    side: const BorderSide(
+                        color: Color(0xFFD1D5DB)),
+                    padding: const EdgeInsets.symmetric(
+                        vertical: 12),
                     shape: RoundedRectangleBorder(
-                      borderRadius: BorderRadius.circular(8),
-                    ),
+                        borderRadius: BorderRadius.circular(8)),
                   ),
                   child: const Text(
                     'New Transaction',
                     style: TextStyle(
-                      fontSize: 11,
-                      fontWeight: FontWeight.w500,
-                    ),
+                        fontSize: 11,
+                        fontWeight: FontWeight.w500),
                   ),
                 ),
               ),
-
               const SizedBox(width: 8),
-
               Expanded(
                 child: ElevatedButton(
-                  onPressed: _canCheckout ? _handleCheckout : null,
+                  onPressed:
+                      _canCheckout ? _handleCheckout : null,
                   style: ElevatedButton.styleFrom(
-                    backgroundColor: _paymentMethod == PaymentMethod.online
-                        ? const Color(0xFF2563EB)
-                        : const Color(0xFF111827),
+                    backgroundColor:
+                        _paymentMethod == PaymentMethod.online
+                            ? const Color(0xFF2563EB)
+                            : const Color(0xFF111827),
                     foregroundColor: Colors.white,
-                    disabledBackgroundColor: const Color(0xFF9CA3AF),
-                    padding: const EdgeInsets.symmetric(vertical: 12),
+                    disabledBackgroundColor:
+                        const Color(0xFF9CA3AF),
+                    padding: const EdgeInsets.symmetric(
+                        vertical: 12),
                     shape: RoundedRectangleBorder(
-                      borderRadius: BorderRadius.circular(8),
-                    ),
+                        borderRadius: BorderRadius.circular(8)),
                     elevation: 0,
                   ),
                   child: Text(
-                    _paymentMethod == PaymentMethod.online ? 'Checkout' : 'Print Receipt',
+                    _paymentMethod == PaymentMethod.online
+                        ? 'Checkout'
+                        : 'Print Receipt',
                     style: const TextStyle(
-                      fontSize: 11,
-                      fontWeight: FontWeight.w500,
-                    ),
+                        fontSize: 11,
+                        fontWeight: FontWeight.w500),
                   ),
                 ),
               ),
@@ -1277,17 +1275,20 @@ class _CashierScreenState extends ConsumerState<CashierScreen> {
   // PAYMENT METHOD CHIP
   // ================================================
   Widget _buildPaymentMethodChip({
-      required String label,
-      required PaymentMethod value,
+    required String label,
+    required PaymentMethod value,
   }) {
     final bool isSelected = _paymentMethod == value;
 
     return GestureDetector(
       onTap: () => setState(() => _paymentMethod = value),
       child: Container(
-        padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 8),
+        padding: const EdgeInsets.symmetric(
+            horizontal: 8, vertical: 8),
         decoration: BoxDecoration(
-          color: isSelected ? const Color(0xFF2563EB) : Colors.white,
+          color: isSelected
+              ? const Color(0xFF2563EB)
+              : Colors.white,
           border: Border.all(
             color: isSelected
                 ? const Color(0xFF2563EB)
@@ -1301,7 +1302,9 @@ class _CashierScreenState extends ConsumerState<CashierScreen> {
           style: TextStyle(
             fontSize: 11,
             fontWeight: FontWeight.w500,
-            color: isSelected ? Colors.white : const Color(0xFF374151),
+            color: isSelected
+                ? Colors.white
+                : const Color(0xFF374151),
           ),
         ),
       ),
@@ -1309,20 +1312,18 @@ class _CashierScreenState extends ConsumerState<CashierScreen> {
   }
 
   // ================================================
-  // SUMMARY ROW (label + value)
+  // SUMMARY ROW
   // ================================================
   Widget _buildSummaryRow(String label, String value) {
     return Row(
       mainAxisAlignment: MainAxisAlignment.spaceBetween,
       children: [
-        Text(
-          label,
-          style: const TextStyle(fontSize: 12, color: Color(0xFF6B7280)),
-        ),
-        Text(
-          value,
-          style: const TextStyle(fontSize: 12, color: Color(0xFF111827)),
-        ),
+        Text(label,
+            style: const TextStyle(
+                fontSize: 12, color: Color(0xFF6B7280))),
+        Text(value,
+            style: const TextStyle(
+                fontSize: 12, color: Color(0xFF111827))),
       ],
     );
   }
@@ -1344,7 +1345,8 @@ class _CashierScreenState extends ConsumerState<CashierScreen> {
           border: Border.all(color: const Color(0xFFD1D5DB)),
           color: Colors.white,
         ),
-        child: Icon(icon, size: 12, color: const Color(0xFF374151)),
+        child: Icon(icon,
+            size: 12, color: const Color(0xFF374151)),
       ),
     );
   }
@@ -1357,11 +1359,13 @@ class _CashierScreenState extends ConsumerState<CashierScreen> {
       child: Column(
         mainAxisAlignment: MainAxisAlignment.center,
         children: [
-          Icon(Icons.search_off, size: 40, color: Colors.grey.shade400),
+          Icon(Icons.search_off,
+              size: 40, color: Colors.grey.shade400),
           const SizedBox(height: 12),
           Text(
             'No products found',
-            style: TextStyle(fontSize: 14, color: Colors.grey.shade500),
+            style: TextStyle(
+                fontSize: 14, color: Colors.grey.shade500),
           ),
         ],
       ),

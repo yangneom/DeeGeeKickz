@@ -1,41 +1,26 @@
 import '../../../models/product.dart';
 
 class ProductMapper {
-  static Product? parseProduct(
-    Map<String, dynamic> data,
-  ) {
+  static Product? parseProduct(Map<String, dynamic> data) {
     try {
-      // ================================================
-      // BRAND
-      // ================================================
-      String brandName = '';
+      // ── Brand ──
+      final String brandName =
+          (data['brand']?['brand_name'] as String?) ?? '';
 
-      if (data['brand'] != null) {
-        brandName =
-            data['brand']['brand_name'] as String? ?? '';
-      }
+      // ── Category ──
+      final String categoryName =
+          (data['category']?['category_name'] as String?) ?? '';
 
-      // ================================================
-      // CATEGORY
-      // ================================================
-      String categoryName = '';
+      // ── Description ──
+      final String description =
+          (data['description'] as String?) ?? '';
 
-      if (data['category'] != null) {
-        categoryName =
-            data['category']['category_name'] as String? ?? '';
-      }
-
-      // ================================================
-      // ARCHIVED DATE
-      // ================================================
+      // ── Archived date ──
       String? archivedDate;
-
       if (data['archived_at'] != null) {
         try {
-          final DateTime dt = DateTime.parse(
-            data['archived_at'] as String,
-          );
-
+          final DateTime dt =
+              DateTime.parse(data['archived_at'] as String);
           archivedDate =
               '${dt.year}/${dt.month.toString().padLeft(2, '0')}/${dt.day.toString().padLeft(2, '0')}';
         } catch (_) {
@@ -43,120 +28,82 @@ class ProductMapper {
         }
       }
 
-      // ================================================
-      // VARIANTS
-      // ================================================
-      List<ProductVariant> variants = [];
-
+      // ── Variants ──
+      // Each raw variant = one product_variant row.
+      // Sizes are children — we never flatten here.
       final List<dynamic> rawVariants =
-          data['product_variant'] as List<dynamic>? ?? [];
+          (data['product_variant'] as List<dynamic>?) ?? [];
+
+      final List<ProductVariant> variants = [];
 
       for (final rawVariant in rawVariants) {
-        final Map<String, dynamic> variantData =
+        final Map<String, dynamic> vd =
             rawVariant as Map<String, dynamic>;
 
-        // ================================================
-        // IMAGES
-        // ================================================
+        // ── Images ──
         final List<dynamic> rawImages =
-            variantData['product_image'] as List<dynamic>? ?? [];
+            (vd['product_image'] as List<dynamic>?) ?? [];
 
-        List<String> imageUrls = [];
+        final List<String> imageUrls = [];
         String? primaryImageUrl;
 
         for (final rawImage in rawImages) {
-          final Map<String, dynamic> imageData =
+          final Map<String, dynamic> img =
               rawImage as Map<String, dynamic>;
+          final String? url = img['image_url'] as String?;
+          if (url == null || url.isEmpty) continue;
 
-          final String? imageUrl =
-              imageData['image_url'] as String?;
-
-          if (imageUrl == null || imageUrl.isEmpty) {
-            continue;
-          }
-
-          imageUrls.add(imageUrl);
-
-          if (imageData['is_primary'] == true) {
-            primaryImageUrl = imageUrl;
-          }
+          imageUrls.add(url);
+          if (img['is_primary'] == true) primaryImageUrl = url;
         }
 
-        // fallback to first image
-        if (primaryImageUrl == null &&
-            imageUrls.isNotEmpty) {
+        // Fallback: first image becomes primary
+        if (primaryImageUrl == null && imageUrls.isNotEmpty) {
           primaryImageUrl = imageUrls.first;
         }
 
-        // ================================================
-        // SIZES
-        // ================================================
+        // ── Sizes ──
+        // Build SizeEntry list. An empty list is fine — the variant
+        // will still be created, so products never go missing.
         final List<dynamic> rawSizes =
-            variantData['product_variant_size']
-                    as List<dynamic>? ??
-                [];
+            (vd['product_variant_size'] as List<dynamic>?) ?? [];
 
-        for (final rawSize in rawSizes) {
-          final Map<String, dynamic> sizeData =
+        final List<SizeEntry> sizes = rawSizes.map((rawSize) {
+          final Map<String, dynamic> sd =
               rawSize as Map<String, dynamic>;
-
-          variants.add(
-            ProductVariant(
-              // product_variant
-              variantId:
-                  variantData['variant_id'] as int?,
-
-              // product_variant_size
-              sizeId:
-                  sizeData['size_id'] as int? ?? 0,
-
-              color:
-                  variantData['color_name'] as String? ??
-                      '',
-
-              size:
-                  sizeData['size'] as String? ?? '',
-
-              stockQty:
-                  sizeData['stock_quantity'] as int? ??
-                      0,
-
-              reservedQty:
-                  sizeData['reserved_quantity']
-                          as int? ??
-                      0,
-
-              costPrice:
-                  (variantData['cost_price'] as num?)
-                          ?.toDouble() ??
-                      0,
-
-              retailPrice:
-                  (variantData['retail_price'] as num?)
-                          ?.toDouble() ??
-                      0,
-
-              // images
-              imageUrls: imageUrls,
-              primaryImageUrl: primaryImageUrl,
-            ),
+          return SizeEntry(
+            sizeId: sd['size_id'] as int?,
+            size: (sd['size'] as String?) ?? '',
+            stockQty: (sd['stock_quantity'] as int?) ?? 0,
+            reservedQty: (sd['reserved_quantity'] as int?) ?? 0,
           );
-        }
+        }).toList();
+
+        variants.add(ProductVariant(
+          variantId: vd['variant_id'] as int?,
+          color: (vd['color_name'] as String?) ?? '',
+          costPrice:
+              (vd['cost_price'] as num?)?.toDouble() ?? 0,
+          retailPrice:
+              (vd['retail_price'] as num?)?.toDouble() ?? 0,
+          sizes: sizes,
+          imageUrls: imageUrls,
+          primaryImageUrl: primaryImageUrl,
+        ));
       }
 
       return Product(
         productId: data['product_id'].toString(),
         productName:
-            data['product_name'] as String? ?? '',
+            (data['product_name'] as String?) ?? '',
         brand: brandName,
         category: categoryName,
+        description: description,
         variants: variants,
         archivedDate: archivedDate,
       );
     } catch (error) {
-      print(
-        'ProductMapper.parseProduct error: $error',
-      );
+      print('ProductMapper.parseProduct error: $error');
       return null;
     }
   }

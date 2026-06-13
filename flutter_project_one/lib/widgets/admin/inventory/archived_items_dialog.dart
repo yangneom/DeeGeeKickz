@@ -1,6 +1,6 @@
 import 'package:flutter/material.dart';
-import 'package:flutter_project_one/widgets/common/confirm_dialog.dart';
-import 'package:flutter_project_one/widgets/common/expandable_product_table.dart';
+import 'package:flutter_project_one/widgets/common/dialog/confirm_dialog.dart';
+import 'package:flutter_project_one/widgets/common/tables/expandable_product_table.dart';
 import 'package:flutter_project_one/models/product.dart';
 import '../../../services/admin/inventory/archive_service.dart';
 

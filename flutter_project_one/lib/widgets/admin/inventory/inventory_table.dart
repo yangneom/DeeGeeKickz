@@ -526,75 +526,74 @@ class _InventoryTableState extends State<InventoryTable> {
             ),
           ),
 
-          // One data row per variant
-          ...product.variants.map((variant) {
-            return Container(
-              decoration: const BoxDecoration(
-                border: Border(
-                  top: BorderSide(color: Color(0xFFE5E7EB)),
-                ),
-              ),
-              padding: const EdgeInsets.symmetric(
-                horizontal: 16,
-                vertical: 12,
-              ),
-              child: Row(
-                crossAxisAlignment: CrossAxisAlignment.center,
-                children: [
-
-                  const SizedBox(width: 28),
-
-                  // Color
-                  Expanded(
-                    flex: 2,
-                    child: Text(variant.color, style: _bodyStyle),
-                  ),
-
-                  // Size
-                  Expanded(
-                    flex: 1,
-                    child: Text(variant.size, style: _bodyStyle),
-                  ),
-
-                  // Stock Qty
-                  Expanded(
-                    flex: 2,
-                    child: Text(
-                      variant.stockQty.toString(),
-                      style: _bodyStyle,
+          ...product.variants.expand((variant) {
+                return variant.sizes.map((size) {
+                  return Container(
+                    decoration: const BoxDecoration(
+                      border: Border(
+                        top: BorderSide(color: Color(0xFFE5E7EB)),
+                      ),
                     ),
-                  ),
-
-                  // Status badge
-                  Expanded(
-                    flex: 3,
-                    child: _buildStatusBadge(variant.status),
-                  ),
-
-                  // Cost Price
-                  Expanded(
-                    flex: 2,
-                    child: Text(
-                      _formatPrice(variant.costPrice),
-                      style: _bodyStyle,
+                    padding: const EdgeInsets.symmetric(
+                      horizontal: 16,
+                      vertical: 12,
                     ),
-                  ),
+                    child: Row(
+                      children: [
 
-                  // Retail Price
-                  Expanded(
-                    flex: 2,
-                    child: Text(
-                      _formatPrice(variant.retailPrice),
-                      style: _bodyStyle,
+                        const SizedBox(width: 28),
+
+                        Expanded(
+                          flex: 2,
+                          child: Text(
+                            variant.color,
+                            style: _bodyStyle,
+                          ),
+                        ),
+
+                        Expanded(
+                          flex: 1,
+                          child: Text(
+                            size.size,
+                            style: _bodyStyle,
+                          ),
+                        ),
+
+                        Expanded(
+                          flex: 2,
+                          child: Text(
+                            size.stockQty.toString(),
+                            style: _bodyStyle,
+                          ),
+                        ),
+
+                        Expanded(
+                          flex: 3,
+                          child: _buildStatusBadge(size.status),
+                        ),
+
+                        Expanded(
+                          flex: 2,
+                          child: Text(
+                            _formatPrice(variant.costPrice),
+                            style: _bodyStyle,
+                          ),
+                        ),
+
+                        Expanded(
+                          flex: 2,
+                          child: Text(
+                            _formatPrice(variant.retailPrice),
+                            style: _bodyStyle,
+                          ),
+                        ),
+
+                        const SizedBox(width: 60),
+                      ],
                     ),
-                  ),
-
-                  // Align with actions column
-                  const SizedBox(width: 60),
-                ],
-              ),
-            );
-          }).toList(),
+                  );
+                });
+              }).toList(),
         ],
       ),
     );

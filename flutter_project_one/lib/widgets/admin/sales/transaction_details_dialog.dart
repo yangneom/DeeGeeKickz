@@ -1,5 +1,5 @@
 import 'package:flutter/material.dart';
-import '../../../widgets/common/common_table.dart';
+import '../../common/tables/common_table.dart';
 
 // ================================================
 // TRANSACTION DETAILS DIALOG

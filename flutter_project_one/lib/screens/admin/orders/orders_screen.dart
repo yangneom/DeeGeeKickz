@@ -1,10 +1,10 @@
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import '../../../models/order.dart';
-import '../../../widgets/common/common_table.dart';
-import '../../../widgets/common/search_bar.dart';
-import '../../../widgets/common/filter_button.dart';
-import '../../../widgets/common/filter_panel.dart';
+import '../../../widgets/common/tables/common_table.dart';
+import '../../../widgets/common/buttons/search_bar.dart';
+import '../../../widgets/common/buttons/filter_button.dart';
+import '../../../widgets/common/buttons/filter_panel.dart';
 import '../../../widgets/admin/orders/order_details_dialog.dart';
 
 class OrdersScreen extends ConsumerStatefulWidget {

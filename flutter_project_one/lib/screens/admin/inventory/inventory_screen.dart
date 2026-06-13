@@ -2,15 +2,16 @@ import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import '../../../models/product.dart';
 import '../../../services/admin/inventory/inventory_service.dart';
-import '../../../widgets/common/expandable_product_table.dart';
+import '../../../widgets/common/tables/expandable_product_table.dart';
 import '../../../widgets/admin/inventory/add_product_dialog.dart';
 import '../../../widgets/admin/inventory/stock_adjustment_dialog.dart';
 import '../../../widgets/admin/inventory/archived_items_dialog.dart';
-import '../../../widgets/common/filter_panel.dart';
-import '../../../widgets/common/search_bar.dart';
-import '../../../widgets/common/filter_button.dart';
-import '../../../widgets/common/export_button.dart';
-import '../../../widgets/common/confirm_dialog.dart';
+import '../../../widgets/common/buttons/filter_panel.dart';
+import '../../../widgets/common/buttons/search_bar.dart';
+import '../../../widgets/common/buttons/filter_button.dart';
+import '../../../widgets/common/buttons/export_button.dart';
+import '../../../widgets/common/dialog/confirm_dialog.dart';
+import '../../../widgets/admin/inventory/edit_product_dialog.dart'; 
 
 class InventoryScreen extends ConsumerStatefulWidget {
   const InventoryScreen({super.key});
@@ -199,19 +200,20 @@ class _InventoryScreenState extends ConsumerState<InventoryScreen> {
       shape: RoundedRectangleBorder(
         borderRadius: BorderRadius.circular(8),
       ),
-      items: [
+            items: [
+
         PopupMenuItem<String>(
-          value: 'archive',
+          value: 'edit',
           child: Row(
             children: const [
               Icon(
-                Icons.archive_outlined,
+                Icons.edit_outlined,
                 size: 16,
                 color: Color(0xFF6B7280),
               ),
               SizedBox(width: 8),
               Text(
-                'Archive',
+                'Edit Product',
                 style: TextStyle(
                   fontSize: 13,
                   color: Color(0xFF374151),
@@ -220,8 +222,38 @@ class _InventoryScreenState extends ConsumerState<InventoryScreen> {
             ],
           ),
         ),
-      ],
-    ).then((String? value) {
+      PopupMenuItem<String>(
+        value: 'archive',
+        child: Row(
+          children: const [
+            Icon(
+              Icons.archive_outlined,
+              size: 16,
+              color: Color(0xFF6B7280),
+            ),
+            SizedBox(width: 8),
+            Text(
+              'Archive',
+              style: TextStyle(
+                fontSize: 13,
+                color: Color(0xFF374151),
+              ),
+            ),
+          ],
+        ),
+      ),
+    ],
+    ).then((String? value) async {
+      if (value == 'edit') {
+        await showEditProductDialog(
+          context,
+          product: product,
+          onProductUpdated: () {
+            _loadProducts();
+          },
+        );
+        return;
+      }
       if (value == 'archive') {
         _handleArchive(product);
       }

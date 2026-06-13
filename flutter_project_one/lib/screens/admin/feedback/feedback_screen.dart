@@ -1,9 +1,9 @@
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
-import '../../../widgets/common/common_table.dart';
-import '../../../widgets/common/search_bar.dart';
-import '../../../widgets/common/filter_button.dart';
-import '../../../widgets/common/filter_panel.dart';
+import '../../../widgets/common/tables/common_table.dart';
+import '../../../widgets/common/buttons/search_bar.dart';
+import '../../../widgets/common/buttons/filter_button.dart';
+import '../../../widgets/common/buttons/filter_panel.dart';
 import '../../../widgets/admin/feedback/feedback_details_dialog.dart';
 
 class FeedbackScreen extends ConsumerStatefulWidget {

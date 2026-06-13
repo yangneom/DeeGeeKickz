@@ -1,5 +1,5 @@
 import 'package:flutter/material.dart';
-import '../../common/confirm_dialog.dart';
+import '../../common/dialog/confirm_dialog.dart';
 import 'create_discount_dialog.dart'; // 👈 import the dialog
 
 class DiscountsTable extends StatefulWidget {

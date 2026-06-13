@@ -1,5 +1,5 @@
   import 'package:flutter/material.dart';
-import '../../../widgets/common/confirm_dialog.dart';
+import '../../common/dialog/confirm_dialog.dart';
 
 // ================================================
 // FEEDBACK DETAILS DIALOG

@@ -1,11 +1,11 @@
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import '../../../models/customer_account.dart';
-import '../../../widgets/common/common_table.dart';
-import '../../../widgets/common/search_bar.dart';
-import '../../../widgets/common/filter_button.dart';
-import '../../../widgets/common/filter_panel.dart';
-import '../../../widgets/common/confirm_dialog.dart';
+import '../../../widgets/common/tables/common_table.dart';
+import '../../../widgets/common/buttons/search_bar.dart';
+import '../../../widgets/common/buttons/filter_button.dart';
+import '../../../widgets/common/buttons/filter_panel.dart';
+import '../../../widgets/common/dialog/confirm_dialog.dart';
 import '../../../widgets/super/admin_management/customer_edit_dialog.dart';
 import '../../../widgets/super/admin_management/customer_disable_dialog.dart';
 import '../../../widgets/super/admin_management/customer_disabled_dialog.dart';

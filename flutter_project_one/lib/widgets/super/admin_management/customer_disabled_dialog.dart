@@ -1,7 +1,7 @@
 import 'package:flutter/material.dart';
 import '../../../models/customer_account.dart';
-import '../../../widgets/common/common_table.dart';
-import '../../../widgets/common/confirm_dialog.dart';
+import '../../common/tables/common_table.dart';
+import '../../common/dialog/confirm_dialog.dart';
 
 // ================================================
 // CUSTOMER DISABLED DIALOG

@@ -1,6 +1,6 @@
 import 'package:flutter/material.dart';
 import '../../../models/customer_account.dart';
-import '../../../widgets/common/confirm_dialog.dart';
+import '../../common/dialog/confirm_dialog.dart';
 
 // ================================================
 // CUSTOMER EDIT DIALOG

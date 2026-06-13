@@ -1,0 +1,409 @@
+import 'package:flutter/material.dart';
+
+import '../../../models/product_model.dart';
+import '../../../widgets/common/nav/announcement_bar.dart';
+import '../../../widgets/common/nav/app_top_bar.dart';
+import '../../../widgets/common/nav/app_drawer.dart';
+import '../../../widgets/common/nav/bottom_nav_bar.dart';
+import '../../../widgets/common/nav/app_footer.dart';
+import '../../../widgets/customer/shop/shop_product_card.dart';
+import '../../../widgets/customer/shop/shop_filter_drawer.dart';
+import '../../../widgets/customer/shop/shop_filter_sidebar.dart';
+import '../../../widgets/customer/shop/shop_sort_dropdown.dart';
+
+class ShopScreen extends StatefulWidget {
+  const ShopScreen({super.key});
+
+  @override
+  State<ShopScreen> createState() => _ShopScreenState();
+}
+
+class _ShopScreenState extends State<ShopScreen> {
+  static const double _mdBreakpoint = 768;
+
+  ShopFilterState _filters = const ShopFilterState();
+  ShopSortOption _sort = ShopSortOption.featured;
+
+  // ── Derived list ─────────────────────────────────────────────
+  List<ProductModel> get _filtered {
+    var list = mockShopProducts.where((p) {
+      if (_filters.brands.isNotEmpty && !_filters.brands.contains(p.brand)) {
+        return false;
+      }
+      if (_filters.categories.isNotEmpty &&
+          !_filters.categories.contains(p.category)) {
+        return false;
+      }
+      if (p.price > _filters.maxPrice) return false;
+      return true;
+    }).toList();
+
+    switch (_sort) {
+      case ShopSortOption.priceLowHigh:
+        list.sort((a, b) => a.price.compareTo(b.price));
+        break;
+      case ShopSortOption.priceHighLow:
+        list.sort((a, b) => b.price.compareTo(a.price));
+        break;
+      case ShopSortOption.topRated:
+        list.sort((a, b) => b.rating.compareTo(a.rating));
+        break;
+      case ShopSortOption.featured:
+        break;
+    }
+    return list;
+  }
+
+  // ── Filter sheet (mobile) ────────────────────────────────────
+  Future<void> _openFilterDrawer() async {
+    final result = await showShopFilterDrawer(context, _filters);
+    if (result != null) setState(() => _filters = result);
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    return Scaffold(
+      backgroundColor: const Color(0xFFF9F9F9),
+      drawer: const AppDrawer(),
+      body: SafeArea(
+        bottom: false,
+        child: Column(
+          children: [
+            // Sticky top bars
+            const AnnouncementBar(),
+            const AppTopBar(activeRoute: 'shop'),
+
+            // Scrollable content
+            Expanded(
+              child: SingleChildScrollView(
+                child: Column(
+                  crossAxisAlignment: CrossAxisAlignment.stretch,
+                  children: [
+                    // Main content area
+                    LayoutBuilder(
+                      builder: (context, constraints) {
+                        final isDesktop =
+                            constraints.maxWidth >= _mdBreakpoint;
+                        final hPad = isDesktop ? 48.0 : 16.0;
+                        final products = _filtered;
+
+                        return Padding(
+                          padding: EdgeInsets.fromLTRB(
+                              hPad, 32, hPad, 80),
+                          child: ConstrainedBox(
+                            constraints: const BoxConstraints(maxWidth: 1440),
+                            child: isDesktop
+                                ? _DesktopLayout(
+                                    products: products,
+                                    filters: _filters,
+                                    sort: _sort,
+                                    onFilterChanged: (f) =>
+                                        setState(() => _filters = f),
+                                    onSortChanged: (s) =>
+                                        setState(() => _sort = s),
+                                  )
+                                : _MobileLayout(
+                                    products: products,
+                                    sort: _sort,
+                                    filters: _filters,
+                                    onFilterTap: _openFilterDrawer,
+                                    onSortChanged: (s) =>
+                                        setState(() => _sort = s),
+                                  ),
+                          ),
+                        );
+                      },
+                    ),
+                    const AppFooter(),
+                  ],
+                ),
+              ),
+            ),
+          ],
+        ),
+      ),
+      bottomNavigationBar: BottomNavBar(
+        currentIndex: 2,
+        onTap: (index) {
+          if (index == 0) {
+            Navigator.of(context).pop();
+          }
+        },
+      ),
+    );
+  }
+}
+
+// ── Desktop layout: sidebar + grid ──────────────────────────────
+
+class _DesktopLayout extends StatelessWidget {
+  final List<ProductModel> products;
+  final ShopFilterState filters;
+  final ShopSortOption sort;
+  final ValueChanged<ShopFilterState> onFilterChanged;
+  final ValueChanged<ShopSortOption> onSortChanged;
+
+  const _DesktopLayout({
+    required this.products,
+    required this.filters,
+    required this.sort,
+    required this.onFilterChanged,
+    required this.onSortChanged,
+  });
+
+  @override
+  Widget build(BuildContext context) {
+    return Row(
+      crossAxisAlignment: CrossAxisAlignment.start,
+      children: [
+        // Sidebar
+        ShopFilterSidebar(state: filters, onChanged: onFilterChanged),
+        const SizedBox(width: 40),
+
+        // Grid area
+        Expanded(
+          child: Column(
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: [
+              _PageHeader(count: products.length, sort: sort, onSortChanged: onSortChanged),
+              const SizedBox(height: 32),
+              products.isEmpty
+                  ? const _EmptyState()
+                  : _ProductGrid(products: products, crossCount: 3),
+            ],
+          ),
+        ),
+      ],
+    );
+  }
+}
+
+// ── Mobile layout: controls row + grid ──────────────────────────
+
+class _MobileLayout extends StatelessWidget {
+  final List<ProductModel> products;
+  final ShopSortOption sort;
+  final ShopFilterState filters;
+  final VoidCallback onFilterTap;
+  final ValueChanged<ShopSortOption> onSortChanged;
+
+  const _MobileLayout({
+    required this.products,
+    required this.sort,
+    required this.filters,
+    required this.onFilterTap,
+    required this.onSortChanged,
+  });
+
+  @override
+  Widget build(BuildContext context) {
+    return Column(
+      crossAxisAlignment: CrossAxisAlignment.start,
+      children: [
+        // Page header
+        _PageHeader(count: products.length, sort: sort, onSortChanged: onSortChanged, showSort: false),
+        const SizedBox(height: 20),
+
+        // Filter + Sort row
+        Row(
+          children: [
+            Expanded(
+              child: GestureDetector(
+                onTap: onFilterTap,
+                child: Container(
+                  padding: const EdgeInsets.symmetric(vertical: 14),
+                  decoration: BoxDecoration(
+                    border: Border.all(color: const Color(0xFF7E7576)),
+                  ),
+                  child: Row(
+                    mainAxisAlignment: MainAxisAlignment.center,
+                    children: [
+                      const Text(
+                        'FILTERS',
+                        style: TextStyle(
+                          fontFamily: 'Inter',
+                          fontSize: 14,
+                          fontWeight: FontWeight.w600,
+                          letterSpacing: 0.7,
+                          color: Colors.black,
+                        ),
+                      ),
+                      const SizedBox(width: 6),
+                      if (!filters.isEmpty)
+                        Container(
+                          width: 8,
+                          height: 8,
+                          decoration: const BoxDecoration(
+                            color: Colors.black,
+                            shape: BoxShape.circle,
+                          ),
+                        )
+                      else
+                        const Icon(Icons.tune, size: 20, color: Colors.black),
+                    ],
+                  ),
+                ),
+              ),
+            ),
+            const SizedBox(width: 8),
+            Expanded(
+              child: ShopSortDropdown(
+                selected: sort,
+                onChanged: onSortChanged,
+              ),
+            ),
+          ],
+        ),
+        const SizedBox(height: 24),
+
+        products.isEmpty
+            ? const _EmptyState()
+            : _ProductGrid(products: products, crossCount: 2),
+      ],
+    );
+  }
+}
+
+// ── Shared sub-widgets ───────────────────────────────────────────
+
+class _PageHeader extends StatelessWidget {
+  final int count;
+  final ShopSortOption sort;
+  final ValueChanged<ShopSortOption> onSortChanged;
+  final bool showSort;
+
+  const _PageHeader({
+    required this.count,
+    required this.sort,
+    required this.onSortChanged,
+    this.showSort = true,
+  });
+
+  @override
+  Widget build(BuildContext context) {
+    return Row(
+      crossAxisAlignment: CrossAxisAlignment.end,
+      mainAxisAlignment: MainAxisAlignment.spaceBetween,
+      children: [
+        Column(
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            const Text(
+              'ALL SNEAKERS',
+              style: TextStyle(
+                fontFamily: 'Archivo Narrow',
+                fontSize: 32,
+                fontWeight: FontWeight.w700,
+                letterSpacing: 2,
+                color: Colors.black,
+              ),
+            ),
+            const SizedBox(height: 4),
+            Text(
+              'Showing $count product${count == 1 ? '' : 's'}',
+              style: const TextStyle(
+                fontFamily: 'Inter',
+                fontSize: 14,
+                fontStyle: FontStyle.italic,
+                color: Color(0xFF4C4546),
+              ),
+            ),
+          ],
+        ),
+        if (showSort)
+          ShopSortDropdown(selected: sort, onChanged: onSortChanged),
+      ],
+    );
+  }
+}
+
+// REPLACE the entire _ProductGrid class in shop_screen.dart with this:
+
+class _ProductGrid extends StatelessWidget {
+  final List<ProductModel> products;
+  final int crossCount;
+
+  const _ProductGrid({required this.products, required this.crossCount});
+
+  @override
+  Widget build(BuildContext context) {
+    // Use a regular Column of Rows instead of GridView.
+    // This lets each card grow naturally with its text content.
+    final rows = <Widget>[];
+    for (int i = 0; i < products.length; i += crossCount) {
+      final rowItems = products.sublist(
+        i,
+        (i + crossCount) > products.length ? products.length : i + crossCount,
+      );
+
+      rows.add(
+        IntrinsicHeight(
+          child: Row(
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: [
+              for (int j = 0; j < rowItems.length; j++) ...[
+                if (j > 0) SizedBox(width: crossCount == 2 ? 8 : 24),
+                Expanded(
+                  child: ShopProductCard(product: rowItems[j]),
+                ),
+              ],
+              // Fill empty slots in the last row
+              for (int k = rowItems.length; k < crossCount; k++) ...[
+                SizedBox(width: crossCount == 2 ? 8 : 24),
+                const Expanded(child: SizedBox()),
+              ],
+            ],
+          ),
+        ),
+      );
+
+      if (i + crossCount < products.length) {
+        rows.add(SizedBox(height: crossCount == 2 ? 24 : 32));
+      }
+    }
+
+    return Column(
+      crossAxisAlignment: CrossAxisAlignment.start,
+      children: rows,
+    );
+  }
+}
+
+class _EmptyState extends StatelessWidget {
+  const _EmptyState();
+
+  @override
+  Widget build(BuildContext context) {
+    return SizedBox(
+      height: 300,
+      child: Center(
+        child: Column(
+          mainAxisSize: MainAxisSize.min,
+          children: const [
+            Icon(Icons.search_off_rounded, size: 48, color: Color(0xFFCFC4C5)),
+            SizedBox(height: 16),
+            Text(
+              'NO PRODUCTS FOUND',
+              style: TextStyle(
+                fontFamily: 'Archivo Narrow',
+                fontSize: 20,
+                fontWeight: FontWeight.w700,
+                letterSpacing: 1,
+                color: Color(0xFF4C4546),
+              ),
+            ),
+            SizedBox(height: 8),
+            Text(
+              'Try adjusting your filters.',
+              style: TextStyle(
+                fontFamily: 'Inter',
+                fontSize: 14,
+                color: Color(0xFF4C4546),
+              ),
+            ),
+          ],
+        ),
+      ),
+    );
+  }
+}

@@ -4,7 +4,7 @@ import '../../../widgets/admin/dashboard/stats_card.dart';
 import '../../../widgets/admin/dashboard/inventory_summary_card.dart';
 import '../../../widgets/admin/dashboard/order_status_card.dart';
 import '../../../widgets/admin/dashboard/recent_feedback_card.dart';
-import '../../../widgets/common/common_table.dart';
+import '../../../widgets/common/tables/common_table.dart';
 
 class AdminDashboardScreen extends ConsumerStatefulWidget {
   const AdminDashboardScreen({super.key});

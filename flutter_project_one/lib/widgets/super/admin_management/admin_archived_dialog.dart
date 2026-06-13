@@ -1,6 +1,6 @@
 import 'package:flutter/material.dart';
-import '../../../widgets/common/common_table.dart';
-import '../../../widgets/common/confirm_dialog.dart';
+import '../../common/tables/common_table.dart';
+import '../../common/dialog/confirm_dialog.dart';
 import '../../../models/admin_account.dart';
 
 // ================================================

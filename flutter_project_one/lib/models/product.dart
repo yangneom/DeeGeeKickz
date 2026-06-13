@@ -1,74 +1,85 @@
 // ================================================
-// PRODUCT VARIANT
-// One specific color + size combination
+// SIZE ENTRY
+// Represents one row in product_variant_size
 // ================================================
-class ProductVariant {
-  // product_variant table
-  final int? variantId;
-
-  // product_variant_size table
-  final int sizeId;
-
-  // variant details
-  final String color;
+class SizeEntry {
+  final int? sizeId;
   final String size;
-
-  // inventory
   final int stockQty;
   final int reservedQty;
 
-  // pricing
-  final double costPrice;
-  final double retailPrice;
-
-  // images
-  final List<String> imageUrls;
-  final String? primaryImageUrl;
-
-  ProductVariant({
-    this.variantId,
-    required this.sizeId,
-    required this.color,
+  SizeEntry({
+    this.sizeId,
     required this.size,
     required this.stockQty,
     this.reservedQty = 0,
-    required this.costPrice,
-    required this.retailPrice,
-    this.imageUrls = const [],
-    this.primaryImageUrl,
   });
 
-  // ================================================
-  // AVAILABLE STOCK
-  // ================================================
+  // ── Available stock ──
   int get availableQty {
     final int available = stockQty - reservedQty;
     return available < 0 ? 0 : available;
   }
 
-  // ================================================
-  // FULLY RESERVED
-  // ================================================
-  bool get isFullyReserved {
-    return availableQty == 0 && reservedQty > 0;
-  }
+  bool get isFullyReserved => availableQty == 0 && reservedQty > 0;
 
-  // ================================================
-  // STATUS
-  // ================================================
   String get status {
-    if (isFullyReserved) {
-      return 'Reserved';
-    }
+    if (isFullyReserved) return 'Reserved';
+    if (stockQty == 0) return 'Out of Stock';
+    if (availableQty <= 5) return 'Low Stock';
+    return 'Available';
+  }
+}
 
-    if (stockQty == 0) {
-      return 'Out of Stock';
-    }
+// ================================================
+// PRODUCT VARIANT
+// One color, with its own sizes + images + pricing
+// Maps 1-to-1 with product_variant table row
+// ================================================
+class ProductVariant {
+  final int? variantId;
 
-    if (availableQty <= 5) {
-      return 'Low Stock';
-    }
+  final String color;
 
+  final double costPrice;
+  final double retailPrice;
+
+  // All sizes belonging to this color variant
+  final List<SizeEntry> sizes;
+
+  // Images
+  final List<String> imageUrls;
+  final String? primaryImageUrl;
+
+  ProductVariant({
+    this.variantId,
+    required this.color,
+    required this.costPrice,
+    required this.retailPrice,
+    this.sizes = const [],
+    this.imageUrls = const [],
+    this.primaryImageUrl,
+  });
+
+  // ── Aggregate stock across all sizes ──
+  int get totalStock =>
+      sizes.fold(0, (sum, s) => sum + s.stockQty);
+
+  int get totalReserved =>
+      sizes.fold(0, (sum, s) => sum + s.reservedQty);
+
+  int get totalAvailable =>
+      sizes.fold(0, (sum, s) => sum + s.availableQty);
+
+  bool get isFullyReserved =>
+      sizes.isNotEmpty && sizes.every((s) => s.availableQty == 0);
+
+  // Overall status driven by worst size status
+  String get status {
+    if (sizes.isEmpty) return 'Out of Stock';
+    if (sizes.every((s) => s.stockQty == 0)) return 'Out of Stock';
+    if (sizes.any((s) => s.isFullyReserved)) return 'Reserved';
+    if (sizes.any((s) => s.availableQty <= 5)) return 'Low Stock';
     return 'Available';
   }
 }
@@ -81,9 +92,8 @@ class Product {
   final String productName;
   final String brand;
   final String category;
+  final String description; // ← was missing
   final List<ProductVariant> variants;
-
-  // used only by archived products
   final String? archivedDate;
 
   Product({
@@ -91,76 +101,27 @@ class Product {
     required this.productName,
     required this.brand,
     required this.category,
+    required this.description,
     required this.variants,
     this.archivedDate,
   });
 
-  // ================================================
-  // TOTAL STOCK
-  // ================================================
-  int get totalStock {
-    int total = 0;
+  // ── Aggregate helpers ──
+  int get totalStock =>
+      variants.fold(0, (sum, v) => sum + v.totalStock);
 
-    for (final ProductVariant variant in variants) {
-      total += variant.stockQty;
-    }
+  int get totalReserved =>
+      variants.fold(0, (sum, v) => sum + v.totalReserved);
 
-    return total;
-  }
+  int get totalAvailable =>
+      variants.fold(0, (sum, v) => sum + v.totalAvailable);
 
-  // ================================================
-  // TOTAL RESERVED
-  // ================================================
-  int get totalReserved {
-    int total = 0;
+  bool get isFullyReserved =>
+      variants.isNotEmpty && variants.every((v) => v.isFullyReserved);
 
-    for (final ProductVariant variant in variants) {
-      total += variant.reservedQty;
-    }
-
-    return total;
-  }
-
-  // ================================================
-  // TOTAL AVAILABLE
-  // ================================================
-  int get totalAvailable {
-    int total = 0;
-
-    for (final ProductVariant variant in variants) {
-      total += variant.availableQty;
-    }
-
-    return total;
-  }
-
-  // ================================================
-  // FULLY RESERVED
-  // ================================================
-  bool get isFullyReserved {
-    if (variants.isEmpty) return false;
-
-    for (final ProductVariant variant in variants) {
-      if (variant.availableQty > 0) {
-        return false;
-      }
-    }
-
-    return true;
-  }
-
-  // ================================================
-  // AVERAGE RETAIL PRICE
-  // ================================================
   double get averagePrice {
     if (variants.isEmpty) return 0;
-
-    double total = 0;
-
-    for (final ProductVariant variant in variants) {
-      total += variant.retailPrice;
-    }
-
-    return total / variants.length;
+    return variants.fold(0.0, (sum, v) => sum + v.retailPrice) /
+        variants.length;
   }
 }

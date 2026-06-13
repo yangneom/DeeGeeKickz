@@ -5,7 +5,7 @@ import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:flutter_colorpicker/flutter_colorpicker.dart';
 import 'package:file_picker/file_picker.dart';
 import 'package:supabase_flutter/supabase_flutter.dart';
-import 'package:flutter_project_one/widgets/common/confirm_dialog.dart';
+import 'package:flutter_project_one/widgets/common/dialog/confirm_dialog.dart';
 import 'package:flutter_project_one/services/admin/inventory/inventory_service.dart';
 
 // ================================================

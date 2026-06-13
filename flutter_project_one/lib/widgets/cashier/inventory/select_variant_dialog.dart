@@ -50,7 +50,7 @@ class _SelectVariantDialogState extends State<SelectVariantDialog> {
 
   // currently selected color and size
   String? _selectedColor;
-  String? _selectedSize;
+  SizeEntry? _selectedSize;
   int _quantity = 1;
 
   // ================================================
@@ -69,36 +69,29 @@ class _SelectVariantDialogState extends State<SelectVariantDialog> {
   // ================================================
   // GET SIZES for the selected color
   // ================================================
-  List<String> get _sizesForSelectedColor {
+  List<SizeEntry> get _sizesForSelectedColor {
     if (_selectedColor == null) return [];
-    return widget.product.variants
-        .where((ProductVariant v) => v.color == _selectedColor)
-        .map((ProductVariant v) => v.size)
-        .toList();
+
+    try {
+      ProductVariant variant = widget.product.variants.firstWhere(
+        (v) => v.color == _selectedColor,
+      );
+
+      return variant.sizes;
+    } catch (_) {
+      return [];
+    }
   }
 
   // ================================================
   // GET SELECTED VARIANT
   // ================================================
   ProductVariant? get _selectedVariant {
-    if (_selectedColor == null || _selectedSize == null) return null;
-    try {
-      return widget.product.variants.firstWhere(
-        (ProductVariant v) =>
-            v.color == _selectedColor && v.size == _selectedSize,
-      );
-    } catch (_) {
-      return null;
-    }
-  }
+    if (_selectedColor == null) return null;
 
-  // ================================================
-  // GET VARIANT BY COLOR AND SIZE
-  // ================================================
-  ProductVariant? _getVariant(String color, String size) {
     try {
       return widget.product.variants.firstWhere(
-        (ProductVariant v) => v.color == color && v.size == size,
+        (v) => v.color == _selectedColor,
       );
     } catch (_) {
       return null;
@@ -110,19 +103,15 @@ class _SelectVariantDialogState extends State<SelectVariantDialog> {
   // uses availableQty — not stockQty
   // reserved items are treated as unavailable
   // ================================================
-  bool _isSizeAvailable(String size) {
-    ProductVariant? variant = _getVariant(_selectedColor ?? '', size);
-    if (variant == null) return false;
-    return variant.availableQty > 0;
+  bool _isSizeAvailable(SizeEntry size) {
+    return size.availableQty > 0;
   }
 
   // ================================================
   // IS SIZE RESERVED (fully locked, no available qty)
   // ================================================
-  bool _isSizeReserved(String size) {
-    ProductVariant? variant = _getVariant(_selectedColor ?? '', size);
-    if (variant == null) return false;
-    return variant.isFullyReserved;
+  bool _isSizeReserved(SizeEntry size) {
+    return size.isFullyReserved;
   }
 
   // ================================================
@@ -130,104 +119,104 @@ class _SelectVariantDialogState extends State<SelectVariantDialog> {
   // shown when cashier taps a fully reserved variant
   // ================================================
   void _showReservedError() {
-  showDialog(
-    context: context,
-    barrierDismissible: false,
-    builder: (BuildContext ctx) {
-      return Dialog(
-        shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
-        insetPadding: const EdgeInsets.symmetric(horizontal: 24),
-        child: Container(
-          width: 420,
-          padding: const EdgeInsets.fromLTRB(24, 28, 24, 20),
-          decoration: BoxDecoration(
-            color: Colors.white,
-            borderRadius: BorderRadius.circular(12),
-          ),
-          child: Column(
-            mainAxisSize: MainAxisSize.min,
-            crossAxisAlignment: CrossAxisAlignment.start,
-            children: [
+    showDialog(
+      context: context,
+      barrierDismissible: false,
+      builder: (BuildContext ctx) {
+        return Dialog(
+          shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
+          insetPadding: const EdgeInsets.symmetric(horizontal: 24),
+          child: Container(
+            width: 420,
+            padding: const EdgeInsets.fromLTRB(24, 28, 24, 20),
+            decoration: BoxDecoration(
+              color: Colors.white,
+              borderRadius: BorderRadius.circular(12),
+            ),
+            child: Column(
+              mainAxisSize: MainAxisSize.min,
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
 
-              // ---- TITLE ----
-              const Text(
-                'Item Reserved',
-                style: TextStyle(
-                  fontSize: 17,
-                  fontWeight: FontWeight.bold,
-                  color: Color(0xFF111827),
-                ),
-              ),
-
-              const SizedBox(height: 10),
-
-              // ---- MESSAGE ----
-              const Text(
-                'This item is fully reserved for an online order and cannot be sold in-store right now.',
-                style: TextStyle(
-                  fontSize: 13,
-                  color: Color(0xFF6B7280),
-                  height: 1.5,
-                ),
-              ),
-
-              const SizedBox(height: 10),
-
-              // ---- HINT BOX ----
-              Container(
-                padding: const EdgeInsets.all(10),
-                decoration: BoxDecoration(
-                  color: const Color(0xFFFEF9C3),
-                  borderRadius: BorderRadius.circular(8),
-                  border: Border.all(color: const Color(0xFFFDE047)),
-                ),
-                child: const Text(
-                  'It will become available again once the online order is approved or declined by the admin.',
+                // ---- TITLE ----
+                const Text(
+                  'Item Reserved',
                   style: TextStyle(
-                    fontSize: 12,
-                    color: Color(0xFF92400E),
+                    fontSize: 17,
+                    fontWeight: FontWeight.bold,
+                    color: Color(0xFF111827),
+                  ),
+                ),
+
+                const SizedBox(height: 10),
+
+                // ---- MESSAGE ----
+                const Text(
+                  'This item is fully reserved for an online order and cannot be sold in-store right now.',
+                  style: TextStyle(
+                    fontSize: 13,
+                    color: Color(0xFF6B7280),
                     height: 1.5,
                   ),
                 ),
-              ),
 
-              const SizedBox(height: 24),
+                const SizedBox(height: 10),
 
-              // ---- BUTTON ----
-              Row(
-                mainAxisAlignment: MainAxisAlignment.end,
-                children: [
-                  ElevatedButton(
-                    onPressed: () => Navigator.pop(ctx),
-                    style: ElevatedButton.styleFrom(
-                      backgroundColor: const Color(0xFFDC2626),
-                      foregroundColor: Colors.white,
-                      elevation: 0,
-                      padding: const EdgeInsets.symmetric(
-                        horizontal: 20,
-                        vertical: 11,
-                      ),
-                      shape: RoundedRectangleBorder(
-                        borderRadius: BorderRadius.circular(8),
-                      ),
-                    ),
-                    child: const Text(
-                      'OK, Got It',
-                      style: TextStyle(
-                        fontSize: 13,
-                        fontWeight: FontWeight.w500,
-                      ),
+                // ---- HINT BOX ----
+                Container(
+                  padding: const EdgeInsets.all(10),
+                  decoration: BoxDecoration(
+                    color: const Color(0xFFFEF9C3),
+                    borderRadius: BorderRadius.circular(8),
+                    border: Border.all(color: const Color(0xFFFDE047)),
+                  ),
+                  child: const Text(
+                    'It will become available again once the online order is approved or declined by the admin.',
+                    style: TextStyle(
+                      fontSize: 12,
+                      color: Color(0xFF92400E),
+                      height: 1.5,
                     ),
                   ),
-                ],
-              ),
-            ],
+                ),
+
+                const SizedBox(height: 24),
+
+                // ---- BUTTON ----
+                Row(
+                  mainAxisAlignment: MainAxisAlignment.end,
+                  children: [
+                    ElevatedButton(
+                      onPressed: () => Navigator.pop(ctx),
+                      style: ElevatedButton.styleFrom(
+                        backgroundColor: const Color(0xFFDC2626),
+                        foregroundColor: Colors.white,
+                        elevation: 0,
+                        padding: const EdgeInsets.symmetric(
+                          horizontal: 20,
+                          vertical: 11,
+                        ),
+                        shape: RoundedRectangleBorder(
+                          borderRadius: BorderRadius.circular(8),
+                        ),
+                      ),
+                      child: const Text(
+                        'OK, Got It',
+                        style: TextStyle(
+                          fontSize: 13,
+                          fontWeight: FontWeight.w500,
+                        ),
+                      ),
+                    ),
+                  ],
+                ),
+              ],
+            ),
           ),
-        ),
-      );
-    },
-  );
-}
+        );
+      },
+    );
+  }
 
   // ================================================
   // BUILD
@@ -236,11 +225,13 @@ class _SelectVariantDialogState extends State<SelectVariantDialog> {
   Widget build(BuildContext context) {
 
     final ProductVariant? variant = _selectedVariant;
-    final double price = variant?.retailPrice ?? widget.product.averagePrice;
+    final SizeEntry? size = _selectedSize;
 
-    // use availableQty as the max — not stockQty!
-    // cashier cannot sell reserved stock
-    final int maxQty = variant?.availableQty ?? 1;
+    final double price =
+        variant?.retailPrice ?? widget.product.averagePrice;
+
+    final int maxQty =
+        size?.availableQty ?? 1;
 
     return Dialog(
       shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
@@ -327,7 +318,7 @@ class _SelectVariantDialogState extends State<SelectVariantDialog> {
                             // stock qty
                             _buildStockRow(
                               'Stock',
-                              '${variant.stockQty}',
+                              '${size?.stockQty ?? 0}',
                               const Color(0xFF374151),
                             ),
 
@@ -336,8 +327,8 @@ class _SelectVariantDialogState extends State<SelectVariantDialog> {
                             // reserved qty — red if > 0
                             _buildStockRow(
                               'Reserved',
-                              '${variant.reservedQty}',
-                              variant.reservedQty > 0
+                              '${size?.reservedQty ?? 0}',
+                              (size?.reservedQty ?? 0) > 0
                                   ? const Color(0xFFDC2626)
                                   : const Color(0xFF374151),
                             ),
@@ -350,8 +341,8 @@ class _SelectVariantDialogState extends State<SelectVariantDialog> {
                             // available qty — green if > 0, red if 0
                             _buildStockRow(
                               'Available',
-                              '${variant.availableQty}',
-                              variant.availableQty > 0
+                              '${size?.availableQty ?? 0}',
+                              (size?.availableQty ?? 0) > 0
                                   ? const Color(0xFF16A34A)
                                   : const Color(0xFFDC2626),
                               isBold: true,
@@ -463,11 +454,11 @@ class _SelectVariantDialogState extends State<SelectVariantDialog> {
                           : Wrap(
                               spacing: 8,
                               runSpacing: 8,
-                              children: _sizesForSelectedColor.map((String size) {
+                              children: _sizesForSelectedColor.map((SizeEntry size) {
 
-                                final bool isSelected = _selectedSize == size;
-                                final bool isAvailable = _isSizeAvailable(size);
-                                final bool isReserved = _isSizeReserved(size);
+                                final bool isSelected = _selectedSize?.size == size.size;
+                                final bool isAvailable = size.availableQty > 0;
+                                final bool isReserved = size.isFullyReserved;
 
                                 return GestureDetector(
                                   onTap: () {
@@ -517,7 +508,7 @@ class _SelectVariantDialogState extends State<SelectVariantDialog> {
                                           borderRadius: BorderRadius.circular(6),
                                         ),
                                         child: Text(
-                                          size,
+                                          size.size,
                                           style: TextStyle(
                                             fontSize: 12,
                                             color: isSelected
@@ -636,11 +627,11 @@ class _SelectVariantDialogState extends State<SelectVariantDialog> {
                           ),
 
                           // max available hint
-                          if (variant != null && variant.availableQty > 0)
+                          if (size != null && size.availableQty > 0)
                             Padding(
                               padding: const EdgeInsets.only(left: 10),
                               child: Text(
-                                'Max: ${variant.availableQty}',
+                                'Max: ${size.availableQty}',
                                 style: const TextStyle(
                                   fontSize: 11,
                                   color: Color(0xFF9CA3AF),
@@ -693,14 +684,15 @@ class _SelectVariantDialogState extends State<SelectVariantDialog> {
                     _selectedColor != null &&
                     _selectedSize != null &&
                     variant != null &&
-                    variant.availableQty > 0
+                    size != null &&
+                    size.availableQty > 0
                   )
                       ? () {
                           widget.onAddToCart(
                             _selectedColor!,
-                            _selectedSize!,
+                            _selectedSize!.size,
                             _quantity,
-                            variant.retailPrice,
+                            variant!.retailPrice,
                           );
                           Navigator.pop(context);
                         }

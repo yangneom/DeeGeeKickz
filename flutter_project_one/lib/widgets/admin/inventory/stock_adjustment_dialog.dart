@@ -1,6 +1,6 @@
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
-import 'package:flutter_project_one/widgets/common/confirm_dialog.dart';
+import 'package:flutter_project_one/widgets/common/dialog/confirm_dialog.dart';
 import '../../../models/product.dart';
 import '../../../services/admin/inventory/inventory_service.dart';
 import '../../../services/admin/inventory/stock_service.dart';
@@ -44,8 +44,9 @@ class _StockAdjustmentDialogState extends State<StockAdjustmentDialog> {
   List<_FlatVariantRow> _filteredRows = [];
   bool _isLoading = true;
   String? _selectedCategory;
-  ProductVariant? _selectedVariant;
   Product? _selectedProduct;
+  ProductVariant? _selectedVariant;
+  SizeEntry? _selectedSize;
   bool _isAddStock = true;
 
   // ================================================
@@ -87,19 +88,31 @@ class _StockAdjustmentDialogState extends State<StockAdjustmentDialog> {
   // ================================================
   // BUILD ALL ROWS
   // ================================================
-  List<_FlatVariantRow> _buildAllRows() {
-    List<_FlatVariantRow> rows = [];
+List<_FlatVariantRow> _buildAllRows() {
+  List<_FlatVariantRow> rows = [];
 
-    for (int i = 0; i < _allProducts.length; i++) {
-      Product product = _allProducts[i];
-      for (int j = 0; j < product.variants.length; j++) {
-        ProductVariant variant = product.variants[j];
-        rows.add(_FlatVariantRow(product: product, variant: variant));
+  for (int i = 0; i < _allProducts.length; i++) {
+    Product product = _allProducts[i];
+
+    for (int j = 0; j < product.variants.length; j++) {
+      ProductVariant variant = product.variants[j];
+
+      for (int k = 0; k < variant.sizes.length; k++) {
+        SizeEntry size = variant.sizes[k];
+
+        rows.add(
+          _FlatVariantRow(
+            product: product,
+            variant: variant,
+            size: size,
+          ),
+        );
       }
     }
-
-    return rows;
   }
+
+  return rows;
+}
 
   // ================================================
   // GET CATEGORIES
@@ -137,7 +150,7 @@ class _StockAdjustmentDialogState extends State<StockAdjustmentDialog> {
       bool matchesSize = true;
       if (sizeQuery.isNotEmpty) {
         matchesSize =
-            row.variant.size.toString().toLowerCase().contains(sizeQuery);
+            row.size.size.toString().toLowerCase().contains(sizeQuery);
       }
 
       bool matchesCategory = true;
@@ -159,9 +172,9 @@ class _StockAdjustmentDialogState extends State<StockAdjustmentDialog> {
   // HELPERS
   // ================================================
   int _getCurrentStock() {
-    if (_selectedVariant == null) return 0;
-    return _selectedVariant!.stockQty;
-  }
+  if (_selectedSize == null) return 0;
+  return _selectedSize!.stockQty;
+}
 
   int _getAdjustmentQty() {
     int? parsed = int.tryParse(_quantityController.text);
@@ -184,7 +197,7 @@ class _StockAdjustmentDialogState extends State<StockAdjustmentDialog> {
   // SAVE ADJUSTMENT
   // ================================================
   Future<void> _saveAdjustment() async {
-    if (_selectedVariant == null) return;
+    if (_selectedVariant == null || _selectedSize == null) return;
 
     String action = _isAddStock ? 'Add' : 'Remove';
     int qty = _getAdjustmentQty();
@@ -196,16 +209,16 @@ class _StockAdjustmentDialogState extends State<StockAdjustmentDialog> {
       message:
           '$action $qty unit(s) for '
           '${_selectedProduct!.productName} '
-          '(${_selectedVariant!.color} / Size ${_selectedVariant!.size}). '
+          '(${_selectedVariant!.color} / Size ${_selectedSize!.size}). '
           'New stock will be $newStock.',
       confirmLabel: 'Save Adjustment',
       confirmColor: const Color(0xFF2563EB),
     );
-
+  
     if (confirmed != true) return;
 
     final String? error = await _stockService.adjustStock(
-      sizeId: _selectedVariant!.sizeId,
+      sizeId: _selectedSize!.sizeId!,
       adjustment: qty,
       isAddStock: _isAddStock,
     );
@@ -483,6 +496,7 @@ class _StockAdjustmentDialogState extends State<StockAdjustmentDialog> {
         setState(() {
           _selectedVariant = row.variant;
           _selectedProduct = row.product;
+          _selectedSize = row.size;
           _quantityController.clear();
         });
       },
@@ -504,6 +518,7 @@ class _StockAdjustmentDialogState extends State<StockAdjustmentDialog> {
                   setState(() {
                     _selectedVariant = row.variant;
                     _selectedProduct = row.product;
+                    _selectedSize = row.size; // ADD THIS
                     _quantityController.clear();
                   });
                 },
@@ -530,14 +545,14 @@ class _StockAdjustmentDialogState extends State<StockAdjustmentDialog> {
                   maxLines: 1),
             ),
             Expanded(
-              flex: 1,
-              child: Text(row.variant.size.toString(),
-                  style: const TextStyle(
-                      fontSize: 13, color: Color(0xFF374151))),
-            ),
+                flex: 1,
+                child: Text(
+                  row.size.size.toString(),
+                ),
+              ),
             Expanded(
               flex: 2,
-              child: Text(row.variant.stockQty.toString(),
+              child: Text(row.size.stockQty.toString(),
                   style: const TextStyle(
                       fontSize: 13, color: Color(0xFF374151))),
             ),
@@ -637,7 +652,7 @@ class _StockAdjustmentDialogState extends State<StockAdjustmentDialog> {
                   'Product Name :', _selectedProduct!.productName),
               _buildInfoRow('Color :', _selectedVariant!.color),
               _buildInfoRow(
-                  'Size :', _selectedVariant!.size.toString()),
+                  'Size :', _selectedSize?.size.toString() ?? '-'),
               _buildInfoRow('Current Stock Qty :',
                   _getCurrentStock().toString()),
             ],
@@ -684,7 +699,7 @@ class _StockAdjustmentDialogState extends State<StockAdjustmentDialog> {
 
         const SizedBox(height: 16),
 
-        if (_selectedVariant != null)
+        if (_selectedVariant != null && _selectedSize != null)
           Column(
             crossAxisAlignment: CrossAxisAlignment.start,
             children: [
@@ -826,9 +841,11 @@ class _StockAdjustmentDialogState extends State<StockAdjustmentDialog> {
 class _FlatVariantRow {
   final Product product;
   final ProductVariant variant;
+  final SizeEntry size;
 
   const _FlatVariantRow({
     required this.product,
     required this.variant,
+    required this.size,
   });
 }

@@ -1,5 +1,5 @@
 import 'package:flutter/material.dart';
-import '../../common/confirm_dialog.dart';
+import '../../common/dialog/confirm_dialog.dart';
 import 'add_banner_dialog.dart'; // 👈 import the dialog
 
 class BannersTable extends StatefulWidget {

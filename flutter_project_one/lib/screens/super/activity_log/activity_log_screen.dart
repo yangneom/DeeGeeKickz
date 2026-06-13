@@ -1,7 +1,7 @@
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
-import '../../../widgets/common/common_table.dart';
-import '../../../widgets/common/export_button.dart';
+import '../../../widgets/common/tables/common_table.dart';
+import '../../../widgets/common/buttons/export_button.dart';
 import '../../../widgets/super/activity_log/activity_log_filter_panel.dart';
 
 // ================================================
