@@ -16,7 +16,6 @@ import 'package:flutter_dotenv/flutter_dotenv.dart';
 // This is our Login screen
 import 'screens/auth/login_screen.dart';
 
-import 'screens/customer/homescreen/home_screen.dart';
 
 
 // ================================================
@@ -74,7 +73,7 @@ class MyApp extends StatelessWidget {
             ),
             useMaterial3: true,
           ),
-          home: const HomeScreen(),
+          home: const LoginScreen(),
         );
       },
     );

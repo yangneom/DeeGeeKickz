@@ -1,20 +1,19 @@
 import 'package:flutter/material.dart';
-import '../../../screens/customer/cart/cart_screen.dart';
-import '../../../screens/customer/messages/customer_chat_screen.dart';
 
-/// Bottom navigation bar shown ONLY on mobile widths.
+import '../../../screens/customer/cart/cart_screen.dart';
+import '../../../screens/customer/orders/order_history_screen.dart'; // ← replaces chat
+import '../../../screens/customer/profile/profile_screen.dart';
+
+/// Bottom navigation bar shown ONLY on mobile widths (< 768px).
 ///
-/// Matches HTML:
-/// <nav class="fixed bottom-0 w-full z-50 md:hidden bg-surface
-///   border-t border-outline-variant flex justify-around items-center h-16 ...">
-///   home / search / shopping_bag / chat / person
-/// </nav>
+/// Index map:
+///   0 → Home
+///   1 → Search
+///   2 → Bag       → CartScreen
+///   3 → Orders    → OrderHistoryScreen   (was: Chat)
+///   4 → Profile   → ProfileScreen
 ///
-/// This widget self-hides (returns SizedBox.shrink) when the available
-/// width is >= the md breakpoint (768px), matching `md:hidden`.
-/// Each screen should still wrap this in a way that doesn't reserve
-/// space on desktop -- e.g. place it in a `bottomNavigationBar:` slot
-/// with a LayoutBuilder, or use [BottomNavBar.shouldShow] to decide.
+/// Self-hides (returns SizedBox.shrink) on desktop/tablet.
 class BottomNavBar extends StatelessWidget {
   final int currentIndex;
   final ValueChanged<int>? onTap;
@@ -27,17 +26,15 @@ class BottomNavBar extends StatelessWidget {
 
   static const double _mdBreakpoint = 768;
 
-  /// Helper for screens to decide whether to even build this widget.
-  static bool shouldShow(BuildContext context) {
-    return MediaQuery.of(context).size.width < _mdBreakpoint;
-  }
+  static bool shouldShow(BuildContext context) =>
+      MediaQuery.of(context).size.width < _mdBreakpoint;
 
   static const List<_NavItem> _items = [
-    _NavItem(icon: Icons.home, label: 'Home'),
-    _NavItem(icon: Icons.search, label: 'Search'),
-    _NavItem(icon: Icons.shopping_bag_outlined, label: 'Bag'),
-    _NavItem(icon: Icons.chat_bubble_outline, label: 'Chat'),
-    _NavItem(icon: Icons.person_outline, label: 'Profile'),
+    _NavItem(icon: Icons.home_outlined,           label: 'Home'),
+    _NavItem(icon: Icons.search,                  label: 'Search'),
+    _NavItem(icon: Icons.shopping_bag_outlined,   label: 'Bag'),
+    _NavItem(icon: Icons.receipt_long_outlined,   label: 'Orders'),  // ← updated
+    _NavItem(icon: Icons.person_outline,          label: 'Profile'),
   ];
 
   @override
@@ -49,9 +46,9 @@ class BottomNavBar extends StatelessWidget {
         }
 
         return Container(
-          height: 64, // h-16
+          height: 64,
           decoration: const BoxDecoration(
-            color: Color(0xFFF9F9F9), 
+            color: Color(0xFFF9F9F9),
             border: Border(
               top: BorderSide(color: Color(0xFFCFC4C5), width: 1),
             ),
@@ -59,31 +56,62 @@ class BottomNavBar extends StatelessWidget {
           child: Row(
             mainAxisAlignment: MainAxisAlignment.spaceAround,
             children: List.generate(_items.length, (index) {
-              final item = _items[index];
+              final item     = _items[index];
               final isActive = index == currentIndex;
 
               return InkWell(
                 onTap: () {
-                  if (index == 2) {
-                    Navigator.of(context).push(
-                      MaterialPageRoute(builder: (_) => const CartScreen()),
-                    );
-                  } else if (index == 3) {  
-                    Navigator.of(context).push(
-                      MaterialPageRoute(builder: (_) => const CustomerChatScreen()),
-                    );
-                  } else {
-                    onTap?.call(index);
+                  switch (index) {
+                    case 2: // Bag
+                      Navigator.of(context).push(
+                        MaterialPageRoute(
+                            builder: (_) => const CartScreen()),
+                      );
+                      break;
+                    case 3: // Orders ← updated from Chat
+                      Navigator.of(context).push(
+                        MaterialPageRoute(
+                            builder: (_) => const OrderHistoryScreen()),
+                      );
+                      break;
+                    case 4: // Profile
+                      Navigator.of(context).push(
+                        MaterialPageRoute(
+                            builder: (_) => const ProfileScreen()),
+                      );
+                      break;
+                    default:
+                      onTap?.call(index);
                   }
                 },
                 child: Padding(
-                  padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 8),
-                  child: Icon(
-                    item.icon,
-                    size: isActive ? 26 : 24, // scale-110 on active item
-                    color: isActive
-                        ? Colors.black // text-primary
-                        : const Color(0xFF656464), // on-secondary-container
+                  padding: const EdgeInsets.symmetric(
+                      horizontal: 16, vertical: 8),
+                  child: Column(
+                    mainAxisSize: MainAxisSize.min,
+                    children: [
+                      Icon(
+                        item.icon,
+                        size: isActive ? 26 : 24,
+                        color: isActive
+                            ? Colors.black
+                            : const Color(0xFF656464),
+                      ),
+                      const SizedBox(height: 2),
+                      Text(
+                        item.label,
+                        style: TextStyle(
+                          fontFamily: 'Inter',
+                          fontSize: 9,
+                          fontWeight: isActive
+                              ? FontWeight.w700
+                              : FontWeight.w400,
+                          color: isActive
+                              ? Colors.black
+                              : const Color(0xFF656464),
+                        ),
+                      ),
+                    ],
                   ),
                 ),
               );
@@ -98,6 +126,5 @@ class BottomNavBar extends StatelessWidget {
 class _NavItem {
   final IconData icon;
   final String label;
-
   const _NavItem({required this.icon, required this.label});
 }

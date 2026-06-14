@@ -3,6 +3,7 @@ import 'package:flutter/material.dart';
 import '../../../screens/customer/shop_screen.dart/shop_screen.dart';
 import '../../../screens/customer/promo/promo_screen.dart';
 import '../../../screens/customer/cart/cart_screen.dart';
+import '../../../screens/customer/profile/profile_screen.dart'; // ← added
 
 /// Responsive top navigation bar shared across all customer-web screens.
 class AppTopBar extends StatelessWidget implements PreferredSizeWidget {
@@ -144,7 +145,13 @@ class AppTopBar extends StatelessWidget implements PreferredSizeWidget {
                           const SizedBox(width: 24),
                           _IconButton(
                             icon: Icons.person_outline,
-                            onTap: onPersonTap,
+                            // ── Person icon → ProfileScreen ──
+                            onTap: onPersonTap ??
+                                () => Navigator.of(context).push(
+                                      MaterialPageRoute(
+                                          builder: (_) =>
+                                              const ProfileScreen()),
+                                    ),
                           ),
                         ],
                       ],
