@@ -78,7 +78,7 @@ final List<Order> fakeOrders = [
   // Order 1
   // ------------------------------------------------
   Order(
-    orderId: 'order_001',
+    orderId: '13',
     customerName: 'Angel Tuazon',
     contact: '09991506274',
     landmark: 'Alcay Store',

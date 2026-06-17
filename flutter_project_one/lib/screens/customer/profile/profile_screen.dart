@@ -1,5 +1,9 @@
 import 'package:flutter/material.dart';
 
+import 'package:supabase_flutter/supabase_flutter.dart';
+
+import '../../auth/login_screen.dart';
+
 // ── Common nav widgets ────────────────────────────────────────────────────────
 import '../../../widgets/common/nav/app_top_bar.dart';
 import '../../../widgets/common/nav/app_drawer.dart';
@@ -420,10 +424,20 @@ class _LogoutButton extends StatelessWidget {
                 ),
               ),
               TextButton(
-                onPressed: () {
-                  Navigator.of(context).pop();
-                  // TODO: auth provider logout → push LoginScreen
-                },
+                onPressed: () async {
+                    Navigator.of(context).pop();
+
+                    await Supabase.instance.client.auth.signOut();
+
+                    if (context.mounted) {
+                      Navigator.of(context).pushAndRemoveUntil(
+                        MaterialPageRoute(
+                          builder: (_) => const LoginScreen(),
+                        ),
+                        (route) => false,
+                      );
+                    }
+                  },
                 child: const Text(
                   'LOGOUT',
                   style: TextStyle(

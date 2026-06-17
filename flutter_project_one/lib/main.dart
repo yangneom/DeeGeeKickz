@@ -14,7 +14,9 @@ import 'package:flutter_screenutil/flutter_screenutil.dart';
 import 'package:flutter_dotenv/flutter_dotenv.dart';
 
 // This is our Login screen
-import 'screens/auth/login_screen.dart';
+// import 'screens/auth/login_screen.dart';
+
+import '../../screens/customer/homescreen/home_screen.dart';
 
 
 
@@ -38,7 +40,12 @@ void main() async {
       url: dotenv.env['SUPABASE_URL']!,
       anonKey: dotenv.env['SUPABASE_ANON_KEY']!,
     );
+
     print('Supabase initialized successfully');
+
+    final user = Supabase.instance.client.auth.currentUser;
+
+print('CURRENT USER: ${user?.email}');
   } catch (error) {
     print('Supabase initialization failed: $error');
   }
@@ -73,7 +80,7 @@ class MyApp extends StatelessWidget {
             ),
             useMaterial3: true,
           ),
-          home: const LoginScreen(),
+          home: const HomeScreen(),
         );
       },
     );

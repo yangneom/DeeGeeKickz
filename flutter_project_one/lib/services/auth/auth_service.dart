@@ -46,33 +46,31 @@ class AuthService {
 
   // ── LOGIN ──
   Future<String?> login({
-    required String email,
-    required String password,
-  }) async {
-    try {
+  required String email,
+  required String password,
+}) async {
+  try {
 
-      await _supabase.auth.signInWithPassword(
-        email: email.trim(),
-        password: password.trim(),
-      );
+    await _supabase.auth.signInWithPassword(
+      email: email.trim(),
+      password: password.trim(),
+    );
 
-      print('Login successful for ${email.trim()}');
-      return null;
+    final currentUser = _supabase.auth.currentUser;
 
-    } on AuthException catch (error) {
-      print('AuthException: ${error.message}');
+    print('===================================');
+    print('LOGGED IN USER UID = ${currentUser?.id}');
+    print('LOGGED IN USER EMAIL = ${currentUser?.email}');
+    print('===================================');
 
-      if (error.message.contains('Invalid login credentials')) {
-        return 'Incorrect email or password. Please try again.';
-      } else if (error.message.contains('Email not confirmed')) {
-        return 'Please verify your email first.';
-      } else if (error.message.contains('too many requests')) {
-        return 'Too many failed attempts. Please try again later.';
-      } else {
-        return 'Login failed: ${error.message}';
-      }
-    }
+    print('Login successful for ${email.trim()}');
+    return null;
+
+  } on AuthException catch (error) {
+    print('LOGIN ERROR = ${error.message}');
+    return error.message;
   }
+}
 
   // ── REGISTER ──
   Future<String?> register({

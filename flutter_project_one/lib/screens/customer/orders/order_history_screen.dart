@@ -8,6 +8,7 @@ import '../../../widgets/common/nav/app_footer.dart';
 import '../../../widgets/customer/orders/order_history_filter_chips.dart';
 import '../../../widgets/customer/orders/order_history_tile.dart';
 import 'order_tracking_screen.dart';
+import '../../../services/customer/History/order_history_service.dart';
 
 /// Full order history for the logged-in customer.
 /// Accessible via:
@@ -23,9 +24,26 @@ class OrderHistoryScreen extends StatefulWidget {
 class _OrderHistoryScreenState extends State<OrderHistoryScreen> {
   String _selectedFilter = 'All';
 
-  // Mock: all orders for the logged-in customer
-  // Replace with Supabase query filtered by auth user ID when ready
-  final List<Order> _allOrders = fakeOrders;
+  final OrderHistoryService _service = OrderHistoryService();
+
+  List<Order> _allOrders = [];
+
+  bool _loading = true;
+
+  @override
+  void initState() {
+    super.initState();
+    _loadOrders();
+  }
+
+  Future<void> _loadOrders() async {
+    final orders = await _service.getMyOrders();
+
+    setState(() {
+      _allOrders = orders;
+      _loading = false;
+    });
+  }
 
   List<Order> get _filtered {
     if (_selectedFilter == 'All') return _allOrders;
@@ -46,6 +64,14 @@ class _OrderHistoryScreenState extends State<OrderHistoryScreen> {
 
   @override
   Widget build(BuildContext context) {
+    if (_loading) {
+      return const Scaffold(
+        body: Center(
+          child: CircularProgressIndicator(),
+        ),
+      );
+    }
+
     final isDesktop = MediaQuery.of(context).size.width >= 768;
     final hPad      = isDesktop ? 48.0 : 16.0;
 

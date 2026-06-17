@@ -7,6 +7,7 @@ class CustomerCartItem {
   final String brand;
   final String color;
   final String size;
+  final int? sizeId;
   final double retailPrice;
   final String imageUrl;
   int quantity;
@@ -17,6 +18,7 @@ class CustomerCartItem {
     required this.brand,
     required this.color,
     required this.size,
+    this.sizeId,
     required this.retailPrice,
     required this.imageUrl,
     this.quantity = 1,
@@ -31,6 +33,7 @@ class CustomerCartItem {
     String? color,
     String? size,
     double? retailPrice,
+    int? sizeId,
     String? imageUrl,
     int? quantity,
   }) {
@@ -40,6 +43,7 @@ class CustomerCartItem {
       brand: brand ?? this.brand,
       color: color ?? this.color,
       size: size ?? this.size,
+      sizeId: sizeId ?? this.sizeId,
       retailPrice: retailPrice ?? this.retailPrice,
       imageUrl: imageUrl ?? this.imageUrl,
       quantity: quantity ?? this.quantity,

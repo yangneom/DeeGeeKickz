@@ -21,6 +21,8 @@ import '../../screens/cashier/cashier_layout.dart';
 
 import '../../screens/super/super_layout.dart'; // ← ADD THIS
 
+import '../../screens/customer/homescreen/home_screen.dart';
+
 // ================================================
 // LOGIN FORM WIDGET
 // ================================================
@@ -95,12 +97,15 @@ class _LoginFormState extends ConsumerState<LoginForm> {
           MaterialPageRoute(builder: (context) => const CashierLayout()),
         );
 
-      } else if (role == 'Customer') {
-        ref.read(errorMessageProvider.notifier).setError(
-          'Customer screen coming soon.',
+     } else if (role == 'Customer') {
+        Navigator.pushReplacement(
+          context,
+          MaterialPageRoute(
+            builder: (_) => const HomeScreen(),
+          ),
         );
 
-      } else {
+      } else { 
         ref.read(errorMessageProvider.notifier).setError(
           'Unknown role: $role. Please contact support.',
         );

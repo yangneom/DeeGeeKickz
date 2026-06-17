@@ -1,6 +1,6 @@
 import 'package:flutter/material.dart';
 import '../../../models/order.dart';
-
+import '../../../services/admin/order/order_management_service.dart';
 // ================================================
 // ORDER DETAILS DIALOG
 // ================================================
@@ -38,7 +38,8 @@ class OrderDetailsDialog extends StatefulWidget {
 }
 
 class _OrderDetailsDialogState extends State<OrderDetailsDialog> {
-
+  
+  final OrderManagementService _orderService = OrderManagementService();
   final TextEditingController _adminNoteController = TextEditingController();
   final TextEditingController _lalamoveLinkController = TextEditingController();
 
@@ -379,7 +380,19 @@ class _OrderDetailsDialogState extends State<OrderDetailsDialog> {
 
         if (_currentStatus == 'Confirmed')
           ElevatedButton(
-            onPressed: () => setState(() => _currentStatus = 'Preparing'),
+            onPressed: () async {
+              print('ORDER ID = ${widget.order.orderId}');
+
+              await _orderService.updateOrderStatus(
+                orderId: int.parse(widget.order.orderId),
+                status: 'Preparing',
+                adminNote: _adminNoteController.text,
+              );
+              setState(() {
+                _currentStatus = 'Preparing';
+              });
+              widget.onStatusUpdated('Preparing');
+            },
             style: ElevatedButton.styleFrom(
               backgroundColor: const Color(0xFF8B5CF6),
               foregroundColor: Colors.white,
@@ -392,7 +405,17 @@ class _OrderDetailsDialogState extends State<OrderDetailsDialog> {
 
         if (_currentStatus == 'Preparing')
           ElevatedButton(
-            onPressed: () => setState(() => _currentStatus = 'Shipped'),
+            onPressed: () async {
+              await _orderService.updateOrderStatus(
+                orderId: int.parse(widget.order.orderId),
+                status: 'Shipped',
+                adminNote: _adminNoteController.text,
+              );
+              setState(() {
+                _currentStatus = 'Shipped';
+              });
+              widget.onStatusUpdated('Shipped');
+            },
             style: ElevatedButton.styleFrom(
               backgroundColor: const Color(0xFF06B6D4),
               foregroundColor: Colors.white,
@@ -405,7 +428,17 @@ class _OrderDetailsDialogState extends State<OrderDetailsDialog> {
 
         if (_currentStatus == 'Shipped')
           ElevatedButton(
-            onPressed: () => setState(() => _currentStatus = 'Completed'),
+            onPressed: () async {
+              await _orderService.updateOrderStatus(
+                orderId: int.parse(widget.order.orderId),
+                status: 'Completed',
+                adminNote: _adminNoteController.text,
+              );
+              setState(() {
+                _currentStatus = 'Completed';
+              });
+              widget.onStatusUpdated('Completed');
+            },
             style: ElevatedButton.styleFrom(
               backgroundColor: const Color(0xFF6B7280),
               foregroundColor: Colors.white,
@@ -431,7 +464,24 @@ class _OrderDetailsDialogState extends State<OrderDetailsDialog> {
 
         if (_currentStatus == 'Pending')
           ElevatedButton(
-            onPressed: () => setState(() => _currentStatus = 'Confirmed'),
+            onPressed: () async {
+
+              print('ACCEPT BUTTON CLICKED');
+
+              await _orderService.updateOrderStatus(
+                orderId: int.parse(widget.order.orderId),
+                status: 'Confirmed',
+                adminNote: _adminNoteController.text,
+              );
+
+              print('SERVICE FINISHED');
+
+              setState(() {
+                _currentStatus = 'Confirmed';
+              });
+
+              widget.onStatusUpdated('Confirmed');
+            },
             style: ElevatedButton.styleFrom(
               backgroundColor: const Color(0xFF16A34A),
               foregroundColor: Colors.white,

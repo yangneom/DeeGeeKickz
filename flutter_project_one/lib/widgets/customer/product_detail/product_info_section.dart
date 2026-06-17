@@ -3,13 +3,20 @@ import 'package:flutter/material.dart';
 import '../../../models/product_detail_model.dart';
 import '../../../screens/customer/messages/customer_chat_screen.dart';
 
+import 'package:flutter_riverpod/flutter_riverpod.dart';
+
+import '../../../providers/customer/customer_cart_provider.dart';
+import '../../../models/customer_cart_item.dart';
+
+
+
 /// Product info panel: name, series, price, rating, size picker,
 /// quantity selector, and the three CTA buttons.
 ///
 /// Accepts optional [discountPercent] and [originalPrice] from promo
 /// navigation — when present, shows a sale banner, strikethrough
 /// original price, and the discounted price in bold.
-class ProductInfoSection extends StatefulWidget {
+class ProductInfoSection extends ConsumerStatefulWidget {
   final ProductDetailModel product;
   final int? discountPercent;
   final double? originalPrice;
@@ -22,10 +29,10 @@ class ProductInfoSection extends StatefulWidget {
   });
 
   @override
-  State<ProductInfoSection> createState() => _ProductInfoSectionState();
+  ConsumerState<ProductInfoSection> createState() => _ProductInfoSectionState();
 }
 
-class _ProductInfoSectionState extends State<ProductInfoSection> {
+class _ProductInfoSectionState extends ConsumerState<ProductInfoSection> {
   String? _selectedSize;
   int _quantity = 1;
   bool _isFavorited = false;
@@ -39,41 +46,41 @@ class _ProductInfoSectionState extends State<ProductInfoSection> {
 
   void _incrementQty() => setState(() => _quantity++);
 
-  void _onAddToBag() {
-    if (_selectedSize == null) {
-      ScaffoldMessenger.of(context).showSnackBar(
-        const SnackBar(
-          content: Text(
-            'PLEASE SELECT A SIZE',
-            style: TextStyle(
-              fontFamily: 'Inter',
-              fontSize: 12,
-              fontWeight: FontWeight.w600,
-              letterSpacing: 1,
-            ),
-          ),
-          backgroundColor: Colors.black,
-          duration: Duration(seconds: 2),
-        ),
-      );
-      return;
-    }
+void _onAddToBag() {
+  if (_selectedSize == null) {
     ScaffoldMessenger.of(context).showSnackBar(
-      SnackBar(
-        content: Text(
-          'ADDED TO BAG — SIZE $_selectedSize × $_quantity',
-          style: const TextStyle(
-            fontFamily: 'Inter',
-            fontSize: 12,
-            fontWeight: FontWeight.w600,
-            letterSpacing: 1,
-          ),
-        ),
-        backgroundColor: Colors.black,
-        duration: const Duration(seconds: 2),
+      const SnackBar(
+        content: Text('PLEASE SELECT A SIZE'),
       ),
     );
+    return;
   }
+
+  final product = widget.product;
+
+  final cartItem = CustomerCartItem(
+    productId: product.id,
+    productName: product.name,
+    brand: product.brand,
+    color: 'Default',
+    size: _selectedSize!,
+    retailPrice: product.price,
+    imageUrl: product.imageUrls.first,
+    quantity: _quantity,
+  );
+
+  ref
+      .read(customerCartProvider.notifier)
+      .addItem(cartItem);
+
+  ScaffoldMessenger.of(context).showSnackBar(
+    SnackBar(
+      content: Text(
+        '${product.name} added to bag',
+      ),
+    ),
+  );
+}
 
   @override
   Widget build(BuildContext context) {
@@ -528,4 +535,5 @@ class _CtaButtonState extends State<_CtaButton> {
       ),
     );
   }
+  
 }

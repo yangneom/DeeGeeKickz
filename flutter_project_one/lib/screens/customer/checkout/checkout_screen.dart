@@ -1,5 +1,9 @@
 import 'package:flutter/material.dart';
-import '../../../models/customer_cart_item.dart';
+import 'package:flutter_riverpod/flutter_riverpod.dart';
+import '../../../providers/customer/order_service.dart';
+import 'package:supabase_flutter/supabase_flutter.dart';
+
+import '../../../providers/customer/customer_cart_provider.dart';
 import '../../../widgets/common/nav/app_top_bar.dart';
 import '../../../widgets/common/nav/app_drawer.dart';
 import '../../../widgets/common/nav/bottom_nav_bar.dart';
@@ -9,17 +13,21 @@ import 'checkout_step1_shipping.dart';
 import 'checkout_step2_review.dart';
 import 'checkout_step3_payment.dart';
 
+
+
 /// Checkout shell — manages the 3-step flow.
 /// Holds all shared state (shipping info, payment method)
 /// and passes it down to each step screen.
-class CheckoutScreen extends StatefulWidget {
+class CheckoutScreen extends ConsumerStatefulWidget {
   const CheckoutScreen({super.key});
 
   @override
-  State<CheckoutScreen> createState() => _CheckoutScreenState();
+  ConsumerState<CheckoutScreen> createState() =>
+      _CheckoutScreenState();
 }
 
-class _CheckoutScreenState extends State<CheckoutScreen> {
+class _CheckoutScreenState
+    extends ConsumerState<CheckoutScreen> {
   // ── Step tracker ─────────────────────────────────────────────────────
   int _currentStep = 1;
 
@@ -32,14 +40,6 @@ class _CheckoutScreenState extends State<CheckoutScreen> {
   String phone = '';
   String country = 'Philippines';
   String paymentMethod = 'gcash';
-
-  // ── Mock cart items ───────────────────────────────────────────────────
-  final List<CustomerCartItem> _items = List.from(mockCustomerCartItems);
-
-  double get _subtotal => _items.fold(0.0, (s, i) => s + i.subtotal);
-  double get _tax => _subtotal * 0.08;
-  double get _shipping => _subtotal >= 150 ? 0.0 : 10.0;
-  double get _total => _subtotal + _tax + _shipping;
 
   // ── Step navigation ───────────────────────────────────────────────────
   void _goToStep(int step) => setState(() => _currentStep = step);
@@ -67,21 +67,91 @@ class _CheckoutScreenState extends State<CheckoutScreen> {
 
   void _onReviewContinue() => setState(() => _currentStep = 3);
 
-  void _onPlaceOrder() {
+Future<void> _onPlaceOrder() async {
+  try {
+    final user = Supabase.instance.client.auth.currentUser;
+
+    if (user == null) {
+      throw Exception('User not logged in');
+    }
+
+    final items = ref.read(customerCartProvider);
+
+    final subtotal = items.fold<double>(
+      0,
+      (sum, item) => sum + item.subtotal,
+    );
+
+    final shipping = subtotal >= 150 ? 0.0 : 10.0;
+
+    final total = subtotal + shipping;
+
+    final service = OrderService();
+
+    final orderId = await service.createOrder(
+      userId: user.id,
+
+      street: street,
+      city: city,
+      postal: postal,
+      country: country,
+
+      items: items,
+
+      subtotal: subtotal,
+      shipping: shipping,
+      total: total,
+    );
+
+    ref.read(customerCartProvider.notifier).clearCart();
+
+    if (!mounted) return;
+
     ScaffoldMessenger.of(context).showSnackBar(
-      const SnackBar(
-        content: Text(
-          'ORDER PLACED — PayMongo integration coming soon.',
-          style: TextStyle(fontFamily: 'Inter', letterSpacing: 0.5),
-        ),
-        backgroundColor: Colors.black,
-        duration: Duration(seconds: 3),
+      SnackBar(
+        content: Text('Order #$orderId placed successfully'),
+        backgroundColor: Colors.green,
+      ),
+    );
+
+    Navigator.of(context).popUntil((route) => route.isFirst);
+  } catch (e) {
+    if (!mounted) return;
+
+    ScaffoldMessenger.of(context).showSnackBar(
+      SnackBar(
+        content: Text('Failed to place order: $e'),
+        backgroundColor: Colors.red,
       ),
     );
   }
+}
 
   @override
   Widget build(BuildContext context) {
+    final items = ref.watch(customerCartProvider);
+
+    final subtotal = items.fold<double>(
+      0,
+      (sum, item) => sum + item.subtotal,
+    );
+
+    final tax = subtotal * 0.08;
+    final shipping = subtotal >= 150 ? 0.0 : 10.0;
+    final total = subtotal + tax + shipping;
+
+    if (items.isEmpty) {
+      return Scaffold(
+        appBar: const AppTopBar(activeRoute: 'shop'),
+        drawer: const AppDrawer(),
+        body: const Center(
+          child: Text(
+            'Your cart is empty.',
+          ),
+        ),
+      );
+    }
+
     return Scaffold(
       backgroundColor: const Color(0xFFF9F9F9),
       drawer: const AppDrawer(),
@@ -124,11 +194,11 @@ class _CheckoutScreenState extends State<CheckoutScreen> {
                             initialPostal: postal,
                             initialPhone: phone,
                             initialCountry: country,
-                            items: _items,
-                            subtotal: _subtotal,
-                            shipping: _shipping,
-                            tax: _tax,
-                            total: _total,
+                            items: items,
+                            subtotal: subtotal,
+                            shipping: shipping,
+                            tax: tax,
+                            total: total,
                             onContinue: _onShippingContinue,
                           ),
 
@@ -141,11 +211,11 @@ class _CheckoutScreenState extends State<CheckoutScreen> {
                             postal: postal,
                             phone: phone,
                             country: country,
-                            items: _items,
-                            subtotal: _subtotal,
-                            shipping: _shipping,
-                            tax: _tax,
-                            total: _total,
+                            items: items,
+                            subtotal: subtotal,
+                            shipping: shipping,
+                            tax: tax,
+                            total: total,
                             onContinue: _onReviewContinue,
                             onEditShipping: () => _goToStep(1),
                           ),
@@ -155,11 +225,11 @@ class _CheckoutScreenState extends State<CheckoutScreen> {
                             selectedMethod: paymentMethod,
                             onMethodChanged: (v) =>
                                 setState(() => paymentMethod = v),
-                            items: _items,
-                            subtotal: _subtotal,
-                            shipping: _shipping,
-                            tax: _tax,
-                            total: _total,
+                            items: items,
+                            subtotal: subtotal,
+                            shipping: shipping,
+                            tax: tax,
+                            total: total,
                             onPlaceOrder: _onPlaceOrder,
                             onBack: () => _goToStep(2),
                           ),

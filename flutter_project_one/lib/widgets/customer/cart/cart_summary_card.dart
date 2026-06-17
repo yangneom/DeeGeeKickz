@@ -1,5 +1,7 @@
 import 'package:flutter/material.dart';
 import '../../../screens/customer/checkout/checkout_screen.dart';
+import 'package:supabase_flutter/supabase_flutter.dart';
+import '../../../screens/auth/login_screen.dart';
 
 /// Order summary sidebar card — matches HTML mockup.
 /// Shows subtotal, shipping, tax, total, and Checkout CTA.
@@ -103,11 +105,24 @@ class CartSummaryCard extends StatelessWidget {
           SizedBox(
             width: double.infinity,
             child: _CheckoutButton(
-              onTap: () => Navigator.of(context).push(
-                MaterialPageRoute(
-                  builder: (_) => const CheckoutScreen(),
-                ),
-              ),
+              onTap: () {
+                final user =
+                    Supabase.instance.client.auth.currentUser;
+
+                if (user == null) {
+                  Navigator.of(context).push(
+                    MaterialPageRoute(
+                      builder: (_) => const LoginScreen(),
+                    ),
+                  );
+                } else {
+                  Navigator.of(context).push(
+                    MaterialPageRoute(
+                      builder: (_) => const CheckoutScreen(),
+                    ),
+                  );
+                }
+              },
             ),
           ),
         ],

@@ -1,66 +1,40 @@
 import 'package:flutter/material.dart';
+import 'package:flutter_riverpod/flutter_riverpod.dart';
 import '../../../models/customer_cart_item.dart';
+import '../../../models/product_model.dart';
+import '../../../providers/customer/customer_cart_provider.dart';
 import '../../../widgets/common/nav/app_top_bar.dart';
 import '../../../widgets/common/nav/app_drawer.dart';
 import '../../../widgets/common/nav/bottom_nav_bar.dart';
 import '../../../widgets/common/nav/app_footer.dart';
 import '../../../widgets/customer/cart/cart_item_tile.dart';
 import '../../../widgets/customer/cart/cart_summary_card.dart';
-import '../../../models/product_model.dart';
 
 /// Shopping Bag / Cart screen.
 /// Matches the HTML mockup: item list (left/full) + summary sidebar (right on desktop).
-/// Frontend only — mock data, no Supabase.
-class CartScreen extends StatefulWidget {
+class CartScreen extends ConsumerWidget {
   const CartScreen({super.key});
 
-  @override
-  State<CartScreen> createState() => _CartScreenState();
-}
-
-class _CartScreenState extends State<CartScreen> {
-  // Local copy of mock cart — stateful for quantity/remove interactions
-  late List<CustomerCartItem> _cartItems;
-
   // Mock "You May Also Like" products pulled from existing mock data
-  final List<ProductModel> _suggested = [
+  static final List<ProductModel> _suggested = [
     mockShopProducts[0],
     mockShopProducts[3],
     mockShopProducts[6],
   ];
 
   @override
-  void initState() {
-    super.initState();
-    _cartItems = List.from(mockCustomerCartItems);
-  }
+  Widget build(BuildContext context, WidgetRef ref) {
+    final cartItems = ref.watch(customerCartProvider);
 
-  // ── Computed totals ─────────────────────────────────────────────────
-  double get _subtotal =>
-      _cartItems.fold(0.0, (sum, i) => sum + i.subtotal);
-  double get _tax => _subtotal * 0.08;
-  double get _shipping => _subtotal >= 150 ? 0.0 : 10.0;
-  double get _total => _subtotal + _tax + _shipping;
+    final subtotal =
+        cartItems.fold(0.0, (sum, item) => sum + item.subtotal);
 
-  // ── Handlers ────────────────────────────────────────────────────────
-  void _increment(int index) {
-    setState(() => _cartItems[index].quantity++);
-  }
+    final tax = subtotal * 0.08;
 
-  void _decrement(int index) {
-    setState(() {
-      if (_cartItems[index].quantity > 1) {
-        _cartItems[index].quantity--;
-      }
-    });
-  }
+    final shipping = subtotal >= 150 ? 0.0 : 10.0;
 
-  void _remove(int index) {
-    setState(() => _cartItems.removeAt(index));
-  }
+    final total = subtotal + tax + shipping;
 
-  @override
-  Widget build(BuildContext context) {
     return Scaffold(
       backgroundColor: const Color(0xFFF9F9F9),
       drawer: const AppDrawer(),
@@ -88,26 +62,50 @@ class _CartScreenState extends State<CartScreen> {
                     constraints: const BoxConstraints(maxWidth: 1440),
                     child: isDesktop
                         ? _DesktopLayout(
-                            cartItems: _cartItems,
+                            cartItems: cartItems,
                             suggested: _suggested,
-                            subtotal: _subtotal,
-                            tax: _tax,
-                            shipping: _shipping,
-                            total: _total,
-                            onIncrement: _increment,
-                            onDecrement: _decrement,
-                            onRemove: _remove,
+                            subtotal: subtotal,
+                            tax: tax,
+                            shipping: shipping,
+                            total: total,
+                            onIncrement: (index) {
+                              ref
+                                  .read(customerCartProvider.notifier)
+                                  .increment(index);
+                            },
+                            onDecrement: (index) {
+                              ref
+                                  .read(customerCartProvider.notifier)
+                                  .decrement(index);
+                            },
+                            onRemove: (index) {
+                              ref
+                                  .read(customerCartProvider.notifier)
+                                  .removeItem(index);
+                            },
                           )
                         : _MobileLayout(
-                            cartItems: _cartItems,
+                            cartItems: cartItems,
                             suggested: _suggested,
-                            subtotal: _subtotal,
-                            tax: _tax,
-                            shipping: _shipping,
-                            total: _total,
-                            onIncrement: _increment,
-                            onDecrement: _decrement,
-                            onRemove: _remove,
+                            subtotal: subtotal,
+                            tax: tax,
+                            shipping: shipping,
+                            total: total,
+                            onIncrement: (index) {
+                              ref
+                                  .read(customerCartProvider.notifier)
+                                  .increment(index);
+                            },
+                            onDecrement: (index) {
+                              ref
+                                  .read(customerCartProvider.notifier)
+                                  .decrement(index);
+                            },
+                            onRemove: (index) {
+                              ref
+                                  .read(customerCartProvider.notifier)
+                                  .removeItem(index);
+                            },
                           ),
                   ),
                 ),

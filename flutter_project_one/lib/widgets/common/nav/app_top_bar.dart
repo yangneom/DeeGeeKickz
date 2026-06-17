@@ -1,9 +1,17 @@
 import 'package:flutter/material.dart';
 
+import 'package:supabase_flutter/supabase_flutter.dart';
+
+import '../../../screens/auth/login_screen.dart';
+
+
 import '../../../screens/customer/shop_screen.dart/shop_screen.dart';
 import '../../../screens/customer/promo/promo_screen.dart';
 import '../../../screens/customer/cart/cart_screen.dart';
-import '../../../screens/customer/profile/profile_screen.dart'; // ← added
+import '../../../screens/customer/profile/profile_screen.dart';
+import '../../../screens/customer/search/search_screen.dart';           // ← added
+import '../../../screens/customer/notifications/notifications_screen.dart'; // ← added
+
 
 /// Responsive top navigation bar shared across all customer-web screens.
 class AppTopBar extends StatelessWidget implements PreferredSizeWidget {
@@ -24,7 +32,7 @@ class AppTopBar extends StatelessWidget implements PreferredSizeWidget {
     this.onNotificationsTap,
   });
 
-  static const double _navHeight = 64;
+  static const double _navHeight    = 64;
   static const double _mdBreakpoint = 768;
 
   @override
@@ -48,6 +56,28 @@ class AppTopBar extends StatelessWidget implements PreferredSizeWidget {
         break;
     }
   }
+
+    void _requireLogin(
+      BuildContext context,
+      Widget protectedScreen,
+    ) {
+      final user = Supabase.instance.client.auth.currentUser;
+
+      if (user == null) {
+        Navigator.of(context).push(
+          MaterialPageRoute(
+            builder: (_) => const LoginScreen(),
+          ),
+        );
+        return;
+      }
+
+      Navigator.of(context).push(
+        MaterialPageRoute(
+          builder: (_) => protectedScreen,
+      ),
+      );
+    }
 
   @override
   Widget build(BuildContext context) {
@@ -73,7 +103,7 @@ class AppTopBar extends StatelessWidget implements PreferredSizeWidget {
                 child: Row(
                   mainAxisAlignment: MainAxisAlignment.spaceBetween,
                   children: [
-                    // ── Left ──
+                    // ── Left ──────────────────────────────────
                     Row(
                       children: [
                         if (!isDesktop)
@@ -104,7 +134,7 @@ class AppTopBar extends StatelessWidget implements PreferredSizeWidget {
                       ],
                     ),
 
-                    // ── Logo ──
+                    // ── Logo ──────────────────────────────────
                     const Text(
                       'DEEGEEKICKZ',
                       style: TextStyle(
@@ -116,41 +146,73 @@ class AppTopBar extends StatelessWidget implements PreferredSizeWidget {
                       ),
                     ),
 
-                    // ── Right ──
+                    // ── Right ─────────────────────────────────
                     Row(
                       children: [
                         if (isDesktop) ...[
+                          // Bell → NotificationsScreen ← updated
                           _IconButton(
                             icon: Icons.notifications_outlined,
-                            onTap: onNotificationsTap,
                             showBadge: true,
+                            onTap: onPersonTap ??
+                              () => _requireLogin(
+                                    context,
+                                    const ProfileScreen(),
+                                  ),
                           ),
                           const SizedBox(width: 24),
+
+                          
                           _IconButton(
                             icon: Icons.search,
-                            onTap: onSearchTap,
+                            onTap: onSearchTap ??
+                                () => Navigator.of(context).push(
+                                      MaterialPageRoute(
+                                        builder: (_) =>
+                                            const SearchScreen(),
+                                      ),
+                                    ),
                           ),
                           const SizedBox(width: 24),
                         ],
+
+                        
                         _IconButton(
                           icon: Icons.shopping_bag_outlined,
+                          showBadge: true,
                           onTap: onBagTap ??
                               () => Navigator.of(context).push(
                                     MaterialPageRoute(
-                                        builder: (_) => const CartScreen()),
+                                      builder: (_) => const CartScreen(),
+                                    ),
                                   ),
-                          showBadge: true,
                         ),
+
                         if (isDesktop) ...[
                           const SizedBox(width: 24),
+
+                          // Person → ProfileScreen ← already wired
                           _IconButton(
                             icon: Icons.person_outline,
-                            // ── Person icon → ProfileScreen ──
                             onTap: onPersonTap ??
+                            () => _requireLogin(
+                                  context,
+                                  const ProfileScreen(),
+                                ),
+                          ),
+                        ],
+
+                        // Mobile: search icon (no bell on mobile — bell is in drawer)
+                        if (!isDesktop) ...[
+                          const SizedBox(width: 12),
+                          _IconButton(
+                            icon: Icons.search,
+                            onTap: onSearchTap ??
                                 () => Navigator.of(context).push(
                                       MaterialPageRoute(
-                                          builder: (_) =>
-                                              const ProfileScreen()),
+                                        builder: (_) =>
+                                            const SearchScreen(),
+                                      ),
                                     ),
                           ),
                         ],
@@ -166,6 +228,8 @@ class AppTopBar extends StatelessWidget implements PreferredSizeWidget {
     );
   }
 }
+
+// ─── Nav link ─────────────────────────────────────────────────────────────────
 
 class _NavLink extends StatelessWidget {
   final String label;
@@ -205,6 +269,8 @@ class _NavLink extends StatelessWidget {
     );
   }
 }
+
+// ─── Icon button ──────────────────────────────────────────────────────────────
 
 class _IconButton extends StatelessWidget {
   final IconData icon;

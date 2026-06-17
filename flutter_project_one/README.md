@@ -19,7 +19,7 @@ samples, guidance on mobile development, and a full API reference.
 # Push in git hub
 
 git add .
-git commit -m "latest"
+git commit -m "latest working on order "
 git push origin main
 
 cd flutter_project_one
