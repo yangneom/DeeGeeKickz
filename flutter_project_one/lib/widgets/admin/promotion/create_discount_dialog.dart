@@ -1,40 +1,32 @@
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
+import '../../../services/admin/promotionDiscount/discount_service.dart';
 
 // ================================================
 // CREATE DISCOUNT DIALOG
 //
-// This dialog lets the admin create a new discount
-// for a product.
+// Lets the admin create a new discount for a real
+// product, wired to Supabase via DiscountService.
 //
 // Fields:
-//   - Select Product (dropdown)
+//   - Select Product (search-as-you-type, backed by
+//     DiscountService.searchProducts())
 //   - Discount Type (Percentage OR Fixed Amount)
-//     shown as two clickable cards — no radio needed
 //   - Discount Value (number input)
 //   - Start Date + End Date (date pickers)
-//   - Show countdown timer checkbox
+//   - Show countdown timer checkbox (UI-only for now —
+//     there's no matching column on `discount` yet,
+//     so this isn't persisted. Flagging in case a
+//     `show_countdown` column gets added later.)
 //
 // How to open:
 //   showCreateDiscountDialog(context);
+// Returns `true` on success — DiscountsTable re-fetches
+// from Supabase rather than receiving a Map back.
 // ================================================
 
-// ── FAKE PRODUCT LIST ──
-// These are the products in the dropdown
-// Replace with real data from Firestore later
-const List<String> _productOptions = [
-  'Nike Air Max 270',
-  'Nike Panda',
-  'Jordan 1 Retro High',
-  'Adidas Ultraboost 22',
-];
-
-// ================================================
-// SHOW FUNCTION
-// Call this from DiscountsTable to open the dialog
-// ================================================
-Future<Map<String, dynamic>?> showCreateDiscountDialog(BuildContext context) {
-  return showDialog<Map<String, dynamic>>(
+Future<bool?> showCreateDiscountDialog(BuildContext context) {
+  return showDialog<bool>(
     context: context,
     barrierDismissible: false,
     builder: (BuildContext dialogContext) {
@@ -43,10 +35,6 @@ Future<Map<String, dynamic>?> showCreateDiscountDialog(BuildContext context) {
   );
 }
 
-// ================================================
-// STATEFUL WIDGET
-// We need state because user fills in the form
-// ================================================
 class CreateDiscountDialog extends StatefulWidget {
   const CreateDiscountDialog({super.key});
 
@@ -55,52 +43,88 @@ class CreateDiscountDialog extends StatefulWidget {
 }
 
 class _CreateDiscountDialogState extends State<CreateDiscountDialog> {
+  final DiscountService _discountService = DiscountService();
 
-  // ── SELECTED PRODUCT ──
-  // null means nothing selected yet
-  String? _selectedProduct;
+  // ── PRODUCT SEARCH ──
+  final TextEditingController _searchController = TextEditingController();
+  List<Map<String, dynamic>> _searchResults = [];
+  bool _isSearching = false;
+
+  int? _selectedProductId;
+  String? _selectedProductName;
+  double _selectedOriginalPrice = 0;
 
   // ── DISCOUNT TYPE ──
-  // 'percent' = percentage (e.g. 20%)
-  // 'fixed'   = fixed amount (e.g. ₱500)
-  // default is 'percent'
-  String _discountType = 'percent';
+  // Must match Discount.fromMap's literal check ('Percentage' vs
+  // anything else treated as fixed) — use these exact strings.
+  String _discountType = 'Percentage';
 
-  // ── DISCOUNT VALUE ──
-  // the number the user types in
   final TextEditingController _valueController = TextEditingController();
 
-  // ── DATES ──
-  // null means not picked yet
   DateTime? _startDate;
   DateTime? _endDate;
 
-  // ── COUNTDOWN TIMER ──
-  // checkbox at the bottom
   bool _showCountdown = false;
+  bool _isSaving = false;
+
+  @override
+  void dispose() {
+    _searchController.dispose();
+    _valueController.dispose();
+    super.dispose();
+  }
 
   // ================================================
-  // OPEN DATE PICKER
-  // Shows Flutter's built-in date picker
-  // Updates either start or end date
+  // SEARCH PRODUCTS (debounced-free, simple version)
+  // ================================================
+  Future<void> _handleSearchChanged(String query) async {
+    // Typing again after a product was selected clears the selection —
+    // admin must re-pick from fresh results.
+    setState(() {
+      _selectedProductId = null;
+      _selectedProductName = null;
+      _selectedOriginalPrice = 0;
+    });
+
+    if (query.trim().isEmpty) {
+      setState(() => _searchResults = []);
+      return;
+    }
+
+    setState(() => _isSearching = true);
+    final List<Map<String, dynamic>> results =
+        await _discountService.searchProducts(query.trim());
+    if (!mounted) return;
+    setState(() {
+      _searchResults = results;
+      _isSearching = false;
+    });
+  }
+
+  void _selectProduct(Map<String, dynamic> result) {
+    setState(() {
+      _selectedProductId = result['productId'] as int;
+      _selectedProductName = result['productName'] as String;
+      _selectedOriginalPrice = result['originalPrice'] as double;
+      _searchController.text = _selectedProductName!;
+      _searchResults = [];
+    });
+  }
+
+  // ================================================
+  // DATE PICKER
   // ================================================
   Future<void> _pickDate({required bool isStart}) async {
-
-    // show the date picker dialog
-    DateTime? picked = await showDatePicker(
+    final DateTime? picked = await showDatePicker(
       context: context,
-      // start from today
       initialDate: DateTime.now(),
-      // earliest allowed date is today
       firstDate: DateTime.now(),
-      // latest allowed date is 2 years from now
       lastDate: DateTime.now().add(const Duration(days: 730)),
     );
 
-    // if user picked a date (didn't cancel)
     if (picked != null) {
       setState(() {
-        if (isStart == true) {
+        if (isStart) {
           _startDate = picked;
         } else {
           _endDate = picked;
@@ -109,170 +133,97 @@ class _CreateDiscountDialogState extends State<CreateDiscountDialog> {
     }
   }
 
-  // ================================================
-  // FORMAT DATE
-  // Converts DateTime to "Jun 1, 2026" string
-  // ================================================
   String _formatDate(DateTime date) {
-
-    List<String> months = [
+    const List<String> months = [
       'Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun',
       'Jul', 'Aug', 'Sep', 'Oct', 'Nov', 'Dec',
     ];
-
-    String month = months[date.month - 1];
-    String day = date.day.toString();
-    String year = date.year.toString();
-
-    return '$month $day, $year';
+    return '${months[date.month - 1]} ${date.day}, ${date.year}';
   }
 
   // ================================================
-  // FORMAT DATE RANGE
-  // Combines start and end into "Jun 1 – Jun 30"
+  // CALCULATE FINAL PRICE (live preview)
+  // Same logic as Discount.finalPrice — kept in sync
+  // manually since this dialog runs before the row exists.
   // ================================================
-  String _formatDateRange(DateTime start, DateTime end) {
+  double _calculateFinalPrice() {
+    if (_selectedProductId == null) return 0;
+    final double discountValue = double.tryParse(_valueController.text) ?? 0;
 
-    List<String> months = [
-      'Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun',
-      'Jul', 'Aug', 'Sep', 'Oct', 'Nov', 'Dec',
-    ];
-
-    String startStr = '${months[start.month - 1]} ${start.day}';
-    String endStr = '${months[end.month - 1]} ${end.day}';
-
-    return '$startStr – $endStr';
-  }
-
-  // ================================================
-  // CALCULATE FINAL PRICE
-  // Returns a display string like "₱4,400"
-  // We need a base price to calculate from
-  // For now we use fake prices per product
-  // ================================================
-  String _calculateFinalPrice() {
-
-    // fake original prices per product
-    // replace with real data later
-    Map<String, double> prices = {
-      'Nike Air Max 270': 5500,
-      'Nike Panda': 2500,
-      'Jordan 1 Retro High': 8500,
-      'Adidas Ultraboost 22': 7200,
-    };
-
-    // if no product selected return empty
-    if (_selectedProduct == null) return '';
-
-    // get the original price
-    double originalPrice = prices[_selectedProduct] ?? 0;
-
-    // get the value typed by user
-    double discountValue = double.tryParse(_valueController.text) ?? 0;
-
-    // calculate the final price
-    double finalPrice = 0;
-
-    if (_discountType == 'percent') {
-      // percentage discount: e.g. 20% off 5500 = 4400
-      double discountAmount = originalPrice * (discountValue / 100);
-      finalPrice = originalPrice - discountAmount;
+    double finalPrice;
+    if (_discountType == 'Percentage') {
+      final double discountAmount = _selectedOriginalPrice * (discountValue / 100);
+      finalPrice = _selectedOriginalPrice - discountAmount;
     } else {
-      // fixed discount: e.g. ₱1000 off 5500 = 4500
-      finalPrice = originalPrice - discountValue;
+      finalPrice = _selectedOriginalPrice - discountValue;
     }
-
-    // make sure final price is not negative
     if (finalPrice < 0) finalPrice = 0;
-
-    // format with commas
-    return '₱${_addCommas(finalPrice.toInt())}';
+    return finalPrice;
   }
 
-  // ================================================
-  // ADD COMMAS TO NUMBER
-  // Converts 5500 to "5,500"
-  // ================================================
   String _addCommas(int number) {
-
     String numStr = number.toString();
     String result = '';
     int count = 0;
-
-    for (int i = numStr.length - 1; i >= 0; i = i - 1) {
+    for (int i = numStr.length - 1; i >= 0; i--) {
       if (count > 0 && count % 3 == 0) {
         result = ',$result';
       }
       result = numStr[i] + result;
-      count = count + 1;
+      count++;
     }
-
     return result;
   }
 
   // ================================================
   // HANDLE APPLY
-  // Validates the form and returns the new discount
   // ================================================
-  void _handleApply() {
-
-    // ── VALIDATION ──
-
-    if (_selectedProduct == null) {
+  Future<void> _handleApply() async {
+    if (_selectedProductId == null) {
       _showError('Please select a product.');
       return;
     }
-
     if (_valueController.text.isEmpty) {
       _showError('Please enter a discount value.');
       return;
     }
-
     if (_startDate == null || _endDate == null) {
       _showError('Please pick a start and end date.');
       return;
     }
-
     if (_endDate!.isBefore(_startDate!)) {
       _showError('End date must be after start date.');
       return;
     }
 
-    // ── BUILD RESULT ──
-
-    // format the discount display string
-    String discountDisplay = '';
-    if (_discountType == 'percent') {
-      discountDisplay = '${_valueController.text}%';
-    } else {
-      discountDisplay = '₱${_valueController.text}';
+    final double? discountValue = double.tryParse(_valueController.text);
+    if (discountValue == null) {
+      _showError('Discount value must be a number.');
+      return;
     }
 
-    // fake original prices per product
-    Map<String, String> originalPrices = {
-      'Nike Air Max 270': '₱5,500',
-      'Nike Panda': '₱2,500',
-      'Jordan 1 Retro High': '₱8,500',
-      'Adidas Ultraboost 22': '₱7,200',
-    };
+    setState(() => _isSaving = true);
 
-    Map<String, dynamic> result = {
-      'productName': _selectedProduct,
-      'originalPrice': originalPrices[_selectedProduct] ?? '',
-      'discount': discountDisplay,
-      'discountType': _discountType,
-      'finalPrice': _calculateFinalPrice(),
-      'duration': _formatDateRange(_startDate!, _endDate!),
-      'status': 'Active',
-    };
+    final String? error = await _discountService.addDiscount(
+      productId: _selectedProductId!,
+      discountType: _discountType,
+      discountValue: discountValue,
+      startDate: _startDate!,
+      endDate: _endDate!,
+      status: 'Active',
+    );
 
-    // close dialog and return result
-    Navigator.pop(context, result);
+    if (!mounted) return;
+    setState(() => _isSaving = false);
+
+    if (error != null) {
+      _showError('Failed to create discount: $error');
+      return;
+    }
+
+    Navigator.pop(context, true);
   }
 
-  // ================================================
-  // SHOW ERROR SNACKBAR
-  // ================================================
   void _showError(String message) {
     ScaffoldMessenger.of(context).showSnackBar(
       SnackBar(
@@ -288,9 +239,7 @@ class _CreateDiscountDialogState extends State<CreateDiscountDialog> {
   @override
   Widget build(BuildContext context) {
     return Dialog(
-      shape: RoundedRectangleBorder(
-        borderRadius: BorderRadius.circular(12),
-      ),
+      shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
       child: Container(
         width: 480,
         padding: const EdgeInsets.all(28),
@@ -303,8 +252,6 @@ class _CreateDiscountDialogState extends State<CreateDiscountDialog> {
             mainAxisSize: MainAxisSize.min,
             crossAxisAlignment: CrossAxisAlignment.start,
             children: [
-
-              // ── TITLE ROW ──
               Row(
                 mainAxisAlignment: MainAxisAlignment.spaceBetween,
                 children: [
@@ -316,46 +263,36 @@ class _CreateDiscountDialogState extends State<CreateDiscountDialog> {
                       color: Color(0xFF111827),
                     ),
                   ),
-                  // X close button
                   GestureDetector(
-                    onTap: () => Navigator.pop(context),
-                    child: const Icon(
-                      Icons.close,
-                      size: 20,
-                      color: Color(0xFF6B7280),
-                    ),
+                    onTap: _isSaving ? null : () => Navigator.pop(context),
+                    child: const Icon(Icons.close, size: 20, color: Color(0xFF6B7280)),
                   ),
                 ],
               ),
 
               const SizedBox(height: 24),
 
-              // ── SELECT PRODUCT ──
               _buildLabel('Select Product'),
               const SizedBox(height: 8),
-              _buildProductDropdown(),
+              _buildProductSearchField(),
 
               const SizedBox(height: 20),
 
-              // ── DISCOUNT TYPE ──
               _buildLabel('Discount Type'),
               const SizedBox(height: 8),
               _buildDiscountTypeSelector(),
 
               const SizedBox(height: 20),
 
-              // ── DISCOUNT VALUE ──
               _buildLabel('Discount Value'),
               const SizedBox(height: 8),
               _buildValueInput(),
 
-              // ── FINAL PRICE PREVIEW ──
-              // shows live calculation as user types
-              if (_selectedProduct != null && _valueController.text.isNotEmpty)
+              if (_selectedProductId != null && _valueController.text.isNotEmpty)
                 Padding(
                   padding: const EdgeInsets.only(top: 8),
                   child: Text(
-                    'Final price: ${_calculateFinalPrice()}',
+                    'Final price: ₱${_addCommas(_calculateFinalPrice().toInt())}',
                     style: const TextStyle(
                       fontSize: 12,
                       color: Color(0xFF16A34A),
@@ -366,13 +303,10 @@ class _CreateDiscountDialogState extends State<CreateDiscountDialog> {
 
               const SizedBox(height: 20),
 
-              // ── START DATE + END DATE ──
               _buildLabel('Duration'),
               const SizedBox(height: 8),
               Row(
                 children: [
-
-                  // Start date picker
                   Expanded(
                     child: _buildDatePicker(
                       label: 'Start Date',
@@ -380,10 +314,7 @@ class _CreateDiscountDialogState extends State<CreateDiscountDialog> {
                       onTap: () => _pickDate(isStart: true),
                     ),
                   ),
-
                   const SizedBox(width: 12),
-
-                  // End date picker
                   Expanded(
                     child: _buildDatePicker(
                       label: 'End Date',
@@ -396,59 +327,45 @@ class _CreateDiscountDialogState extends State<CreateDiscountDialog> {
 
               const SizedBox(height: 16),
 
-              // ── COUNTDOWN TIMER CHECKBOX ──
               _buildCountdownCheckbox(),
 
               const SizedBox(height: 28),
 
-              // ── BOTTOM BUTTONS ──
               Row(
                 children: [
-
-                  // Cancel
                   Expanded(
                     child: OutlinedButton(
-                      onPressed: () => Navigator.pop(context),
+                      onPressed: _isSaving ? null : () => Navigator.pop(context),
                       style: OutlinedButton.styleFrom(
                         foregroundColor: const Color(0xFF374151),
                         side: const BorderSide(color: Color(0xFFD1D5DB)),
                         padding: const EdgeInsets.symmetric(vertical: 13),
-                        shape: RoundedRectangleBorder(
-                          borderRadius: BorderRadius.circular(8),
-                        ),
+                        shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(8)),
                       ),
-                      child: const Text(
-                        'Cancel',
-                        style: TextStyle(
-                          fontSize: 13,
-                          fontWeight: FontWeight.w500,
-                        ),
-                      ),
+                      child: const Text('Cancel', style: TextStyle(fontSize: 13, fontWeight: FontWeight.w500)),
                     ),
                   ),
-
                   const SizedBox(width: 12),
-
-                  // Apply Discount
                   Expanded(
                     child: ElevatedButton(
-                      onPressed: _handleApply,
+                      onPressed: _isSaving ? null : _handleApply,
                       style: ElevatedButton.styleFrom(
                         backgroundColor: const Color(0xFF2563EB),
                         foregroundColor: Colors.white,
                         elevation: 0,
                         padding: const EdgeInsets.symmetric(vertical: 13),
-                        shape: RoundedRectangleBorder(
-                          borderRadius: BorderRadius.circular(8),
-                        ),
+                        shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(8)),
                       ),
-                      child: const Text(
-                        'Apply Discount',
-                        style: TextStyle(
-                          fontSize: 13,
-                          fontWeight: FontWeight.w500,
-                        ),
-                      ),
+                      child: _isSaving
+                          ? const SizedBox(
+                              width: 16,
+                              height: 16,
+                              child: CircularProgressIndicator(
+                                strokeWidth: 2,
+                                valueColor: AlwaysStoppedAnimation<Color>(Colors.white),
+                              ),
+                            )
+                          : const Text('Apply Discount', style: TextStyle(fontSize: 13, fontWeight: FontWeight.w500)),
                     ),
                   ),
                 ],
@@ -460,134 +377,129 @@ class _CreateDiscountDialogState extends State<CreateDiscountDialog> {
     );
   }
 
-  // ================================================
-  // BUILD LABEL
-  // A simple bold label above each field
-  // ================================================
   Widget _buildLabel(String text) {
     return Text(
       text,
-      style: const TextStyle(
-        fontSize: 13,
-        fontWeight: FontWeight.w500,
-        color: Color(0xFF374151),
-      ),
+      style: const TextStyle(fontSize: 13, fontWeight: FontWeight.w500, color: Color(0xFF374151)),
     );
   }
 
   // ================================================
-  // BUILD PRODUCT DROPDOWN
+  // PRODUCT SEARCH FIELD
+  // Type-ahead against DiscountService.searchProducts().
   // ================================================
-  Widget _buildProductDropdown() {
-    return Container(
-      decoration: BoxDecoration(
-        border: Border.all(color: const Color(0xFFD1D5DB)),
-        borderRadius: BorderRadius.circular(8),
-      ),
-      padding: const EdgeInsets.symmetric(horizontal: 12),
-      child: DropdownButtonHideUnderline(
-        child: DropdownButton<String>(
-          value: _selectedProduct,
-          hint: const Text(
-            'Choose a product...',
-            style: TextStyle(
-              fontSize: 13,
-              color: Color(0xFF9CA3AF),
+  Widget _buildProductSearchField() {
+    return Column(
+      crossAxisAlignment: CrossAxisAlignment.start,
+      children: [
+        Container(
+          decoration: BoxDecoration(
+            border: Border.all(color: const Color(0xFFD1D5DB)),
+            borderRadius: BorderRadius.circular(8),
+          ),
+          child: TextField(
+            controller: _searchController,
+            onChanged: _handleSearchChanged,
+            style: const TextStyle(fontSize: 13, color: Color(0xFF111827)),
+            decoration: InputDecoration(
+              hintText: 'Search for a product...',
+              hintStyle: const TextStyle(fontSize: 13, color: Color(0xFF9CA3AF)),
+              border: InputBorder.none,
+              contentPadding: const EdgeInsets.symmetric(horizontal: 12, vertical: 12),
+              suffixIcon: _isSearching
+                  ? const Padding(
+                      padding: EdgeInsets.all(12),
+                      child: SizedBox(
+                        width: 14,
+                        height: 14,
+                        child: CircularProgressIndicator(strokeWidth: 2),
+                      ),
+                    )
+                  : const Icon(Icons.search, size: 18, color: Color(0xFF9CA3AF)),
             ),
           ),
-          isExpanded: true,
-          icon: const Icon(Icons.keyboard_arrow_down, color: Color(0xFF6B7280)),
-          items: _productOptions.map((String product) {
-            return DropdownMenuItem<String>(
-              value: product,
-              child: Text(
-                product,
-                style: const TextStyle(
-                  fontSize: 13,
-                  color: Color(0xFF111827),
-                ),
-              ),
-            );
-          }).toList(),
-          onChanged: (String? newValue) {
-            setState(() {
-              _selectedProduct = newValue;
-            });
-          },
         ),
-      ),
-    );
-  }
-
-  // ================================================
-  // BUILD DISCOUNT TYPE SELECTOR
-  //
-  // Two clickable cards side by side:
-  //   [% Percentage]   [₱ Fixed Amount]
-  //
-  // The selected card gets a blue border and background.
-  // This is simpler and cleaner than radio buttons.
-  // ================================================
-  Widget _buildDiscountTypeSelector() {
-    return Row(
-      children: [
-
-        // Percentage card
-        Expanded(
-          child: _buildTypeCard(
-            label: 'Percentage',
-            icon: '%',
-            value: 'percent',
+        if (_searchResults.isNotEmpty)
+          Container(
+            margin: const EdgeInsets.only(top: 4),
+            decoration: BoxDecoration(
+              border: Border.all(color: const Color(0xFFE5E7EB)),
+              borderRadius: BorderRadius.circular(8),
+            ),
+            constraints: const BoxConstraints(maxHeight: 180),
+            child: ListView.builder(
+              shrinkWrap: true,
+              padding: EdgeInsets.zero,
+              itemCount: _searchResults.length,
+              itemBuilder: (context, index) {
+                final Map<String, dynamic> result = _searchResults[index];
+                return InkWell(
+                  onTap: () => _selectProduct(result),
+                  child: Padding(
+                    padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 10),
+                    child: Row(
+                      mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                      children: [
+                        Expanded(
+                          child: Text(
+                            result['productName'] as String,
+                            style: const TextStyle(fontSize: 13, color: Color(0xFF111827)),
+                            overflow: TextOverflow.ellipsis,
+                          ),
+                        ),
+                        Text(
+                          '₱${_addCommas((result['originalPrice'] as double).toInt())}',
+                          style: const TextStyle(fontSize: 12, color: Color(0xFF6B7280)),
+                        ),
+                      ],
+                    ),
+                  ),
+                );
+              },
+            ),
           ),
-        ),
-
-        const SizedBox(width: 12),
-
-        // Fixed Amount card
-        Expanded(
-          child: _buildTypeCard(
-            label: 'Fixed Amount',
-            icon: '₱',
-            value: 'fixed',
+        if (_selectedProductId != null)
+          Padding(
+            padding: const EdgeInsets.only(top: 6),
+            child: Text(
+              'Selected: $_selectedProductName (₱${_addCommas(_selectedOriginalPrice.toInt())})',
+              style: const TextStyle(fontSize: 11, color: Color(0xFF16A34A), fontWeight: FontWeight.w500),
+            ),
           ),
-        ),
       ],
     );
   }
 
-  // ================================================
-  // BUILD TYPE CARD
-  // One selectable card for discount type
-  // ================================================
+  Widget _buildDiscountTypeSelector() {
+    return Row(
+      children: [
+        Expanded(child: _buildTypeCard(label: 'Percentage', icon: '%', value: 'Percentage')),
+        const SizedBox(width: 12),
+        Expanded(child: _buildTypeCard(label: 'Fixed Amount', icon: '₱', value: 'Fixed')),
+      ],
+    );
+  }
+
   Widget _buildTypeCard({
     required String label,
     required String icon,
     required String value,
   }) {
-
-    // check if this card is the selected one
     bool isSelected = _discountType == value;
 
     return GestureDetector(
       onTap: () {
         setState(() {
           _discountType = value;
-          // clear the value when switching types
           _valueController.clear();
         });
       },
       child: Container(
         padding: const EdgeInsets.symmetric(vertical: 12, horizontal: 16),
         decoration: BoxDecoration(
-          // blue background if selected, white if not
-          color: isSelected
-              ? const Color(0xFFEFF6FF)
-              : Colors.white,
-          // blue border if selected, gray if not
+          color: isSelected ? const Color(0xFFEFF6FF) : Colors.white,
           border: Border.all(
-            color: isSelected
-                ? const Color(0xFF2563EB)
-                : const Color(0xFFD1D5DB),
+            color: isSelected ? const Color(0xFF2563EB) : const Color(0xFFD1D5DB),
             width: isSelected ? 2 : 1,
           ),
           borderRadius: BorderRadius.circular(8),
@@ -595,14 +507,11 @@ class _CreateDiscountDialogState extends State<CreateDiscountDialog> {
         child: Row(
           mainAxisAlignment: MainAxisAlignment.center,
           children: [
-            // icon badge
             Container(
               width: 24,
               height: 24,
               decoration: BoxDecoration(
-                color: isSelected
-                    ? const Color(0xFF2563EB)
-                    : const Color(0xFFF3F4F6),
+                color: isSelected ? const Color(0xFF2563EB) : const Color(0xFFF3F4F6),
                 borderRadius: BorderRadius.circular(4),
               ),
               child: Center(
@@ -611,23 +520,18 @@ class _CreateDiscountDialogState extends State<CreateDiscountDialog> {
                   style: TextStyle(
                     fontSize: 12,
                     fontWeight: FontWeight.w700,
-                    color: isSelected
-                        ? Colors.white
-                        : const Color(0xFF6B7280),
+                    color: isSelected ? Colors.white : const Color(0xFF6B7280),
                   ),
                 ),
               ),
             ),
             const SizedBox(width: 8),
-            // label
             Text(
               label,
               style: TextStyle(
                 fontSize: 13,
                 fontWeight: FontWeight.w500,
-                color: isSelected
-                    ? const Color(0xFF2563EB)
-                    : const Color(0xFF374151),
+                color: isSelected ? const Color(0xFF2563EB) : const Color(0xFF374151),
               ),
             ),
           ],
@@ -636,42 +540,19 @@ class _CreateDiscountDialogState extends State<CreateDiscountDialog> {
     );
   }
 
-  // ================================================
-  // BUILD VALUE INPUT
-  // Text field with % or ₱ suffix/prefix depending
-  // on the selected discount type
-  // ================================================
   Widget _buildValueInput() {
     return TextField(
       controller: _valueController,
-      // only allow numbers and decimal points
       keyboardType: const TextInputType.numberWithOptions(decimal: true),
-      inputFormatters: [
-        // only allow digits and one dot
-        FilteringTextInputFormatter.allow(RegExp(r'[0-9.]')),
-      ],
-      // rebuild to update final price preview
+      inputFormatters: [FilteringTextInputFormatter.allow(RegExp(r'[0-9.]'))],
       onChanged: (_) => setState(() {}),
-      style: const TextStyle(
-        fontSize: 13,
-        color: Color(0xFF111827),
-      ),
+      style: const TextStyle(fontSize: 13, color: Color(0xFF111827)),
       decoration: InputDecoration(
-        hintText: _discountType == 'percent' ? '20' : '500',
-        hintStyle: const TextStyle(
-          fontSize: 13,
-          color: Color(0xFF9CA3AF),
-        ),
-        // show % or ₱ at the end of the field
-        suffixText: _discountType == 'percent' ? '%' : '₱',
-        suffixStyle: const TextStyle(
-          fontSize: 13,
-          color: Color(0xFF6B7280),
-        ),
-        contentPadding: const EdgeInsets.symmetric(
-          horizontal: 12,
-          vertical: 12,
-        ),
+        hintText: _discountType == 'Percentage' ? '20' : '500',
+        hintStyle: const TextStyle(fontSize: 13, color: Color(0xFF9CA3AF)),
+        suffixText: _discountType == 'Percentage' ? '%' : '₱',
+        suffixStyle: const TextStyle(fontSize: 13, color: Color(0xFF6B7280)),
+        contentPadding: const EdgeInsets.symmetric(horizontal: 12, vertical: 12),
         border: OutlineInputBorder(
           borderRadius: BorderRadius.circular(8),
           borderSide: const BorderSide(color: Color(0xFFD1D5DB)),
@@ -688,10 +569,6 @@ class _CreateDiscountDialogState extends State<CreateDiscountDialog> {
     );
   }
 
-  // ================================================
-  // BUILD DATE PICKER
-  // A tappable box that shows the date when picked
-  // ================================================
   Widget _buildDatePicker({
     required String label,
     required DateTime? date,
@@ -710,66 +587,41 @@ class _CreateDiscountDialogState extends State<CreateDiscountDialog> {
           children: [
             Expanded(
               child: Text(
-                // show date if picked, else show label as hint
                 date != null ? _formatDate(date) : label,
                 style: TextStyle(
                   fontSize: 13,
-                  color: date != null
-                      ? const Color(0xFF111827)
-                      : const Color(0xFF9CA3AF),
+                  color: date != null ? const Color(0xFF111827) : const Color(0xFF9CA3AF),
                 ),
               ),
             ),
-            const Icon(
-              Icons.calendar_today_outlined,
-              size: 15,
-              color: Color(0xFF6B7280),
-            ),
+            const Icon(Icons.calendar_today_outlined, size: 15, color: Color(0xFF6B7280)),
           ],
         ),
       ),
     );
   }
 
-  // ================================================
-  // BUILD COUNTDOWN CHECKBOX
-  // ================================================
   Widget _buildCountdownCheckbox() {
     return GestureDetector(
-      onTap: () {
-        setState(() {
-          _showCountdown = !_showCountdown;
-        });
-      },
+      onTap: () => setState(() => _showCountdown = !_showCountdown),
       child: Row(
         children: [
-          // the checkbox
           SizedBox(
             width: 20,
             height: 20,
             child: Checkbox(
               value: _showCountdown,
-              onChanged: (bool? value) {
-                setState(() {
-                  _showCountdown = value ?? false;
-                });
-              },
+              onChanged: (bool? value) => setState(() => _showCountdown = value ?? false),
               activeColor: const Color(0xFF2563EB),
               materialTapTargetSize: MaterialTapTargetSize.shrinkWrap,
               visualDensity: VisualDensity.compact,
-              shape: RoundedRectangleBorder(
-                borderRadius: BorderRadius.circular(4),
-              ),
+              shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(4)),
             ),
           ),
           const SizedBox(width: 8),
-          // the label
           const Text(
             'Show countdown timer on product page',
-            style: TextStyle(
-              fontSize: 13,
-              color: Color(0xFF374151),
-            ),
+            style: TextStyle(fontSize: 13, color: Color(0xFF374151)),
           ),
         ],
       ),

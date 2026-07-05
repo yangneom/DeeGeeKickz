@@ -1,104 +1,62 @@
+// ================================================
+// recent_feedback_card.dart  (UPDATED)
+//
+// Changes from fake-data version:
+//  1. Reads recentFeedbackProvider (Supabase)
+//     instead of accepting a List<FeedbackItem> param
+//  2. FeedbackItem class REMOVED (replaced by FeedbackModel)
+//  3. UI/layout/styling: UNCHANGED
+// ================================================
+
 import 'package:flutter/material.dart';
+import 'package:flutter_riverpod/flutter_riverpod.dart';
+import '../../../providers/customer/review_providers.dart';
+import '../../../models/feedback_model.dart';
 
-// ================================================
-// RECENT FEEDBACK CARD
-//
-// Shows a table of recent customer feedback
-//
-// ┌──────────────────────────────────────────┐
-// │ Recent Feedback              View all →  │
-// │                                          │
-// │ Customer | Product | Rating | Status |Date│
-// │ Angel    | Nike... | ★★★☆☆ |Flagged |May6│
-// └──────────────────────────────────────────┘
-// ================================================
-
-// this is the data model for one feedback row
-// think of it like a form template for feedback
-class FeedbackItem {
-  String customerName;
-  String productName;
-  int rating;          // 1 to 5
-  String status;       // 'Flagged' or 'Visible'
-  String date;
-
-  FeedbackItem({
-    required this.customerName,
-    required this.productName,
-    required this.rating,
-    required this.status,
-    required this.date,
-  });
-}
-
-class RecentFeedbackCard extends StatelessWidget {
-
-  // list of feedback items to show
-  final List<FeedbackItem> feedbackItems;
-
-  // what happens when user clicks view all
+class RecentFeedbackCard extends ConsumerWidget {
   final VoidCallback onViewAll;
 
   const RecentFeedbackCard({
     super.key,
-    required this.feedbackItems,
     required this.onViewAll,
   });
 
-  // ================================================
-  // BUILD STAR RATING
-  // shows filled and empty stars
-  // example: ★★★☆☆ for rating 3
-  // ================================================
+  // ── Stars — UNCHANGED ──────────────────────────────────────
   Widget _buildStarRating(int rating) {
     return Row(
       mainAxisSize: MainAxisSize.min,
       children: List.generate(5, (int index) {
-
-        // if index is less than rating show filled star
-        // otherwise show empty star
-        if (index < rating) {
-          return const Icon(
-            Icons.star,
-            size: 12,
-            color: Color(0xFFF59E0B),
-          );
-        } else {
-          return const Icon(
-            Icons.star_border,
-            size: 12,
-            color: Color(0xFFD1D5DB),
-          );
-        }
+        return Icon(
+          index < rating ? Icons.star : Icons.star_border,
+          size: 12,
+          color: index < rating
+              ? const Color(0xFFF59E0B)
+              : const Color(0xFFD1D5DB),
+        );
       }),
     );
   }
 
-  // ================================================
-  // BUILD STATUS BADGE
-  // Flagged = red, Visible = green
-  // ================================================
+  // ── Badge — UNCHANGED ──────────────────────────────────────
   Widget _buildStatusBadge(String status) {
-
-    // pick colors based on status
     Color backgroundColor = Colors.grey.shade100;
-    Color textColor = Colors.grey;
+    Color textColor       = Colors.grey;
 
     if (status == 'Flagged') {
       backgroundColor = const Color(0xFFFEE2E2);
-      textColor = const Color(0xFFDC2626);
+      textColor       = const Color(0xFFDC2626);
     }
-
     if (status == 'Visible') {
       backgroundColor = const Color(0xFFDCFCE7);
-      textColor = const Color(0xFF16A34A);
+      textColor       = const Color(0xFF16A34A);
+    }
+    if (status == 'Hidden') {
+      backgroundColor = const Color(0xFFF3F4F6);
+      textColor       = const Color(0xFF6B7280);
     }
 
     return Container(
-      padding: const EdgeInsets.symmetric(
-        horizontal: 8,
-        vertical: 3,
-      ),
+      padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 3),
       decoration: BoxDecoration(
         color: backgroundColor,
         borderRadius: BorderRadius.circular(20),
@@ -114,157 +72,57 @@ class RecentFeedbackCard extends StatelessWidget {
     );
   }
 
-  // ================================================
-  // BUILD TABLE HEADER
-  // ================================================
+  // ── Table header — UNCHANGED ───────────────────────────────
   Widget _buildTableHeader() {
     return const Padding(
       padding: EdgeInsets.symmetric(vertical: 8),
       child: Row(
         children: [
-          Expanded(
-            flex: 2,
-            child: Text(
-              'Customer Name',
-              style: TextStyle(
-                fontSize: 12,
-                fontWeight: FontWeight.w600,
-                color: Color(0xFF374151),
-              ),
-            ),
-          ),
-          Expanded(
-            flex: 2,
-            child: Text(
-              'Product',
-              style: TextStyle(
-                fontSize: 12,
-                fontWeight: FontWeight.w600,
-                color: Color(0xFF374151),
-              ),
-            ),
-          ),
-          Expanded(
-            flex: 2,
-            child: Text(
-              'Rating',
-              style: TextStyle(
-                fontSize: 12,
-                fontWeight: FontWeight.w600,
-                color: Color(0xFF374151),
-              ),
-            ),
-          ),
-          Expanded(
-            flex: 1,
-            child: Text(
-              'Status',
-              style: TextStyle(
-                fontSize: 12,
-                fontWeight: FontWeight.w600,
-                color: Color(0xFF374151),
-              ),
-            ),
-          ),
-          Expanded(
-            flex: 1,
-            child: Text(
-              'Date',
-              style: TextStyle(
-                fontSize: 12,
-                fontWeight: FontWeight.w600,
-                color: Color(0xFF374151),
-              ),
-            ),
-          ),
+          Expanded(flex: 2, child: Text('Customer Name', style: TextStyle(fontSize: 12, fontWeight: FontWeight.w600, color: Color(0xFF374151)))),
+          Expanded(flex: 2, child: Text('Product',       style: TextStyle(fontSize: 12, fontWeight: FontWeight.w600, color: Color(0xFF374151)))),
+          Expanded(flex: 2, child: Text('Rating',        style: TextStyle(fontSize: 12, fontWeight: FontWeight.w600, color: Color(0xFF374151)))),
+          Expanded(flex: 1, child: Text('Status',        style: TextStyle(fontSize: 12, fontWeight: FontWeight.w600, color: Color(0xFF374151)))),
+          Expanded(flex: 1, child: Text('Date',          style: TextStyle(fontSize: 12, fontWeight: FontWeight.w600, color: Color(0xFF374151)))),
         ],
       ),
     );
   }
 
-  // ================================================
-  // BUILD ONE FEEDBACK ROW
-  // ================================================
-  Widget _buildFeedbackRow(FeedbackItem item) {
+  // ── One row from FeedbackModel ─────────────────────────────
+  Widget _buildFeedbackRow(FeedbackModel item) {
     return Padding(
       padding: const EdgeInsets.symmetric(vertical: 8),
       child: Row(
         children: [
-
-          // customer name
-          Expanded(
-            flex: 2,
-            child: Text(
-              item.customerName,
-              style: const TextStyle(
-                fontSize: 12,
-                color: Color(0xFF111827),
-              ),
-            ),
-          ),
-
-          // product name
-          Expanded(
-            flex: 2,
-            child: Text(
-              item.productName,
-              style: const TextStyle(
-                fontSize: 12,
-                color: Color(0xFF111827),
-              ),
-              overflow: TextOverflow.ellipsis,
-            ),
-          ),
-
-          // star rating
-          Expanded(
-            flex: 2,
-            child: _buildStarRating(item.rating),
-          ),
-
-          // status badge
-          Expanded(
-            flex: 1,
-            child: _buildStatusBadge(item.status),
-          ),
-
-          // date
-          Expanded(
-            flex: 1,
-            child: Text(
-              item.date,
-              style: const TextStyle(
-                fontSize: 11,
-                color: Color(0xFF6B7280),
-              ),
-            ),
-          ),
+          Expanded(flex: 2, child: Text(item.customerName, style: const TextStyle(fontSize: 12, color: Color(0xFF111827)))),
+          Expanded(flex: 2, child: Text(item.productName,  style: const TextStyle(fontSize: 12, color: Color(0xFF111827)), overflow: TextOverflow.ellipsis)),
+          Expanded(flex: 2, child: _buildStarRating(item.rating.round())),
+          Expanded(flex: 1, child: _buildStatusBadge(item.status)),
+          Expanded(flex: 1, child: Text(item.datePosted, style: const TextStyle(fontSize: 11, color: Color(0xFF6B7280)))),
         ],
       ),
     );
   }
 
   @override
-  Widget build(BuildContext context) {
+  Widget build(BuildContext context, WidgetRef ref) {
+    final recentAsync = ref.watch(recentFeedbackProvider);
+
     return Container(
       padding: const EdgeInsets.all(20),
       decoration: BoxDecoration(
         color: Colors.white,
         borderRadius: BorderRadius.circular(12),
-        border: Border.all(
-          color: const Color(0xFFE5E7EB),
-        ),
+        border: Border.all(color: const Color(0xFFE5E7EB)),
       ),
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.start,
         children: [
 
-          // ── HEADER ROW ──
+          // ── HEADER ROW — UNCHANGED ──
           Row(
             mainAxisAlignment: MainAxisAlignment.spaceBetween,
             children: [
-
-              // title with icon
               Row(
                 children: [
                   Container(
@@ -291,8 +149,6 @@ class RecentFeedbackCard extends StatelessWidget {
                   ),
                 ],
               ),
-
-              // view all link
               GestureDetector(
                 onTap: onViewAll,
                 child: Row(
@@ -306,11 +162,7 @@ class RecentFeedbackCard extends StatelessWidget {
                       ),
                     ),
                     SizedBox(width: 4),
-                    Icon(
-                      Icons.arrow_forward,
-                      size: 12,
-                      color: Color(0xFF2563EB),
-                    ),
+                    Icon(Icons.arrow_forward, size: 12, color: Color(0xFF2563EB)),
                   ],
                 ),
               ),
@@ -318,36 +170,61 @@ class RecentFeedbackCard extends StatelessWidget {
           ),
 
           const SizedBox(height: 12),
-
-          // ── DIVIDER ──
-          Divider(
-            color: Colors.grey.shade200,
-            height: 1,
-          ),
-
+          Divider(color: Colors.grey.shade200, height: 1),
           const SizedBox(height: 8),
-
-          // ── TABLE HEADER ──
           _buildTableHeader(),
+          Divider(color: Colors.grey.shade200, height: 1),
 
-          // ── DIVIDER ──
-          Divider(
-            color: Colors.grey.shade200,
-            height: 1,
-          ),
-
-          // ── FEEDBACK ROWS ──
-          for (int i = 0; i < feedbackItems.length; i = i + 1)
-            Column(
-              children: [
-                _buildFeedbackRow(feedbackItems[i]),
-                if (i < feedbackItems.length - 1)
-                  Divider(
-                    color: Colors.grey.shade100,
-                    height: 1,
+          // ── ROWS — from Supabase ──
+          recentAsync.when(
+            loading: () => const Padding(
+              padding: EdgeInsets.symmetric(vertical: 16),
+              child: Center(
+                child: SizedBox(
+                  width: 20,
+                  height: 20,
+                  child: CircularProgressIndicator(
+                    strokeWidth: 2,
+                    color: Color(0xFF2563EB),
                   ),
-              ],
+                ),
+              ),
             ),
+            error: (e, _) => Padding(
+              padding: const EdgeInsets.symmetric(vertical: 16),
+              child: Text(
+                'Could not load feedback.',
+                style: const TextStyle(
+                  fontSize: 12,
+                  color: Color(0xFF6B7280),
+                ),
+              ),
+            ),
+            data: (items) {
+              if (items.isEmpty) {
+                return const Padding(
+                  padding: EdgeInsets.symmetric(vertical: 16),
+                  child: Text(
+                    'No feedback yet.',
+                    style: TextStyle(fontSize: 12, color: Color(0xFF6B7280)),
+                  ),
+                );
+              }
+
+              return Column(
+                children: [
+                  for (int i = 0; i < items.length; i++)
+                    Column(
+                      children: [
+                        _buildFeedbackRow(items[i]),
+                        if (i < items.length - 1)
+                          Divider(color: Colors.grey.shade100, height: 1),
+                      ],
+                    ),
+                ],
+              );
+            },
+          ),
         ],
       ),
     );

@@ -1,44 +1,23 @@
 import 'package:flutter/material.dart';
 
-// ================================================
-// FILTER OPTION — one radio button choice
-// example: FilterOption(label: 'Available', value: 'Available')
-// ================================================
 class FilterOption {
-  String label; // text shown on screen
-  String value; // actual value used in logic
-
-  FilterOption({
-    required this.label,
-    required this.value,
-  });
+  String label;
+  String value;
+  FilterOption({required this.label, required this.value});
 }
 
-// ================================================
-// FILTER SECTION — a group of radio options
-// example: Status section with Available, Low Stock, Out of Stock
-// ================================================
 class FilterSection {
-  String title;               // section title like "Status"
-  List<FilterOption> options; // list of choices under this section
-
-  FilterSection({
-    required this.title,
-    required this.options,
-  });
+  String title;
+  List<FilterOption> options;
+  FilterSection({required this.title, required this.options});
 }
 
-// ================================================
-// FILTER PANEL — the actual UI popup
-// ================================================
-class FilterPanel extends StatelessWidget {
-
-  // things this widget needs from the parent screen
-  final List<FilterSection> sections;      // list of filter sections
-  final String? selectedValue;             // currently selected value
-  final Function(String?) onValueChanged;  // when user picks an option
-  final VoidCallback onClear;              // when user clicks clear
-  final VoidCallback onApply;              // when user clicks apply
+class FilterPanel extends StatefulWidget {
+  final List<FilterSection> sections;
+  final String? selectedValue;
+  final Function(String?) onValueChanged;
+  final VoidCallback onClear;
+  final VoidCallback onApply;
 
   const FilterPanel({
     super.key,
@@ -49,75 +28,66 @@ class FilterPanel extends StatelessWidget {
     required this.onApply,
   });
 
-  // ================================================
-  // BUILD ONE RADIO BUTTON
-  // ================================================
-  Widget _buildRadioOption(FilterOption option) {
+  @override
+  State<FilterPanel> createState() => _FilterPanelState();
+}
 
-    // check if this option is currently selected
-    bool isSelected = selectedValue == option.value;
+class _FilterPanelState extends State<FilterPanel> {
+  String? _localSelected;
+
+  @override
+  void initState() {
+    super.initState();
+    _localSelected = widget.selectedValue;
+  }
+
+  @override
+  void didUpdateWidget(FilterPanel oldWidget) {
+    super.didUpdateWidget(oldWidget);
+    if (oldWidget.selectedValue != widget.selectedValue) {
+      _localSelected = widget.selectedValue;
+    }
+  }
+
+  Widget _buildRadioOption(FilterOption option) {
+    final bool isSelected = _localSelected == option.value;
 
     return GestureDetector(
-
-      // when user taps this option
       onTap: () {
-
-        // if already selected → deselect it (set to null)
-        // if not selected → select it
-        if (isSelected == true) {
-          onValueChanged(null);
-        } else {
-          onValueChanged(option.value);
-        }
+        setState(() {
+          _localSelected = isSelected ? null : option.value;
+        });
+        widget.onValueChanged(_localSelected);
       },
-
       child: Padding(
         padding: const EdgeInsets.symmetric(vertical: 4),
         child: Row(
           children: [
-
-            // the circle radio button
             Container(
               width: 16,
               height: 16,
               decoration: BoxDecoration(
                 shape: BoxShape.circle,
-
-                // blue border if selected, gray if not
                 border: Border.all(
-                  color: isSelected == true
+                  color: isSelected
                       ? const Color(0xFF2563EB)
                       : const Color(0xFFD1D5DB),
                   width: 2,
                 ),
-
-                // blue fill if selected, white if not
-                color: isSelected == true
+                color: isSelected
                     ? const Color(0xFF2563EB)
                     : Colors.white,
               ),
-
-              // show white dot inside if selected
-              child: isSelected == true
+              child: isSelected
                   ? const Center(
-                      child: Icon(
-                        Icons.circle,
-                        size: 6,
-                        color: Colors.white,
-                      ),
+                      child: Icon(Icons.circle, size: 6, color: Colors.white),
                     )
                   : null,
             ),
-
             const SizedBox(width: 8),
-
-            // the label text beside the radio button
             Text(
               option.label,
-              style: const TextStyle(
-                fontSize: 12,
-                color: Color(0xFF374151),
-              ),
+              style: const TextStyle(fontSize: 12, color: Color(0xFF374151)),
             ),
           ],
         ),
@@ -125,9 +95,6 @@ class FilterPanel extends StatelessWidget {
     );
   }
 
-  // ================================================
-  // BUILD THE WHOLE FILTER PANEL
-  // ================================================
   @override
   Widget build(BuildContext context) {
     return Container(
@@ -149,8 +116,6 @@ class FilterPanel extends StatelessWidget {
         crossAxisAlignment: CrossAxisAlignment.start,
         mainAxisSize: MainAxisSize.min,
         children: [
-
-          // ── TITLE ──
           const Text(
             'Filter',
             style: TextStyle(
@@ -159,14 +124,8 @@ class FilterPanel extends StatelessWidget {
               color: Color(0xFF111827),
             ),
           ),
-
           const SizedBox(height: 12),
-
-          // ── DYNAMIC SECTIONS ──
-          // loop through each section and build it
-          for (FilterSection section in sections) ...[
-
-            // section title like "Status"
+          for (FilterSection section in widget.sections) ...[
             Text(
               section.title,
               style: const TextStyle(
@@ -175,58 +134,42 @@ class FilterPanel extends StatelessWidget {
                 color: Color(0xFF374151),
               ),
             ),
-
             const SizedBox(height: 6),
-
-            // loop through each option and build radio button
             for (FilterOption option in section.options)
               _buildRadioOption(option),
-
             const SizedBox(height: 12),
           ],
-
-          // ── CLEAR AND APPLY BUTTONS ──
           Row(
             children: [
-
-              // Clear button
               Expanded(
                 child: OutlinedButton(
-                  onPressed: onClear,
+                  onPressed: () {
+                    setState(() => _localSelected = null);
+                    widget.onClear();
+                  },
                   style: OutlinedButton.styleFrom(
                     foregroundColor: const Color(0xFF374151),
                     side: const BorderSide(color: Color(0xFFD1D5DB)),
                     padding: const EdgeInsets.symmetric(vertical: 8),
                     shape: RoundedRectangleBorder(
-                      borderRadius: BorderRadius.circular(6),
-                    ),
+                        borderRadius: BorderRadius.circular(6)),
                   ),
-                  child: const Text(
-                    'Clear',
-                    style: TextStyle(fontSize: 12),
-                  ),
+                  child: const Text('Clear', style: TextStyle(fontSize: 12)),
                 ),
               ),
-
               const SizedBox(width: 8),
-
-              // Apply button
               Expanded(
                 child: ElevatedButton(
-                  onPressed: onApply,
+                  onPressed: widget.onApply,
                   style: ElevatedButton.styleFrom(
                     backgroundColor: const Color(0xFF2563EB),
                     foregroundColor: Colors.white,
                     padding: const EdgeInsets.symmetric(vertical: 8),
                     elevation: 0,
                     shape: RoundedRectangleBorder(
-                      borderRadius: BorderRadius.circular(6),
-                    ),
+                        borderRadius: BorderRadius.circular(6)),
                   ),
-                  child: const Text(
-                    'Filter',
-                    style: TextStyle(fontSize: 12),
-                  ),
+                  child: const Text('Filter', style: TextStyle(fontSize: 12)),
                 ),
               ),
             ],

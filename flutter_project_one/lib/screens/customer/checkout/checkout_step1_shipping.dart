@@ -1,42 +1,43 @@
 import 'package:flutter/material.dart';
+import 'package:supabase_flutter/supabase_flutter.dart';
 import '../../../models/customer_cart_item.dart';
 import '../../../models/customer_address.dart';
-import '../../../widgets/customer/checkout/checkout_shipping_form.dart';
 import '../../../widgets/customer/checkout/checkout_order_summary.dart';
 import '../../../widgets/customer/checkout/checkout_address_selector.dart';
+import '../../../widgets/customer/profile/address_bottom_sheet.dart';
 
 /// Step 1 — Shipping Information.
-/// Shows saved addresses if available, lets user pick/edit/add new.
-/// Auto-fills form when a saved address is selected.
+/// Shows saved addresses, lets user pick / edit / add new.
+/// Auto-fills the delivery summary when a saved address is selected.
 class CheckoutStep1Shipping extends StatefulWidget {
-  final String initialFirstName;
-  final String initialLastName;
   final String initialStreet;
   final String initialCity;
-  final String initialPostal;
-  final String initialPhone;
-  final String initialCountry;
+  final String initialProvince;
+  final String initialRegion;
+  final String initialZipCode;
+  final String initialLandmark;
+  final String initialBarangay;
   final List<CustomerCartItem> items;
   final double subtotal, shipping, tax, total;
   final void Function({
-    required String fn,
-    required String ln,
-    required String st,
-    required String ct,
-    required String ps,
-    required String ph,
-    required String co,
+    required String street,
+    required String barangay,
+    required String city,
+    required String province,
+    required String region,
+    required String zipCode,
+    required String landmark,
   }) onContinue;
 
   const CheckoutStep1Shipping({
     super.key,
-    required this.initialFirstName,
-    required this.initialLastName,
-    required this.initialStreet,
-    required this.initialCity,
-    required this.initialPostal,
-    required this.initialPhone,
-    required this.initialCountry,
+    this.initialStreet    = '',
+    this.initialCity      = '',
+    this.initialProvince  = '',
+    this.initialRegion    = '',
+    this.initialZipCode   = '',
+    this.initialLandmark  = '',
+    this.initialBarangay  = '',
     required this.items,
     required this.subtotal,
     required this.shipping,
@@ -46,196 +47,108 @@ class CheckoutStep1Shipping extends StatefulWidget {
   });
 
   @override
-  State<CheckoutStep1Shipping> createState() =>
-      _CheckoutStep1ShippingState();
+  State<CheckoutStep1Shipping> createState() => _CheckoutStep1ShippingState();
 }
 
-class _CheckoutStep1ShippingState
-    extends State<CheckoutStep1Shipping> {
-  // ── Controllers ──────────────────────────────────────────────────────
-  late final TextEditingController _firstNameCtrl;
-  late final TextEditingController _lastNameCtrl;
-  late final TextEditingController _streetCtrl;
-  late final TextEditingController _cityCtrl;
-  late final TextEditingController _postalCtrl;
-  late final TextEditingController _phoneCtrl;
-  late String _country;
+class _CheckoutStep1ShippingState extends State<CheckoutStep1Shipping> {
 
-  // ── Address selector state ────────────────────────────────────────────
-  // Mock saved addresses — swap with Supabase fetch when ready
-  final List<CustomerAddress> _savedAddresses =
-      List.from(mockSavedAddresses);
+  // ── Saved addresses — swap with Supabase fetch when ready ─────────────
+  final List<CustomerAddress> _savedAddresses = List.from(mockSavedAddresses);
 
-  // null = adding new address, otherwise = selected address id
+  // ── Selected address id ───────────────────────────────────────────────
   String? _selectedAddressId;
 
-  // Whether the form is visible (new address or editing)
-  bool _showForm = false;
+  // ── Currently selected address object ────────────────────────────────
+  CustomerAddress? _selectedAddress;
 
-  // Whether we are editing an existing address
-  bool _isEditing = false;
+  // ── User name + phone from Supabase auth metadata ────────────────────
+  String _userName  = '';
+  String _userPhone = '';
 
   @override
   void initState() {
     super.initState();
-
-    _firstNameCtrl =
-        TextEditingController(text: widget.initialFirstName);
-    _lastNameCtrl =
-        TextEditingController(text: widget.initialLastName);
-    _streetCtrl =
-        TextEditingController(text: widget.initialStreet);
-    _cityCtrl = TextEditingController(text: widget.initialCity);
-    _postalCtrl =
-        TextEditingController(text: widget.initialPostal);
-    _phoneCtrl =
-        TextEditingController(text: widget.initialPhone);
-    _country = widget.initialCountry;
+    _loadUserInfo();
 
     // Auto-select default address on load
-    final defaultAddress = _savedAddresses.where((a) => a.isDefault);
-    if (defaultAddress.isNotEmpty) {
-      _selectAddress(defaultAddress.first);
+    final List<CustomerAddress> defaults =
+        _savedAddresses.where((a) => a.isDefault).toList();
+    if (defaults.isNotEmpty) {
+      _selectAddress(defaults.first);
     }
   }
 
-  @override
-  void dispose() {
-    _firstNameCtrl.dispose();
-    _lastNameCtrl.dispose();
-    _streetCtrl.dispose();
-    _cityCtrl.dispose();
-    _postalCtrl.dispose();
-    _phoneCtrl.dispose();
-    super.dispose();
+  // ── Pull name + phone from the logged-in user's metadata ─────────────
+  void _loadUserInfo() {
+    final user = Supabase.instance.client.auth.currentUser;
+    if (user == null) return;
+
+    final Map<String, dynamic> meta = user.userMetadata ?? {};
+    final String firstName = meta['first_name'] ?? '';
+    final String lastName  = meta['last_name']  ?? '';
+    final String phone     = meta['phone']       ?? '';
+
+    setState(() {
+      _userName  = '$firstName $lastName'.trim();
+      _userPhone = phone;
+    });
   }
 
-  // ── Handlers ─────────────────────────────────────────────────────────
+  // ── Handlers ──────────────────────────────────────────────────────────
 
   void _selectAddress(CustomerAddress address) {
     setState(() {
       _selectedAddressId = address.id;
-      _showForm = false;
-      _isEditing = false;
-      // Auto-fill form fields
-      _firstNameCtrl.text = address.firstName;
-      _lastNameCtrl.text = address.lastName;
-      _streetCtrl.text = address.street;
-      _cityCtrl.text = address.city;
-      _postalCtrl.text = address.postal;
-      _phoneCtrl.text = address.phone;
-      _country = address.country;
+      _selectedAddress   = address;
     });
   }
 
-  void _editAddress(CustomerAddress address) {
-    setState(() {
-      _selectedAddressId = address.id;
-      _showForm = true;
-      _isEditing = true;
-      // Pre-fill form with address data
-      _firstNameCtrl.text = address.firstName;
-      _lastNameCtrl.text = address.lastName;
-      _streetCtrl.text = address.street;
-      _cityCtrl.text = address.city;
-      _postalCtrl.text = address.postal;
-      _phoneCtrl.text = address.phone;
-      _country = address.country;
-    });
-  }
+  Future<void> _editAddress(CustomerAddress address) async {
+    final CustomerAddress? result = await showAddressBottomSheet(
+      context: context,
+      existing: address,
+    );
+    if (result == null) return;
 
-  void _addNew() {
     setState(() {
-      _selectedAddressId = null;
-      _showForm = true;
-      _isEditing = false;
-      // Clear form
-      _firstNameCtrl.clear();
-      _lastNameCtrl.clear();
-      _streetCtrl.clear();
-      _cityCtrl.clear();
-      _postalCtrl.clear();
-      _phoneCtrl.clear();
-      _country = 'Philippines';
-    });
-  }
+      final int idx = _savedAddresses.indexWhere((a) => a.id == result.id);
+      if (idx == -1) return;
 
-  void _cancelForm() {
-    setState(() {
-      _showForm = false;
-      _isEditing = false;
-      // Re-select default if available
-      final defaultAddress =
-          _savedAddresses.where((a) => a.isDefault);
-      if (defaultAddress.isNotEmpty) {
-        _selectAddress(defaultAddress.first);
+      if (result.isDefault) {
+        for (int i = 0; i < _savedAddresses.length; i = i + 1) {
+          _savedAddresses[i] = _savedAddresses[i].copyWith(isDefault: false);
+        }
+      }
+      _savedAddresses[idx] = result;
+
+      // Keep selection in sync
+      if (_selectedAddressId == result.id) {
+        _selectedAddress = result;
       }
     });
   }
 
-  void _saveEditedAddress() {
-    if (_selectedAddressId == null) return;
-    final index = _savedAddresses
-        .indexWhere((a) => a.id == _selectedAddressId);
-    if (index == -1) return;
-
-    setState(() {
-      _savedAddresses[index] = _savedAddresses[index].copyWith(
-        firstName: _firstNameCtrl.text.trim(),
-        lastName: _lastNameCtrl.text.trim(),
-        street: _streetCtrl.text.trim(),
-        city: _cityCtrl.text.trim(),
-        postal: _postalCtrl.text.trim(),
-        phone: _phoneCtrl.text.trim(),
-        country: _country,
-      );
-      _showForm = false;
-      _isEditing = false;
-    });
-  }
-
-  void _saveNewAddress() {
-    final newAddress = CustomerAddress(
-      id: 'addr_${DateTime.now().millisecondsSinceEpoch}',
-      firstName: _firstNameCtrl.text.trim(),
-      lastName: _lastNameCtrl.text.trim(),
-      street: _streetCtrl.text.trim(),
-      city: _cityCtrl.text.trim(),
-      postal: _postalCtrl.text.trim(),
-      phone: _phoneCtrl.text.trim(),
-      country: _country,
-      isDefault: false,
+  Future<void> _addNew() async {
+    final CustomerAddress? result = await showAddressBottomSheet(
+      context: context,
+      existing: null,
     );
+    if (result == null) return;
 
     setState(() {
-      _savedAddresses.add(newAddress);
-      _selectedAddressId = newAddress.id;
-      _showForm = false;
-      _isEditing = false;
+      if (result.isDefault) {
+        for (int i = 0; i < _savedAddresses.length; i = i + 1) {
+          _savedAddresses[i] = _savedAddresses[i].copyWith(isDefault: false);
+        }
+      }
+      _savedAddresses.add(result);
+      _selectedAddressId = result.id;
+      _selectedAddress   = result;
     });
   }
 
   void _handleContinue() {
-    // If form is open, validate it
-    if (_showForm) {
-      if (_firstNameCtrl.text.trim().isEmpty ||
-          _lastNameCtrl.text.trim().isEmpty ||
-          _streetCtrl.text.trim().isEmpty ||
-          _cityCtrl.text.trim().isEmpty ||
-          _postalCtrl.text.trim().isEmpty ||
-          _phoneCtrl.text.trim().isEmpty) {
-        ScaffoldMessenger.of(context).showSnackBar(
-          const SnackBar(
-            content: Text(
-              'Please fill in all shipping fields.',
-              style: TextStyle(fontFamily: 'Inter'),
-            ),
-            backgroundColor: Colors.black,
-          ),
-        );
-        return;
-      }
-    } else if (_selectedAddressId == null) {
+    if (_selectedAddress == null) {
       ScaffoldMessenger.of(context).showSnackBar(
         const SnackBar(
           content: Text(
@@ -249,193 +162,183 @@ class _CheckoutStep1ShippingState
     }
 
     widget.onContinue(
-      fn: _firstNameCtrl.text.trim(),
-      ln: _lastNameCtrl.text.trim(),
-      st: _streetCtrl.text.trim(),
-      ct: _cityCtrl.text.trim(),
-      ps: _postalCtrl.text.trim(),
-      ph: _phoneCtrl.text.trim(),
-      co: _country,
+      street:   _selectedAddress!.street,
+      barangay: _selectedAddress!.barangay,
+      city:     _selectedAddress!.city,
+      province: _selectedAddress!.province,
+      region:   _selectedAddress!.region,
+      zipCode:  _selectedAddress!.zipCode,
+      landmark: _selectedAddress!.landmark,
     );
   }
 
   @override
   Widget build(BuildContext context) {
-    return LayoutBuilder(builder: (context, constraints) {
-      final isDesktop = constraints.maxWidth >= 1024;
+    return LayoutBuilder(
+      builder: (BuildContext context, BoxConstraints constraints) {
+        final bool isDesktop = constraints.maxWidth >= 1024;
 
-      final formContent = Column(
-        crossAxisAlignment: CrossAxisAlignment.start,
-        children: [
-          // ── Saved address selector ─────────────────
-          CheckoutAddressSelector(
-            addresses: _savedAddresses,
-            selectedAddressId: _selectedAddressId,
-            onSelected: (address) {
-              if (address != null) _selectAddress(address);
-            },
-            onEdit: _editAddress,
-            onAddNew: _addNew,
-          ),
-
-          // ── Selected address summary (when form hidden) ──
-          if (!_showForm && _selectedAddressId != null) ...[
-            const Text(
-              'DELIVERING TO',
-              style: TextStyle(
-                fontFamily: 'Inter',
-                fontSize: 12,
-                fontWeight: FontWeight.w700,
-                letterSpacing: 2.0,
-                color: Color(0xFF656464),
-              ),
-            ),
-            const SizedBox(height: 12),
-            Container(
-              width: double.infinity,
-              padding: const EdgeInsets.all(16),
-              color: const Color(0xFFF3F3F4),
-              child: Column(
-                crossAxisAlignment: CrossAxisAlignment.start,
-                children: [
-                  Text(
-                    '${_firstNameCtrl.text} ${_lastNameCtrl.text}',
-                    style: const TextStyle(
-                      fontFamily: 'Inter',
-                      fontSize: 14,
-                      fontWeight: FontWeight.w600,
-                      color: Colors.black,
-                    ),
-                  ),
-                  const SizedBox(height: 4),
-                  Text(
-                    _streetCtrl.text,
-                    style: const TextStyle(
-                      fontFamily: 'Inter',
-                      fontSize: 13,
-                      color: Color(0xFF4C4546),
-                    ),
-                  ),
-                  Text(
-                    '${_cityCtrl.text}, ${_postalCtrl.text}',
-                    style: const TextStyle(
-                      fontFamily: 'Inter',
-                      fontSize: 13,
-                      color: Color(0xFF4C4546),
-                    ),
-                  ),
-                  Text(
-                    _country,
-                    style: const TextStyle(
-                      fontFamily: 'Inter',
-                      fontSize: 13,
-                      color: Color(0xFF4C4546),
-                    ),
-                  ),
-                  Text(
-                    _phoneCtrl.text,
-                    style: const TextStyle(
-                      fontFamily: 'Inter',
-                      fontSize: 13,
-                      color: Color(0xFF4C4546),
-                    ),
-                  ),
-                ],
-              ),
-            ),
-            const SizedBox(height: 48),
-          ],
-
-          // ── Form (editing or adding new) ─────────────
-          if (_showForm) ...[
-            // Form title
-            Text(
-              _isEditing ? 'EDIT ADDRESS' : 'NEW ADDRESS',
-              style: const TextStyle(
-                fontFamily: 'Inter',
-                fontSize: 12,
-                fontWeight: FontWeight.w700,
-                letterSpacing: 2.0,
-                color: Color(0xFF656464),
-              ),
-            ),
-            const SizedBox(height: 16),
-
-            CheckoutShippingForm(
-              firstNameController: _firstNameCtrl,
-              lastNameController: _lastNameCtrl,
-              streetController: _streetCtrl,
-              cityController: _cityCtrl,
-              postalController: _postalCtrl,
-              phoneController: _phoneCtrl,
-              selectedCountry: _country,
-              onCountryChanged: (v) =>
-                  setState(() => _country = v ?? _country),
-            ),
-
-            const SizedBox(height: 24),
-
-            // Save / Cancel row
-            Row(
-              children: [
-                Expanded(
-                  child: _SaveAddressButton(
-                    label: _isEditing
-                        ? 'SAVE CHANGES'
-                        : 'SAVE ADDRESS',
-                    onTap: _isEditing
-                        ? _saveEditedAddress
-                        : _saveNewAddress,
-                  ),
-                ),
-                const SizedBox(width: 12),
-                Expanded(
-                  child: _CancelButton(onTap: _cancelForm),
-                ),
-              ],
-            ),
-            const SizedBox(height: 48),
-          ],
-
-          // ── Continue button ──────────────────────────
-          if (!_showForm)
-            _ContinueButton(onTap: _handleContinue),
-        ],
-      );
-
-      if (isDesktop) {
-        return Row(
+        final Widget formContent = Column(
           crossAxisAlignment: CrossAxisAlignment.start,
           children: [
-            Expanded(
-              flex: 7,
-              child: Padding(
-                padding: const EdgeInsets.only(right: 40),
-                child: formContent,
-              ),
+
+            // ── Saved address selector ───────────────────────────
+            CheckoutAddressSelector(
+              addresses:         _savedAddresses,
+              selectedAddressId: _selectedAddressId,
+              userName:          _userName,
+              userPhone:         _userPhone,
+              onSelected: (CustomerAddress? address) {
+                if (address != null) _selectAddress(address);
+              },
+              onEdit:   _editAddress,
+              onAddNew: _addNew,
             ),
-            Expanded(
-              flex: 5,
-              child: CheckoutOrderSummary(
-                items: widget.items,
-                subtotal: widget.subtotal,
-                shipping: widget.shipping,
-                tax: widget.tax,
-                total: widget.total,
-                showPlaceOrder: false,
-                onPlaceOrder: () {},
+
+            // ── Delivering to summary ────────────────────────────
+            if (_selectedAddress != null) ...[
+              const Text(
+                'DELIVERING TO',
+                style: TextStyle(
+                  fontFamily: 'Inter',
+                  fontSize: 12,
+                  fontWeight: FontWeight.w700,
+                  letterSpacing: 2.0,
+                  color: Color(0xFF656464),
+                ),
               ),
-            ),
+              const SizedBox(height: 12),
+              Container(
+                width: double.infinity,
+                padding: const EdgeInsets.all(16),
+                color: const Color(0xFFF3F3F4),
+                child: Column(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+
+                    // Name from profile
+                    if (_userName.isNotEmpty)
+                      Text(
+                        _userName,
+                        style: const TextStyle(
+                          fontFamily: 'Inter',
+                          fontSize: 14,
+                          fontWeight: FontWeight.w600,
+                          color: Colors.black,
+                        ),
+                      ),
+
+                    const SizedBox(height: 4),
+
+                    Text(
+                      _selectedAddress!.street,
+                      style: const TextStyle(
+                        fontFamily: 'Inter',
+                        fontSize: 13,
+                        color: Color(0xFF4C4546),
+                      ),
+                    ),
+
+                    if (_selectedAddress!.barangay.isNotEmpty)
+                      Text(
+                        _selectedAddress!.barangay,
+                        style: const TextStyle(
+                          fontFamily: 'Inter',
+                          fontSize: 13,
+                          color: Color(0xFF4C4546),
+                        ),
+                      ),
+
+                    Text(
+                      [
+                        _selectedAddress!.city,
+                        _selectedAddress!.province,
+                        _selectedAddress!.zipCode,
+                      ].where((s) => s.isNotEmpty).join(', '),
+                      style: const TextStyle(
+                        fontFamily: 'Inter',
+                        fontSize: 13,
+                        color: Color(0xFF4C4546),
+                      ),
+                    ),
+
+                    if (_selectedAddress!.region.isNotEmpty)
+                      Text(
+                        _selectedAddress!.region,
+                        style: const TextStyle(
+                          fontFamily: 'Inter',
+                          fontSize: 13,
+                          color: Color(0xFF4C4546),
+                        ),
+                      ),
+
+                    if (_selectedAddress!.landmark.isNotEmpty)
+                      Text(
+                        _selectedAddress!.landmark,
+                        style: const TextStyle(
+                          fontFamily: 'Inter',
+                          fontSize: 12,
+                          color: Color(0xFF9CA3AF),
+                          fontStyle: FontStyle.italic,
+                        ),
+                      ),
+
+                    if (_userPhone.isNotEmpty) ...[
+                      const SizedBox(height: 4),
+                      Text(
+                        _userPhone,
+                        style: const TextStyle(
+                          fontFamily: 'Inter',
+                          fontSize: 13,
+                          color: Color(0xFF4C4546),
+                        ),
+                      ),
+                    ],
+                  ],
+                ),
+              ),
+              const SizedBox(height: 48),
+            ],
+
+            // ── Continue button ──────────────────────────────────
+            _ContinueButton(onTap: _handleContinue),
           ],
         );
-      }
 
-      return formContent;
-    });
+        if (isDesktop) {
+          return Row(
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: [
+              Expanded(
+                flex: 7,
+                child: Padding(
+                  padding: const EdgeInsets.only(right: 40),
+                  child: formContent,
+                ),
+              ),
+              Expanded(
+                flex: 5,
+                child: CheckoutOrderSummary(
+                  items:          widget.items,
+                  subtotal:       widget.subtotal,
+                  shipping:       widget.shipping,
+                  tax:            widget.tax,
+                  total:          widget.total,
+                  showPlaceOrder: false,
+                  onPlaceOrder:   () {},
+                ),
+              ),
+            ],
+          );
+        }
+
+        return formContent;
+      },
+    );
   }
 }
 
-// ── Buttons ───────────────────────────────────────────────────────────────────
+// ─── Continue button ──────────────────────────────────────────────────────────
 
 class _ContinueButton extends StatefulWidget {
   final VoidCallback onTap;
@@ -474,82 +377,6 @@ class _ContinueButtonState extends State<_ContinueButton> {
               letterSpacing: 3.0,
               color: Colors.white,
             ),
-          ),
-        ),
-      ),
-    );
-  }
-}
-
-class _SaveAddressButton extends StatefulWidget {
-  final String label;
-  final VoidCallback onTap;
-  const _SaveAddressButton({required this.label, required this.onTap});
-
-  @override
-  State<_SaveAddressButton> createState() => _SaveAddressButtonState();
-}
-
-class _SaveAddressButtonState extends State<_SaveAddressButton> {
-  bool _pressed = false;
-
-  @override
-  Widget build(BuildContext context) {
-    return GestureDetector(
-      onTapDown: (_) => setState(() => _pressed = true),
-      onTapUp: (_) {
-        setState(() => _pressed = false);
-        widget.onTap();
-      },
-      onTapCancel: () => setState(() => _pressed = false),
-      child: AnimatedScale(
-        scale: _pressed ? 0.98 : 1.0,
-        duration: const Duration(milliseconds: 80),
-        child: Container(
-          width: double.infinity,
-          padding: const EdgeInsets.symmetric(vertical: 14),
-          color: Colors.black,
-          alignment: Alignment.center,
-          child: Text(
-            widget.label,
-            style: const TextStyle(
-              fontFamily: 'Inter',
-              fontSize: 13,
-              fontWeight: FontWeight.w600,
-              letterSpacing: 2.0,
-              color: Colors.white,
-            ),
-          ),
-        ),
-      ),
-    );
-  }
-}
-
-class _CancelButton extends StatelessWidget {
-  final VoidCallback onTap;
-  const _CancelButton({required this.onTap});
-
-  @override
-  Widget build(BuildContext context) {
-    return GestureDetector(
-      onTap: onTap,
-      child: Container(
-        width: double.infinity,
-        padding: const EdgeInsets.symmetric(vertical: 14),
-        decoration: BoxDecoration(
-          color: Colors.transparent,
-          border: Border.all(color: const Color(0xFFCFC4C5)),
-        ),
-        alignment: Alignment.center,
-        child: const Text(
-          'CANCEL',
-          style: TextStyle(
-            fontFamily: 'Inter',
-            fontSize: 13,
-            fontWeight: FontWeight.w600,
-            letterSpacing: 2.0,
-            color: Colors.black,
           ),
         ),
       ),

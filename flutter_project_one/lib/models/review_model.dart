@@ -1,0 +1,97 @@
+// ================================================
+// REVIEW MODEL
+// Maps to the `feedback` table in Supabase.
+//
+// Current phase  : any logged-in customer can submit.
+// Future phase   : only customers with a delivered
+//                  order can submit (verified purchase).
+// ================================================
+
+class ReviewModel {
+  final int id;
+  final String customerId;       // users.id (uuid)
+  final String customerName;     // derived: first_name + last_name
+  final int productId;           // feedback.product_id FK
+  final String productName;      // snapshot joined from product table
+  final double rating;           // 1-5  (stored as INT 1-5 in DB)
+  final String reviewText;       // feedback.comment_message
+  final List<String> imageUrls;  // not in current schema — kept for future
+  final bool verifiedPurchase;   // always false until phase 2
+  final String status;           // ENUM: 'Visible' | 'Flagged' | 'Hidden'
+  final String? adminReply;      // feedback.admin_reply
+  final DateTime createdAt;
+  final DateTime updatedAt;
+
+  const ReviewModel({
+    required this.id,
+    required this.customerId,
+    required this.customerName,
+    required this.productId,
+    required this.productName,
+    required this.rating,
+    required this.reviewText,
+    this.imageUrls = const [],
+    this.verifiedPurchase = false,
+    required this.status,
+    this.adminReply,
+    required this.createdAt,
+    required this.updatedAt,
+  });
+
+  // ── Factory: build from Supabase row ──────────────────────────
+  // Expected join:
+  //   feedback row
+  //     + users  (first_name, last_name)  via user_id FK
+  //     + product (product_name)          via product_id FK
+  factory ReviewModel.fromSupabase(Map<String, dynamic> row) {
+    // Join data comes in as nested maps
+    final userMap = row['users'] as Map<String, dynamic>? ?? {};
+    final productMap = row['product'] as Map<String, dynamic>? ?? {};
+
+    final String firstName = userMap['first_name'] as String? ?? '';
+    final String lastName  = userMap['last_name']  as String? ?? '';
+    final String fullName  =
+        '$firstName $lastName'.trim().isEmpty ? 'Anonymous' : '$firstName $lastName'.trim();
+
+    return ReviewModel(
+      id:               row['feedback_id']     as int,
+      customerId:       row['user_id']         as String,
+      customerName:     fullName,
+      productId:        row['product_id']      as int,
+      productName:      productMap['product_name'] as String? ?? '',
+      rating:           (row['rating']         as num).toDouble(),
+      reviewText:       row['comment_message'] as String? ?? '',
+      imageUrls:        const [],              // phase 2
+      verifiedPurchase: false,                 // phase 2
+      status:           row['status']          as String? ?? 'Visible',
+      adminReply:       row['admin_reply']     as String?,
+      createdAt:        DateTime.parse(row['created_at'] as String),
+      updatedAt:        DateTime.parse(
+                          (row['updated_at'] ?? row['created_at']) as String,
+                        ),
+    );
+  }
+
+  // ── Copy with ─────────────────────────────────────────────────
+  ReviewModel copyWith({
+    String? status,
+    String? adminReply,
+    DateTime? updatedAt,
+  }) {
+    return ReviewModel(
+      id:               id,
+      customerId:       customerId,
+      customerName:     customerName,
+      productId:        productId,
+      productName:      productName,
+      rating:           rating,
+      reviewText:       reviewText,
+      imageUrls:        imageUrls,
+      verifiedPurchase: verifiedPurchase,
+      status:           status         ?? this.status,
+      adminReply:       adminReply     ?? this.adminReply,
+      createdAt:        createdAt,
+      updatedAt:        updatedAt      ?? this.updatedAt,
+    );
+  }
+}

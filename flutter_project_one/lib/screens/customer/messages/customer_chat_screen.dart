@@ -1,80 +1,64 @@
 // lib/screens/customer/messages/customer_chat_screen.dart
 
 import 'package:flutter/material.dart';
+import 'package:flutter_riverpod/flutter_riverpod.dart';
+
+import '../../../providers/customer/chat_provider.dart';
 import '../../../models/chat_message_model.dart';
 import '../../../widgets/common/nav/app_top_bar.dart';
 import '../../../widgets/common/nav/app_drawer.dart';
 import '../../../widgets/common/nav/bottom_nav_bar.dart';
-import '../../../../widgets/cashier/chat/chat_bubble.dart';
-import '../../../../widgets/cashier/chat/chat_input_bar.dart';
-import '../../../../widgets/cashier/chat/quick_action_chip_bar.dart';
 
-class CustomerChatScreen extends StatefulWidget {
+class CustomerChatScreen extends ConsumerStatefulWidget {
   const CustomerChatScreen({super.key});
 
   @override
-  State<CustomerChatScreen> createState() => _CustomerChatScreenState();
+  ConsumerState<CustomerChatScreen> createState() =>
+      _CustomerChatScreenState();
 }
 
-class _CustomerChatScreenState extends State<CustomerChatScreen> {
+class _CustomerChatScreenState extends ConsumerState<CustomerChatScreen> {
   final ScrollController _scrollController = ScrollController();
-  late List<CustomerChatMessage> _messages;
-
-  @override
-  void initState() {
-    super.initState();
-    // Deep-copy mock so mutations don't affect the source list
-    _messages = List.from(mockChatMessages);
-    WidgetsBinding.instance.addPostFrameCallback((_) => _scrollToBottom());
-  }
+  final TextEditingController _inputController = TextEditingController();
 
   @override
   void dispose() {
     _scrollController.dispose();
+    _inputController.dispose();
     super.dispose();
   }
 
   void _scrollToBottom() {
-    if (_scrollController.hasClients) {
-      _scrollController.animateTo(
-        _scrollController.position.maxScrollExtent,
-        duration: const Duration(milliseconds: 300),
-        curve: Curves.easeOut,
-      );
-    }
-  }
-
-  void _onSend(String text) {
-    final msg = CustomerChatMessage(
-      id: 'msg_${DateTime.now().millisecondsSinceEpoch}',
-      text: text,
-      sender: CustomerChatSender.customer,
-      timestamp: DateTime.now(),
-    );
-    setState(() => _messages.add(msg));
-    WidgetsBinding.instance.addPostFrameCallback((_) => _scrollToBottom());
-
-    // Simulate support reply after 1.5 s
-    Future.delayed(const Duration(milliseconds: 1500), () {
-      if (!mounted) return;
-      final reply = CustomerChatMessage(
-        id: 'msg_reply_${DateTime.now().millisecondsSinceEpoch}',
-        text:
-            "Thanks for reaching out! Our support team will get back to you shortly. In the meantime, feel free to check our FAQ.",
-        sender: CustomerChatSender.support,
-        timestamp: DateTime.now(),
-      );
-      setState(() => _messages.add(reply));
-      WidgetsBinding.instance.addPostFrameCallback((_) => _scrollToBottom());
+    WidgetsBinding.instance.addPostFrameCallback((_) {
+      if (_scrollController.hasClients) {
+        _scrollController.animateTo(
+          _scrollController.position.maxScrollExtent,
+          duration: const Duration(milliseconds: 300),
+          curve: Curves.easeOut,
+        );
+      }
     });
   }
 
-  void _onQuickChipTapped(String chipText) {
-    _onSend(chipText);
+  void _onSend() {
+    final text = _inputController.text.trim();
+    if (text.isEmpty) return;
+    _inputController.clear();
+    ref.read(customerChatProvider.notifier).sendMessage(text);
+    _scrollToBottom();
   }
 
   @override
   Widget build(BuildContext context) {
+    final chatState = ref.watch(customerChatProvider);
+
+    // Scroll to bottom whenever messages change
+    ref.listen(customerChatProvider, (prev, next) {
+      if (prev?.messages.length != next.messages.length) {
+        _scrollToBottom();
+      }
+    });
+
     return Scaffold(
       backgroundColor: const Color(0xFFF9F9F9),
       drawer: const AppDrawer(),
@@ -84,43 +68,264 @@ class _CustomerChatScreenState extends State<CustomerChatScreen> {
           children: [
             const AppTopBar(activeRoute: 'chat'),
 
-            // ── Support header banner ──
-            _SupportHeader(),
+            // ── Support header ──────────────────────────────────
+            const _SupportHeader(),
 
-            // ── Date marker ──
-            _DateMarker(),
+            // ── Date marker ─────────────────────────────────────
+            const _DateMarker(),
 
-            // ── Messages list ──
+            // ── Messages ────────────────────────────────────────
             Expanded(
-              child: ListView.builder(
-                controller: _scrollController,
-                padding: const EdgeInsets.fromLTRB(16, 16, 16, 8),
-                itemCount: _messages.length,
-                itemBuilder: (context, index) {
-                  return ChatBubble(message: _messages[index]);
-                },
-              ),
+              child: _buildBody(chatState),
             ),
 
-            // ── Quick action chips ──
-            Padding(
-              padding: const EdgeInsets.symmetric(vertical: 8),
-              child: QuickActionChipBar(onChipTapped: _onQuickChipTapped),
+            // ── Input bar ───────────────────────────────────────
+            _ChatInputBar(
+              controller: _inputController,
+              onSend: _onSend,
             ),
-
-            // ── Input bar ──
-            ChatInputBar(onSend: _onSend),
           ],
         ),
       ),
       bottomNavigationBar: const BottomNavBar(currentIndex: 3),
     );
   }
+
+  Widget _buildBody(CustomerChatState chatState) {
+    if (chatState.isLoading) {
+      return const Center(
+        child: CircularProgressIndicator(color: Colors.black),
+      );
+    }
+
+    if (chatState.error != null) {
+      return Center(
+        child: Column(
+          mainAxisSize: MainAxisSize.min,
+          children: [
+            const Icon(Icons.error_outline,
+                size: 48, color: Color(0xFFCFC4C5)),
+            const SizedBox(height: 12),
+            Text(
+              chatState.error!,
+              style: const TextStyle(
+                fontFamily: 'Inter',
+                fontSize: 14,
+                color: Color(0xFF656464),
+              ),
+            ),
+            const SizedBox(height: 16),
+            GestureDetector(
+              onTap: () =>
+                  ref.read(customerChatProvider.notifier).initConversation(),
+              child: Container(
+                padding: const EdgeInsets.symmetric(
+                    horizontal: 20, vertical: 10),
+                decoration:
+                    BoxDecoration(border: Border.all(color: Colors.black)),
+                child: const Text(
+                  'RETRY',
+                  style: TextStyle(
+                    fontFamily: 'Inter',
+                    fontSize: 12,
+                    fontWeight: FontWeight.w600,
+                    letterSpacing: 1.0,
+                    color: Colors.black,
+                  ),
+                ),
+              ),
+            ),
+          ],
+        ),
+      );
+    }
+
+    if (chatState.messages.isEmpty) {
+      return const Center(
+        child: Text(
+          'Send a message to start chatting with support.',
+          style: TextStyle(
+            fontFamily: 'Inter',
+            fontSize: 14,
+            color: Color(0xFF656464),
+          ),
+          textAlign: TextAlign.center,
+        ),
+      );
+    }
+
+    return ListView.builder(
+      controller: _scrollController,
+      padding: const EdgeInsets.fromLTRB(16, 16, 16, 8),
+      itemCount: chatState.messages.length,
+      itemBuilder: (context, index) {
+        return _ChatBubble(message: chatState.messages[index]);
+      },
+    );
+  }
 }
 
-// ── Sub-widgets ──────────────────────────────────────────────────
+// ─── Chat bubble ───────────────────────────────────────────────────────────────
+
+class _ChatBubble extends StatelessWidget {
+  final Message message;
+  const _ChatBubble({required this.message});
+
+  @override
+  Widget build(BuildContext context) {
+    final isCustomer = message.isFromCustomer;
+
+    return Padding(
+      padding: const EdgeInsets.symmetric(vertical: 6),
+      child: Row(
+        mainAxisAlignment:
+            isCustomer ? MainAxisAlignment.end : MainAxisAlignment.start,
+        crossAxisAlignment: CrossAxisAlignment.end,
+        children: [
+          // Support avatar
+          if (!isCustomer)
+            Container(
+              width: 28,
+              height: 28,
+              margin: const EdgeInsets.only(right: 8),
+              color: Colors.black,
+              alignment: Alignment.center,
+              child: const Text(
+                'DG',
+                style: TextStyle(
+                  fontFamily: 'Archivo Narrow',
+                  fontSize: 9,
+                  fontWeight: FontWeight.w700,
+                  color: Colors.white,
+                ),
+              ),
+            ),
+
+          // Bubble + time
+          Column(
+            crossAxisAlignment: isCustomer
+                ? CrossAxisAlignment.end
+                : CrossAxisAlignment.start,
+            children: [
+              Container(
+                constraints: const BoxConstraints(maxWidth: 280),
+                padding: const EdgeInsets.symmetric(
+                    horizontal: 16, vertical: 10),
+                decoration: BoxDecoration(
+                  color: isCustomer
+                      ? Colors.black
+                      : Colors.white,
+                  border: isCustomer
+                      ? null
+                      : Border.all(color: const Color(0xFFCFC4C5)),
+                ),
+                child: Text(
+                  message.text,
+                  style: TextStyle(
+                    fontFamily: 'Inter',
+                    fontSize: 14,
+                    color: isCustomer ? Colors.white : Colors.black,
+                    height: 1.5,
+                  ),
+                ),
+              ),
+              const SizedBox(height: 4),
+              Text(
+                message.formattedTime,
+                style: const TextStyle(
+                  fontFamily: 'Inter',
+                  fontSize: 11,
+                  color: Color(0xFF9CA3AF),
+                ),
+              ),
+            ],
+          ),
+        ],
+      ),
+    );
+  }
+}
+
+// ─── Input bar ─────────────────────────────────────────────────────────────────
+
+class _ChatInputBar extends StatelessWidget {
+  final TextEditingController controller;
+  final VoidCallback onSend;
+
+  const _ChatInputBar({
+    required this.controller,
+    required this.onSend,
+  });
+
+  @override
+  Widget build(BuildContext context) {
+    return Container(
+      padding: const EdgeInsets.fromLTRB(16, 10, 16, 16),
+      decoration: const BoxDecoration(
+        color: Colors.white,
+        border: Border(top: BorderSide(color: Color(0xFFE2E2E2), width: 1)),
+      ),
+      child: SafeArea(
+        top: false,
+        child: Row(
+          children: [
+            Expanded(
+              child: Container(
+                padding: const EdgeInsets.symmetric(
+                    horizontal: 16, vertical: 10),
+                decoration: BoxDecoration(
+                  color: const Color(0xFFF9F9F9),
+                  border: Border.all(color: const Color(0xFFCFC4C5)),
+                ),
+                child: TextField(
+                  controller: controller,
+                  style: const TextStyle(
+                    fontFamily: 'Inter',
+                    fontSize: 14,
+                    color: Colors.black,
+                  ),
+                  decoration: const InputDecoration(
+                    hintText: 'Type a message...',
+                    hintStyle: TextStyle(
+                      fontFamily: 'Inter',
+                      fontSize: 14,
+                      color: Color(0xFF9CA3AF),
+                    ),
+                    border: InputBorder.none,
+                    isDense: true,
+                    contentPadding: EdgeInsets.zero,
+                  ),
+                  onSubmitted: (_) => onSend(),
+                  textInputAction: TextInputAction.send,
+                ),
+              ),
+            ),
+            const SizedBox(width: 10),
+            GestureDetector(
+              onTap: onSend,
+              child: Container(
+                width: 44,
+                height: 44,
+                color: Colors.black,
+                child: const Icon(
+                  Icons.send,
+                  size: 18,
+                  color: Colors.white,
+                ),
+              ),
+            ),
+          ],
+        ),
+      ),
+    );
+  }
+}
+
+// ─── Support header ────────────────────────────────────────────────────────────
 
 class _SupportHeader extends StatelessWidget {
+  const _SupportHeader();
+
   @override
   Widget build(BuildContext context) {
     return Container(
@@ -134,7 +339,6 @@ class _SupportHeader extends StatelessWidget {
       ),
       child: Row(
         children: [
-          // Support avatar
           Container(
             width: 36,
             height: 36,
@@ -151,10 +355,7 @@ class _SupportHeader extends StatelessWidget {
               ),
             ),
           ),
-
           const SizedBox(width: 12),
-
-          // Name + status
           Expanded(
             child: Column(
               crossAxisAlignment: CrossAxisAlignment.start,
@@ -195,8 +396,6 @@ class _SupportHeader extends StatelessWidget {
               ],
             ),
           ),
-
-          // Info icon
           const Icon(
             Icons.info_outline,
             size: 20,
@@ -208,14 +407,19 @@ class _SupportHeader extends StatelessWidget {
   }
 }
 
+// ─── Date marker ───────────────────────────────────────────────────────────────
+
 class _DateMarker extends StatelessWidget {
+  const _DateMarker();
+
   @override
   Widget build(BuildContext context) {
     return Padding(
       padding: const EdgeInsets.symmetric(vertical: 16),
       child: Center(
         child: Container(
-          padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 5),
+          padding:
+              const EdgeInsets.symmetric(horizontal: 12, vertical: 5),
           color: const Color(0xFFEEEEEE),
           child: const Text(
             'TODAY',

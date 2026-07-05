@@ -1,55 +1,27 @@
+// lib/screens/customer/notifications/notifications_screen.dart
+
 import 'package:flutter/material.dart';
+import 'package:flutter_riverpod/flutter_riverpod.dart';
 
 import '../../../models/notification_model.dart';
+import '../../../providers/customer/notification_provider.dart';
 import '../../../widgets/common/nav/app_top_bar.dart';
 import '../../../widgets/common/nav/app_drawer.dart';
 import '../../../widgets/common/nav/bottom_nav_bar.dart';
 import '../../../widgets/common/nav/app_footer.dart';
-import '../../../widgets/customer/notifications/notification_tile_drop.dart';
 import '../../../widgets/customer/notifications/notification_tile_order.dart';
 import '../../../widgets/customer/notifications/notification_tile_offer.dart';
 
-/// Notifications screen — flat list, no filter chips.
+/// Notifications screen — reads from [NotificationProvider].
 /// Accessible via the bell icon in [AppTopBar].
-class NotificationsScreen extends StatefulWidget {
+class NotificationsScreen extends ConsumerWidget {
   const NotificationsScreen({super.key});
 
   @override
-  State<NotificationsScreen> createState() => _NotificationsScreenState();
-}
+  Widget build(BuildContext context, WidgetRef ref) {
+    final notifState = ref.watch(notificationProvider);
+    final notifier   = ref.read(notificationProvider.notifier);
 
-class _NotificationsScreenState extends State<NotificationsScreen> {
-  // Local mutable copy so mark-as-read updates the UI
-  late List<AppNotification> _notifications;
-
-  @override
-  void initState() {
-    super.initState();
-    _notifications = List.from(fakeNotifications);
-  }
-
-  int get _unreadCount =>
-      _notifications.where((n) => n.isUnread).length;
-
-  void _markRead(String id) {
-    setState(() {
-      _notifications = _notifications.map((n) {
-        if (n.id == id) return n.copyWith(isRead: true, isUnread: false);
-        return n;
-      }).toList();
-    });
-  }
-
-  void _markAllRead() {
-    setState(() {
-      _notifications = _notifications
-          .map((n) => n.copyWith(isRead: true, isUnread: false))
-          .toList();
-    });
-  }
-
-  @override
-  Widget build(BuildContext context) {
     final isDesktop = MediaQuery.of(context).size.width >= 768;
     final hPad      = isDesktop ? 48.0 : 16.0;
 
@@ -69,53 +41,47 @@ class _NotificationsScreenState extends State<NotificationsScreen> {
                   children: [
                     Center(
                       child: ConstrainedBox(
-                        constraints:
-                            const BoxConstraints(maxWidth: 896),
+                        constraints: const BoxConstraints(maxWidth: 896),
                         child: Padding(
-                          padding: EdgeInsets.fromLTRB(
-                              hPad, 32, hPad, 80),
+                          padding: EdgeInsets.fromLTRB(hPad, 32, hPad, 80),
                           child: Column(
-                            crossAxisAlignment:
-                                CrossAxisAlignment.start,
+                            crossAxisAlignment: CrossAxisAlignment.start,
                             children: [
-                              // ── Page header ─────────────────
+                              // ── Page header ──────────────────
                               _PageHeader(
-                                unreadCount: _unreadCount,
-                                onMarkAllRead: _markAllRead,
+                                unreadCount: notifState.unreadCount,
+                                onMarkAllRead: notifier.markAllRead,
                               ),
 
                               const SizedBox(height: 24),
-
-                              const Divider(
-                                  height: 1,
-                                  color: Color(0xFFCFC4C5)),
-
+                              const Divider(height: 1, color: Color(0xFFCFC4C5)),
                               const SizedBox(height: 20),
 
-                              // ── Notification list ───────────
-                              if (_notifications.isEmpty)
-                                _EmptyState()
+                              // ── Body ─────────────────────────
+                              if (notifState.isLoading)
+                                const _LoadingState()
+                              else if (notifState.error != null)
+                                _ErrorState(
+                                  message: notifState.error!,
+                                  onRetry: notifier.loadNotifications,
+                                )
+                              else if (notifState.notifications.isEmpty)
+                                const _EmptyState()
                               else
                                 Column(
-                                  children: _notifications.map((n) {
+                                  children: notifState.notifications.map((n) {
                                     switch (n.type) {
-                                      case NotificationType.drop:
-                                        return NotificationTileDrop(
-                                          notification: n,
-                                          onMarkRead: () =>
-                                              _markRead(n.id),
-                                        );
                                       case NotificationType.order:
                                         return NotificationTileOrder(
                                           notification: n,
                                           onMarkRead: () =>
-                                              _markRead(n.id),
+                                              notifier.markRead(n.id),
                                         );
-                                      case NotificationType.offer:
+                                      case NotificationType.promotion:
                                         return NotificationTileOffer(
                                           notification: n,
                                           onMarkRead: () =>
-                                              _markRead(n.id),
+                                              notifier.markRead(n.id),
                                         );
                                     }
                                   }).toList(),
@@ -138,7 +104,7 @@ class _NotificationsScreenState extends State<NotificationsScreen> {
   }
 }
 
-// ─── Page header ──────────────────────────────────────────────────────────────
+// ─── Page header ───────────────────────────────────────────────────────────────
 
 class _PageHeader extends StatelessWidget {
   final int unreadCount;
@@ -242,7 +208,7 @@ class _TitleBlock extends StatelessWidget {
         ),
         const SizedBox(height: 4),
         const Text(
-          'Manage your drop alerts, order status, and member exclusives.',
+          'Manage your order status and member exclusives.',
           style: TextStyle(
             fontFamily: 'Inter',
             fontSize: 14,
@@ -254,15 +220,77 @@ class _TitleBlock extends StatelessWidget {
   }
 }
 
-// ─── Empty state ──────────────────────────────────────────────────────────────
+// ─── States ────────────────────────────────────────────────────────────────────
 
-class _EmptyState extends StatelessWidget {
+class _LoadingState extends StatelessWidget {
+  const _LoadingState();
+
+  @override
+  Widget build(BuildContext context) {
+    return const Padding(
+      padding: EdgeInsets.symmetric(vertical: 64),
+      child: Center(child: CircularProgressIndicator(color: Colors.black)),
+    );
+  }
+}
+
+class _ErrorState extends StatelessWidget {
+  final String message;
+  final VoidCallback onRetry;
+
+  const _ErrorState({required this.message, required this.onRetry});
+
   @override
   Widget build(BuildContext context) {
     return Padding(
       padding: const EdgeInsets.symmetric(vertical: 64),
       child: Column(
-        children: const [
+        children: [
+          const Icon(Icons.error_outline, size: 48, color: Color(0xFFCFC4C5)),
+          const SizedBox(height: 16),
+          Text(
+            message,
+            style: const TextStyle(
+              fontFamily: 'Inter',
+              fontSize: 14,
+              color: Color(0xFF656464),
+            ),
+          ),
+          const SizedBox(height: 16),
+          GestureDetector(
+            onTap: onRetry,
+            child: Container(
+              padding: const EdgeInsets.symmetric(horizontal: 20, vertical: 10),
+              decoration: BoxDecoration(
+                border: Border.all(color: Colors.black),
+              ),
+              child: const Text(
+                'TRY AGAIN',
+                style: TextStyle(
+                  fontFamily: 'Inter',
+                  fontSize: 12,
+                  fontWeight: FontWeight.w600,
+                  letterSpacing: 1.0,
+                  color: Colors.black,
+                ),
+              ),
+            ),
+          ),
+        ],
+      ),
+    );
+  }
+}
+
+class _EmptyState extends StatelessWidget {
+  const _EmptyState();
+
+  @override
+  Widget build(BuildContext context) {
+    return const Padding(
+      padding: EdgeInsets.symmetric(vertical: 64),
+      child: Column(
+        children: [
           Icon(Icons.notifications_off_outlined,
               size: 56, color: Color(0xFFCFC4C5)),
           SizedBox(height: 16),

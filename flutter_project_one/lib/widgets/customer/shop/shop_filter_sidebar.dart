@@ -1,18 +1,18 @@
 import 'package:flutter/material.dart';
-import '../../../models/product_model.dart';
-import 'shop_filter_drawer.dart'; // reuses ShopFilterState
+import 'shop_filter_drawer.dart';
 
-/// Left-side sticky filter panel shown on desktop (≥768px).
-/// Mirrors the same filter options as the mobile bottom sheet
-/// but rendered inline as a fixed-width sidebar column.
 class ShopFilterSidebar extends StatefulWidget {
   final ShopFilterState state;
   final ValueChanged<ShopFilterState> onChanged;
+  final List<String> availableBrands;
+  final List<String> availableCategories;
 
   const ShopFilterSidebar({
     super.key,
     required this.state,
     required this.onChanged,
+    required this.availableBrands,
+    required this.availableCategories,
   });
 
   @override
@@ -24,6 +24,12 @@ class _ShopFilterSidebarState extends State<ShopFilterSidebar> {
   late Set<String> _categories;
   late String? _size;
   late double _maxPrice;
+
+  // Common shoe sizes
+  static const List<String> _sizes = [
+    '6', '6.5', '7', '7.5', '8', '8.5', '9',
+    '9.5', '10', '10.5', '11', '12',
+  ];
 
   @override
   void initState() {
@@ -58,7 +64,7 @@ class _ShopFilterSidebarState extends State<ShopFilterSidebar> {
       _brands = {};
       _categories = {};
       _size = null;
-      _maxPrice = 500;
+      _maxPrice = 5000;
     });
     _emit();
   }
@@ -70,7 +76,6 @@ class _ShopFilterSidebarState extends State<ShopFilterSidebar> {
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.start,
         children: [
-          // Header row
           Row(
             mainAxisAlignment: MainAxisAlignment.spaceBetween,
             children: [
@@ -109,13 +114,14 @@ class _ShopFilterSidebarState extends State<ShopFilterSidebar> {
           _SidebarSection(
             label: 'Brand',
             child: Column(
-              children: kShopBrands.map((b) {
+              children: widget.availableBrands.map((b) {
                 final isOn = _brands.contains(b);
                 return _CheckRow(
                   label: b,
                   checked: isOn,
                   onTap: () {
-                    setState(() => isOn ? _brands.remove(b) : _brands.add(b));
+                    setState(() =>
+                        isOn ? _brands.remove(b) : _brands.add(b));
                     _emit();
                   },
                 );
@@ -128,7 +134,7 @@ class _ShopFilterSidebarState extends State<ShopFilterSidebar> {
           _SidebarSection(
             label: 'Category',
             child: Column(
-              children: kShopCategories.map((c) {
+              children: widget.availableCategories.map((c) {
                 final isOn = _categories.contains(c);
                 return _CheckRow(
                   label: c,
@@ -150,7 +156,7 @@ class _ShopFilterSidebarState extends State<ShopFilterSidebar> {
             child: Wrap(
               spacing: 6,
               runSpacing: 6,
-              children: kShopSizes.map((s) {
+              children: _sizes.map((s) {
                 final isOn = _size == s;
                 return GestureDetector(
                   onTap: () {
@@ -163,7 +169,9 @@ class _ShopFilterSidebarState extends State<ShopFilterSidebar> {
                     decoration: BoxDecoration(
                       color: isOn ? Colors.black : Colors.transparent,
                       border: Border.all(
-                        color: isOn ? Colors.black : const Color(0xFFCFC4C5),
+                        color: isOn
+                            ? Colors.black
+                            : const Color(0xFFCFC4C5),
                       ),
                     ),
                     alignment: Alignment.center,
@@ -171,7 +179,7 @@ class _ShopFilterSidebarState extends State<ShopFilterSidebar> {
                       s,
                       style: TextStyle(
                         fontFamily: 'Inter',
-                        fontSize: 13,
+                        fontSize: 11,
                         fontWeight: FontWeight.w600,
                         color: isOn ? Colors.white : Colors.black,
                       ),
@@ -199,7 +207,7 @@ class _ShopFilterSidebarState extends State<ShopFilterSidebar> {
                   ),
                   child: Slider(
                     min: 0,
-                    max: 500,
+                    max: 5000,
                     value: _maxPrice,
                     onChanged: (v) {
                       setState(() => _maxPrice = v);
@@ -210,13 +218,14 @@ class _ShopFilterSidebarState extends State<ShopFilterSidebar> {
                 Row(
                   mainAxisAlignment: MainAxisAlignment.spaceBetween,
                   children: [
-                    const Text('\$0', style: _priceStyle),
+                    const Text('₱0', style: _priceStyle),
                     Text(
-                      '\$${_maxPrice.toStringAsFixed(0)}',
+                      '₱${_maxPrice.toStringAsFixed(0)}',
                       style: _priceStyle.copyWith(
-                          fontWeight: FontWeight.w700, color: Colors.black),
+                          fontWeight: FontWeight.w700,
+                          color: Colors.black),
                     ),
-                    const Text('\$500+', style: _priceStyle),
+                    const Text('₱5000+', style: _priceStyle),
                   ],
                 ),
               ],
@@ -268,11 +277,8 @@ class _CheckRow extends StatelessWidget {
   final bool checked;
   final VoidCallback onTap;
 
-  const _CheckRow({
-    required this.label,
-    required this.checked,
-    required this.onTap,
-  });
+  const _CheckRow(
+      {required this.label, required this.checked, required this.onTap});
 
   @override
   Widget build(BuildContext context) {
@@ -291,8 +297,7 @@ class _CheckRow extends StatelessWidget {
                 activeColor: Colors.black,
                 side: const BorderSide(color: Colors.black, width: 1.5),
                 shape: const RoundedRectangleBorder(
-                  borderRadius: BorderRadius.zero,
-                ),
+                    borderRadius: BorderRadius.zero),
               ),
             ),
             const SizedBox(width: 10),

@@ -10,7 +10,10 @@ import '../../../providers/cashier_provider/cashier_provider.dart';
 import '../../../models/cart_item.dart';
 import '../../../widgets/common/buttons/search_bar.dart';
 import '../../../widgets/common/dialog/confirm_dialog.dart';
+import '../../../services/admin/cashier/cashier_sale_service.dart';
 
+import '../../../services/cashier/onlinepayment/cashier_online_payment_service.dart';
+import '../../../widgets/cashier/receipt/qr_payment_dialog.dart';
 // ================================================
 // CASHIER SCREEN
 //
@@ -210,12 +213,14 @@ class _CashierScreenState extends ConsumerState<CashierScreen> {
     }
 
     ref.read(cashierProvider.notifier).addToCart(
-      productId: product.productId,
+      productId:   product.productId,
       productName: product.productName,
-      color: color,
-      size: size,
+      brand:       product.brand,
+      color:       color,
+      size:        size,
+      sizeId:      selectedSize.sizeId,
       retailPrice: price,
-      quantity: quantity,
+      quantity:    quantity,
     );
   }
 
@@ -324,38 +329,65 @@ class _CashierScreenState extends ConsumerState<CashierScreen> {
   // Called BEFORE showing receipt dialog.
   // Sale is saved regardless of whether cashier prints.
   // ================================================
-  Sale _saveSale() {
+    Future<Sale> _saveSale() async {
     final List<SaleItem> saleItems =
         _cartItems.map((CartItem item) {
       return SaleItem(
         productName: item.productName,
-        color: item.color,
-        size: item.size,
-        quantity: item.quantity,
+        color:       item.color,
+        size:        item.size,
+        quantity:    item.quantity,
         retailPrice: item.retailPrice,
       );
     }).toList();
 
+    // Build cart items map for DB save
+    final List<Map<String, dynamic>> cartItemsMap =
+        _cartItems.map((CartItem item) => {
+          'productId':   item.productId,
+          'sizeId':      item.sizeId,
+          'productName': item.productName,
+          'brand':       item.brand,
+          'color':       item.color,
+          'size':        item.size,
+          'quantity':    item.quantity,
+          'retailPrice': item.retailPrice,
+          'subtotal':    item.subtotal,
+        }).toList();
+
     final Sale sale = Sale(
-      orderNumber: _generateOrderNumber(),
-      items: saleItems,
-      subtotal: _subtotal,
-      discount: _discountAmount,
-      total: _total,
-      paymentMethod:
-          _paymentMethod == PaymentMethod.cash ? 'cash' : 'online',
-      cashPaid:
-          _paymentMethod == PaymentMethod.cash ? _cashPaid : 0,
-      change:
-          _paymentMethod == PaymentMethod.cash ? _change : 0,
-      cashierName: 'Cashier DeeGee',
+      orderNumber:     'pending',
+      items:           saleItems,
+      subtotal:        _subtotal,
+      discount:        _discountAmount,
+      total:           _total,
+      paymentMethod:   _paymentMethod == PaymentMethod.cash ? 'cash' : 'online',
+      cashPaid:        _paymentMethod == PaymentMethod.cash ? _cashPaid : 0,
+      change:          _paymentMethod == PaymentMethod.cash ? _change : 0,
+      cashierName:     'Cashier DeeGee',
       transactionDate: DateTime.now(),
     );
 
-    fakeSales.add(sale);
-    return sale;
-  }
+    // Save to DB
+    final String orderNumber = await CashierSaleService().saveSale(
+      sale:      sale,
+      cartItems: cartItemsMap,
+    );
 
+    // Return sale with real order number
+    return Sale(
+      orderNumber:     orderNumber,
+      items:           saleItems,
+      subtotal:        _subtotal,
+      discount:        _discountAmount,
+      total:           _total,
+      paymentMethod:   sale.paymentMethod,
+      cashPaid:        sale.cashPaid,
+      change:          sale.change,
+      cashierName:     'Cashier DeeGee',
+      transactionDate: sale.transactionDate,
+    );
+  }
   // ================================================
   // HANDLE CHECKOUT
   // cash   → save sale → clear cart → show receipt
@@ -389,13 +421,96 @@ class _CashierScreenState extends ConsumerState<CashierScreen> {
       if (confirmed != true) return;
     }
 
-    if (_paymentMethod == PaymentMethod.cash) {
-      final Sale sale = _saveSale();
+   if (_paymentMethod == PaymentMethod.cash) {
+      final Sale sale = await _saveSale();
       _newTransaction();
-      showReceiptDialog(context: context, sale: sale);
+      if (mounted) showReceiptDialog(context: context, sale: sale);
+      return;
     }
 
-    // TODO: online payment → PayMongo flow
+    // ── ONLINE (GCash/Maya/Card) — QR payment ──
+    final List<Map<String, dynamic>> cartItemsMap =
+        _cartItems.map((CartItem item) => {
+          'productId':   item.productId,
+          'sizeId':      item.sizeId,
+          'productName': item.productName,
+          'brand':       item.brand,
+          'color':       item.color,
+          'size':        item.size,
+          'quantity':    item.quantity,
+          'retailPrice': item.retailPrice,
+          'subtotal':    item.subtotal,
+        }).toList();
+
+    final double subtotalSnapshot = _subtotal;
+    final double discountSnapshot = _discountAmount;
+    final double totalSnapshot = _total;
+    final List<SaleItem> saleItemsSnapshot = _cartItems.map((CartItem item) {
+      return SaleItem(
+        productName: item.productName,
+        color:       item.color,
+        size:        item.size,
+        quantity:    item.quantity,
+        retailPrice: item.retailPrice,
+      );
+    }).toList();
+
+    late final CashierCheckoutResult checkout;
+    try {
+      checkout = await CashierOnlinePaymentService().startOnlinePayment(
+        cartItems:      cartItemsMap,
+        subtotal:       subtotalSnapshot,
+        discountAmount: discountSnapshot,
+        total:          totalSnapshot,
+      );
+    } catch (e) {
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(
+            content: Text('Could not start payment: $e'),
+            backgroundColor: Colors.red,
+          ),
+        );
+      }
+      return;
+    }
+
+    if (!mounted) return;
+
+    print('CHECKOUT RESULT: orderId=${checkout.orderId}, url=${checkout.checkoutUrl}');
+
+
+    showDialog(
+      context: context,
+      barrierDismissible: false,
+      builder: (_) => QrPaymentDialog(
+        orderId:     checkout.orderId,
+        checkoutUrl: checkout.checkoutUrl,
+        amount:      totalSnapshot,
+        onPaymentConfirmed: () {
+          Navigator.of(context).pop();
+          final Sale sale = Sale(
+            orderNumber:     'DG-${checkout.orderId}',
+            items:           saleItemsSnapshot,
+            subtotal:        subtotalSnapshot,
+            discount:        discountSnapshot,
+            total:           totalSnapshot,
+            paymentMethod:   'online',
+            cashPaid:        0,
+            change:          0,
+            cashierName:     'Cashier DeeGee',
+            transactionDate: DateTime.now(),
+          );
+          _newTransaction();
+          showReceiptDialog(context: context, sale: sale);
+        },
+        onCancelled: () async {
+          Navigator.of(context).pop();
+          await CashierOnlinePaymentService()
+              .cancelPendingOrder(checkout.orderId);
+        },
+      ),
+    );
   }
 
   // ================================================

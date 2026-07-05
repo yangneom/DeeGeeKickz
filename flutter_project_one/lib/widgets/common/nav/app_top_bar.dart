@@ -152,14 +152,14 @@ class AppTopBar extends StatelessWidget implements PreferredSizeWidget {
                         if (isDesktop) ...[
                           // Bell → NotificationsScreen ← updated
                           _IconButton(
-                            icon: Icons.notifications_outlined,
-                            showBadge: true,
-                            onTap: onPersonTap ??
-                              () => _requireLogin(
-                                    context,
-                                    const ProfileScreen(),
-                                  ),
-                          ),
+                              icon: Icons.notifications_outlined,
+                              showBadge: true,
+                              onTap: onNotificationsTap ??
+                                  () => _requireLogin(
+                                        context,
+                                        const NotificationsScreen(),
+                                      ),
+                            ),
                           const SizedBox(width: 24),
 
                           

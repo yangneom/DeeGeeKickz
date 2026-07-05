@@ -1,6 +1,10 @@
 import 'package:flutter/material.dart';
 import '../../common/dialog/confirm_dialog.dart';
-import 'create_discount_dialog.dart'; // 👈 import the dialog
+import '../../common/buttons/table_pill_button.dart';
+import 'create_discount_dialog.dart';
+import 'edit_discount_dialog.dart';
+import '../../../models/discount_model.dart';
+import '../../../services/admin/promotionDiscount/discount_service.dart';
 
 class DiscountsTable extends StatefulWidget {
   const DiscountsTable({super.key});
@@ -10,51 +14,74 @@ class DiscountsTable extends StatefulWidget {
 }
 
 class _DiscountsTableState extends State<DiscountsTable> {
+  final DiscountService _discountService = DiscountService();
+  List<Discount> _discounts = [];
+  bool _isLoading = true;
 
-  final List<Map<String, dynamic>> _discounts = [
-    {
-      'productName': 'Nike Air Max 270',
-      'originalPrice': '₱5,500',
-      'discount': '20%',
-      'discountType': 'percent',
-      'finalPrice': '₱4,400',
-      'duration': 'Jun 1 – Jun 30',
-      'status': 'Active',
-    },
-    {
-      'productName': 'Jordan 1 Retro High',
-      'originalPrice': '₱8,500',
-      'discount': '15%',
-      'discountType': 'percent',
-      'finalPrice': '₱7,225',
-      'duration': 'Mar 10 – Apr 10',
-      'status': 'Active',
-    },
-    {
-      'productName': 'Adidas Ultraboost 22',
-      'originalPrice': '₱7,200',
-      'discount': '₱1000',
-      'discountType': 'fixed',
-      'finalPrice': '₱6,200',
-      'duration': 'Feb 15 – Mar 15',
-      'status': 'Inactive',
-    },
-  ];
+  @override
+  void initState() {
+    super.initState();
+    _fetchDiscounts();
+  }
+
+  Future<void> _fetchDiscounts() async {
+    setState(() => _isLoading = true);
+    final List<Discount> result = await _discountService.fetchDiscounts();
+    if (!mounted) return;
+    setState(() {
+      _discounts = result;
+      _isLoading = false;
+    });
+  }
+
+  String _formatDateRange(DateTime start, DateTime end) {
+    const List<String> months = [
+      'Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun',
+      'Jul', 'Aug', 'Sep', 'Oct', 'Nov', 'Dec',
+    ];
+    final String startStr = '${months[start.month - 1]} ${start.day}';
+    final String endStr = '${months[end.month - 1]} ${end.day}';
+    return '$startStr – $endStr';
+  }
 
   // ================================================
   // OPEN CREATE DISCOUNT DIALOG
-  // Waits for the result and adds it to the list
   // ================================================
   Future<void> _handleCreateDiscount() async {
-    final Map<String, dynamic>? result = await showCreateDiscountDialog(context);
+    final bool? result = await showCreateDiscountDialog(context);
+    if (result != true) return;
+    await _fetchDiscounts();
+  }
 
-    // if user cancelled, result is null — do nothing
-    if (result == null) return;
+  Future<void> _handleEditDiscount(Discount discount) async {
+    final bool? result = await showEditDiscountDialog(context, discount: discount);
+    if (result != true) return;
+    await _fetchDiscounts();
+  }
 
-    // add the new discount to the list
-    setState(() {
-      _discounts.add(result);
-    });
+  Future<void> _handleDelete(Discount discount) async {
+    final bool? confirmed = await showConfirmDialog(
+      context: context,
+      title: 'Delete this discount?',
+      message: 'This discount will be permanently removed and the product will return to its original price.',
+      confirmLabel: 'Delete',
+      confirmColor: const Color(0xFFDC2626),
+    );
+    if (confirmed != true) return;
+
+    final String? error = await _discountService.deleteDiscount(discountId: discount.discountId);
+
+    if (!mounted) return;
+    if (error != null) {
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(
+          content: Text('Failed to delete discount: $error'),
+          backgroundColor: const Color(0xFFDC2626),
+        ),
+      );
+      return;
+    }
+    await _fetchDiscounts();
   }
 
   Widget _buildStatusBadge(String status) {
@@ -77,66 +104,6 @@ class _DiscountsTableState extends State<DiscountsTable> {
         ),
       ),
     );
-  }
-
-  Widget _buildActions({
-    required VoidCallback onEdit,
-    required VoidCallback onDelete,
-  }) {
-    return Row(
-      mainAxisSize: MainAxisSize.min,
-      children: [
-        GestureDetector(
-          onTap: onEdit,
-          child: const Row(
-            mainAxisSize: MainAxisSize.min,
-            children: [
-              Icon(Icons.edit_outlined, size: 15, color: Color(0xFF2563EB)),
-              SizedBox(width: 4),
-              Text(
-                'Edit',
-                style: TextStyle(
-                  fontSize: 13,
-                  color: Color(0xFF2563EB),
-                  fontWeight: FontWeight.w500,
-                ),
-              ),
-            ],
-          ),
-        ),
-        const SizedBox(width: 16),
-        GestureDetector(
-          onTap: onDelete,
-          child: const Row(
-            mainAxisSize: MainAxisSize.min,
-            children: [
-              Icon(Icons.delete_outline, size: 15, color: Color(0xFFDC2626)),
-              SizedBox(width: 4),
-              Text(
-                'Delete',
-                style: TextStyle(
-                  fontSize: 13,
-                  color: Color(0xFFDC2626),
-                  fontWeight: FontWeight.w500,
-                ),
-              ),
-            ],
-          ),
-        ),
-      ],
-    );
-  }
-
-  Future<void> _handleDelete(int index) async {
-    final bool? confirmed = await showConfirmDialog(
-      context: context,
-      title: 'Delete this discount?',
-      message: 'This discount will be permanently removed and the product will return to its original price.',
-      confirmLabel: 'Delete',
-      confirmColor: const Color(0xFFDC2626),
-    );
-    if (confirmed != true) return;
-    setState(() => _discounts.removeAt(index));
   }
 
   @override
@@ -177,7 +144,7 @@ class _DiscountsTableState extends State<DiscountsTable> {
                   ],
                 ),
                 ElevatedButton(
-                  onPressed: _handleCreateDiscount, // 👈 connected
+                  onPressed: _handleCreateDiscount,
                   style: ElevatedButton.styleFrom(
                     backgroundColor: const Color(0xFF2563EB),
                     foregroundColor: Colors.white,
@@ -217,7 +184,12 @@ class _DiscountsTableState extends State<DiscountsTable> {
           const Divider(color: Color(0xFFE5E7EB), height: 1),
 
           // ---- ROWS ----
-          if (_discounts.isEmpty)
+          if (_isLoading)
+            const Padding(
+              padding: EdgeInsets.all(32),
+              child: Center(child: SizedBox(width: 20, height: 20, child: CircularProgressIndicator(strokeWidth: 2))),
+            )
+          else if (_discounts.isEmpty)
             const _EmptyMessage('No discounts yet.')
           else
             for (int i = 0; i < _discounts.length; i++)
@@ -235,7 +207,7 @@ class _DiscountsTableState extends State<DiscountsTable> {
                         Expanded(
                           flex: 3,
                           child: Text(
-                            _discounts[i]['productName'],
+                            _discounts[i].productName,
                             style: const TextStyle(
                               fontSize: 13,
                               fontWeight: FontWeight.w500,
@@ -248,7 +220,7 @@ class _DiscountsTableState extends State<DiscountsTable> {
                         Expanded(
                           flex: 2,
                           child: Text(
-                            _discounts[i]['originalPrice'],
+                            _discounts[i].originalPriceDisplay,
                             style: const TextStyle(
                               fontSize: 13,
                               color: Color(0xFF111827),
@@ -256,11 +228,11 @@ class _DiscountsTableState extends State<DiscountsTable> {
                           ),
                         ),
 
-                        // Discount — blue
+                        // Discount
                         Expanded(
                           flex: 2,
                           child: Text(
-                            _discounts[i]['discount'],
+                            _discounts[i].discountDisplay,
                             style: const TextStyle(
                               fontSize: 13,
                               fontWeight: FontWeight.w600,
@@ -269,11 +241,11 @@ class _DiscountsTableState extends State<DiscountsTable> {
                           ),
                         ),
 
-                        // Final Price — bold
+                        // Final Price
                         Expanded(
                           flex: 2,
                           child: Text(
-                            _discounts[i]['finalPrice'],
+                            _discounts[i].finalPriceDisplay,
                             style: const TextStyle(
                               fontSize: 13,
                               fontWeight: FontWeight.w600,
@@ -286,7 +258,7 @@ class _DiscountsTableState extends State<DiscountsTable> {
                         Expanded(
                           flex: 2,
                           child: Text(
-                            _discounts[i]['duration'],
+                            _formatDateRange(_discounts[i].startDate, _discounts[i].endDate),
                             style: const TextStyle(
                               fontSize: 13,
                               color: Color(0xFF111827),
@@ -299,18 +271,24 @@ class _DiscountsTableState extends State<DiscountsTable> {
                           flex: 2,
                           child: Align(
                             alignment: Alignment.centerLeft,
-                            child: _buildStatusBadge(_discounts[i]['status']),
+                            child: _buildStatusBadge(_discounts[i].status),
                           ),
                         ),
 
-                        // Actions
+                        // Actions — pill buttons
                         Expanded(
                           flex: 2,
-                          child: _buildActions(
-                            onEdit: () {
-                              // TODO: open edit discount dialog
-                            },
-                            onDelete: () => _handleDelete(i),
+                          child: Row(
+                            mainAxisSize: MainAxisSize.min,
+                            children: [
+                              TablePillButton.edit(
+                                onPressed: () => _handleEditDiscount(_discounts[i]),
+                              ),
+                              const SizedBox(width: 8),
+                              TablePillButton.delete(
+                                onPressed: () => _handleDelete(_discounts[i]),
+                              ),
+                            ],
                           ),
                         ),
                       ],

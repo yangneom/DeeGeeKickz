@@ -11,6 +11,15 @@ dependencies:
   flutter:
     sdk: flutter
   
+  qr_flutter: ^4.1.0
+  
+ # PayMongo + Semaphore REST calls
+  url_launcher: ^6.2.0    # open PayMongo checkout URL + receipt PDF link
+  app_links: ^6.0.0
+  crop_your_image: ^2.0.0
+
+
+  
   # ── File Picker ───────────────────────────────
   file_picker: ^8.1.2
   

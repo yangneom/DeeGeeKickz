@@ -1,18 +1,24 @@
+// lib/widgets/customer/notifications/notification_tile_order.dart
+
 import 'package:flutter/material.dart';
 import '../../../models/notification_model.dart';
 import '../../../models/order.dart';
 import '../../../screens/customer/orders/order_tracking_screen.dart';
 
 /// Notification card for [NotificationType.order].
-/// Shows shipping icon, order title, body, and Track Shipment button.
 class NotificationTileOrder extends StatelessWidget {
   final AppNotification notification;
   final VoidCallback onMarkRead;
+
+  /// The resolved Order object for this notification.
+  /// Pass null if order hasn't loaded yet.
+  final Order? order;
 
   const NotificationTileOrder({
     super.key,
     required this.notification,
     required this.onMarkRead,
+    this.order,
   });
 
   @override
@@ -29,12 +35,12 @@ class NotificationTileOrder extends StatelessWidget {
         child: Row(
           crossAxisAlignment: CrossAxisAlignment.start,
           children: [
-            // ── Icon ───────────────────────────────────────────
+            // ── Icon ────────────────────────────────────────────
             Container(
               width: 48,
               height: 48,
-              decoration: BoxDecoration(
-                color: const Color(0xFFEEEEEE),
+              decoration: const BoxDecoration(
+                color: Color(0xFFEEEEEE),
                 shape: BoxShape.circle,
               ),
               child: const Icon(
@@ -46,12 +52,11 @@ class NotificationTileOrder extends StatelessWidget {
 
             const SizedBox(width: 16),
 
-            // ── Content ─────────────────────────────────────────
+            // ── Content ──────────────────────────────────────────
             Expanded(
               child: Column(
                 crossAxisAlignment: CrossAxisAlignment.start,
                 children: [
-                  // Type label + time + unread dot
                   Row(
                     mainAxisAlignment: MainAxisAlignment.spaceBetween,
                     children: [
@@ -114,40 +119,36 @@ class NotificationTileOrder extends StatelessWidget {
                     ),
                   ),
 
-                  const SizedBox(height: 14),
-
-                  // Track Shipment button
-                  GestureDetector(
-                    onTap: () {
-                      // Find the matching order and navigate to tracking
-                      final order = fakeOrders.firstWhere(
-                        (o) => o.orderId == notification.orderId,
-                        orElse: () => fakeOrders.last,
-                      );
-                      Navigator.of(context).push(
-                        MaterialPageRoute(
-                          builder: (_) => OrderTrackingScreen(order: order),
+                  if (order != null) ...[
+                    const SizedBox(height: 14),
+                    GestureDetector(
+                      onTap: () {
+                        Navigator.of(context).push(
+                          MaterialPageRoute(
+                            builder: (_) =>
+                                OrderTrackingScreen(order: order!),
+                          ),
+                        );
+                      },
+                      child: Container(
+                        padding: const EdgeInsets.symmetric(
+                            horizontal: 16, vertical: 10),
+                        decoration: BoxDecoration(
+                          border: Border.all(color: Colors.black, width: 1),
                         ),
-                      );
-                    },
-                    child: Container(
-                      padding: const EdgeInsets.symmetric(
-                          horizontal: 16, vertical: 10),
-                      decoration: BoxDecoration(
-                        border: Border.all(color: Colors.black, width: 1),
-                      ),
-                      child: const Text(
-                        'TRACK SHIPMENT',
-                        style: TextStyle(
-                          fontFamily: 'Inter',
-                          fontSize: 12,
-                          fontWeight: FontWeight.w600,
-                          letterSpacing: 1.0,
-                          color: Colors.black,
+                        child: const Text(
+                          'TRACK SHIPMENT',
+                          style: TextStyle(
+                            fontFamily: 'Inter',
+                            fontSize: 12,
+                            fontWeight: FontWeight.w600,
+                            letterSpacing: 1.0,
+                            color: Colors.black,
+                          ),
                         ),
                       ),
                     ),
-                  ),
+                  ],
                 ],
               ),
             ),

@@ -10,6 +10,7 @@ import 'package:flutter/foundation.dart' show kIsWeb;
 /// - Submit triggers [onSubmit] callback with the collected data
 class WriteReviewForm extends StatefulWidget {
   final String productName;
+  final bool externalLoading; // true while Supabase submit is in flight
   final void Function({
     required double rating,
     required String title,
@@ -20,6 +21,7 @@ class WriteReviewForm extends StatefulWidget {
   const WriteReviewForm({
     super.key,
     required this.productName,
+    this.externalLoading = false,
     required this.onSubmit,
   });
 
@@ -220,7 +222,7 @@ class _WriteReviewFormState extends State<WriteReviewForm> {
 
           // ── Submit button ─────────────────────────────────────
           _SubmitButton(
-            submitting: _submitting,
+            submitting: _submitting || widget.externalLoading,
             onTap: _submit,
           ),
 

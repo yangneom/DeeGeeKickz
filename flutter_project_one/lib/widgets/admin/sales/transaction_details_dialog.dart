@@ -1,486 +1,205 @@
 import 'package:flutter/material.dart';
+import 'package:url_launcher/url_launcher.dart';
+import '../../../models/order.dart';
+import '../../../services/admin/sales/sales_management_service.dart';
 import '../../common/tables/common_table.dart';
 
-// ================================================
-// TRANSACTION DETAILS DIALOG
-// shows full details of a sale when View is clicked
-// structured like AddProductDialog:
-//   - fixed header at top
-//   - scrollable content in middle
-//   - fixed Back button at bottom
-// ================================================
-class TransactionDetailsDialog extends StatelessWidget {
+class TransactionDetailsDialog extends StatefulWidget {
+  final SaleRecord sale; // ← was Map<String,String>, now real data
 
-  // the sale data passed in from the table row
-  final Map<String, String> sale;
+  const TransactionDetailsDialog({super.key, required this.sale});
 
-  const TransactionDetailsDialog({
-    super.key,
-    required this.sale,
-  });
+  @override
+  State<TransactionDetailsDialog> createState() => _TransactionDetailsDialogState();
+}
+
+class _TransactionDetailsDialogState extends State<TransactionDetailsDialog> {
+  final SalesManagementService _service = SalesManagementService();
+  late Future<Map<String, dynamic>> _detailsFuture;
+
+  @override
+  void initState() {
+    super.initState();
+    _detailsFuture = _service.loadSaleDetails(widget.sale.orderId);
+  }
 
   @override
   Widget build(BuildContext context) {
-
-    // get screen size so we can size the dialog properly
-    double screenHeight = MediaQuery.of(context).size.height;
-    double screenWidth = MediaQuery.of(context).size.width;
+    final double screenHeight = MediaQuery.of(context).size.height;
+    final double screenWidth  = MediaQuery.of(context).size.width;
 
     return Dialog(
-
-      // removes default padding around the dialog
       insetPadding: EdgeInsets.zero,
-
-      // white background, no pink
       backgroundColor: Colors.white,
-
-      shape: RoundedRectangleBorder(
-        borderRadius: BorderRadius.circular(12),
-      ),
-
+      shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
       child: Container(
-
-        // same sizing style as AddProductDialog
         width: screenWidth < 700 ? screenWidth * 0.95 : 700,
         height: screenHeight * 0.90,
+        decoration: BoxDecoration(color: Colors.white, borderRadius: BorderRadius.circular(12)),
+        child: FutureBuilder<Map<String, dynamic>>(
+          future: _detailsFuture,
+          builder: (context, snapshot) {
+            if (snapshot.connectionState == ConnectionState.waiting) {
+              return const Center(child: CircularProgressIndicator());
+            }
+            if (snapshot.hasError) {
+              return Center(child: Text('Failed to load: ${snapshot.error}'));
+            }
 
-        decoration: BoxDecoration(
-          color: Colors.white,
-          borderRadius: BorderRadius.circular(12),
-        ),
+            final Map<String, dynamic> details = snapshot.data!;
+            final List<OrderItem> items = details['items'] as List<OrderItem>;
+            final String referenceNumber = details['referenceNumber'] as String;
+            final String paymentStatus = details['paymentStatus'] as String;
+            final String? receiptUrl = details['receiptUrl'] as String?;
 
-        // Column has 3 parts:
-        // 1. fixed header
-        // 2. scrollable content (Expanded)
-        // 3. fixed footer with Back button
-        child: Column(
-          mainAxisSize: MainAxisSize.max,
-          crossAxisAlignment: CrossAxisAlignment.start,
-          children: [
-
-            // ================================================
-            // PART 1 — FIXED HEADER
-            // stays at top even when scrolling
-            // ================================================
-            Padding(
-              padding: const EdgeInsets.fromLTRB(24, 24, 24, 0),
-              child: Column(
-                crossAxisAlignment: CrossAxisAlignment.start,
-                children: [
-
-                  // title
-                  const Text(
-                    'TRANSACTION DETAILS',
-                    style: TextStyle(
-                      fontSize: 20,
-                      fontWeight: FontWeight.bold,
-                      color: Color(0xFF111827),
-                      letterSpacing: 1.0,
-                    ),
-                  ),
-
-                  const SizedBox(height: 4),
-
-                  // subtitle
-                  const Text(
-                    'Summary of the customer purchase and payment information.',
-                    style: TextStyle(
-                      fontSize: 13,
-                      color: Color(0xFF6B7280),
-                    ),
-                  ),
-
-                  const SizedBox(height: 12),
-
-                  // date row with calendar icon
-                  Row(
+            return Column(
+              mainAxisSize: MainAxisSize.max,
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                // ── HEADER ──
+                Padding(
+                  padding: const EdgeInsets.fromLTRB(24, 24, 24, 0),
+                  child: Column(
+                    crossAxisAlignment: CrossAxisAlignment.start,
                     children: [
-                      const Icon(
-                        Icons.calendar_today_outlined,
-                        size: 14,
-                        color: Color(0xFF6B7280),
+                      const Text('TRANSACTION DETAILS',
+                          style: TextStyle(fontSize: 20, fontWeight: FontWeight.bold, color: Color(0xFF111827), letterSpacing: 1.0)),
+                      const SizedBox(height: 4),
+                      Text('Order #${widget.sale.orderId} · ${widget.sale.orderType == 'In-Store' ? 'In-Store' : 'Online'}',
+                          style: const TextStyle(fontSize: 13, color: Color(0xFF6B7280))),
+                      const SizedBox(height: 12),
+                      Row(
+                        children: [
+                          const Icon(Icons.calendar_today_outlined, size: 14, color: Color(0xFF6B7280)),
+                          const SizedBox(width: 6),
+                          Text(widget.sale.dateTime, style: const TextStyle(fontSize: 13, color: Color(0xFF6B7280))),
+                        ],
                       ),
-                      const SizedBox(width: 6),
-                      Text(
-                        sale['date'] ?? '',
-                        style: const TextStyle(
-                          fontSize: 13,
-                          color: Color(0xFF6B7280),
+                      const SizedBox(height: 20),
+                      const Divider(color: Color(0xFFE5E7EB), height: 1),
+                    ],
+                  ),
+                ),
+
+                // ── SCROLLABLE BODY ──
+                Expanded(
+                  child: SingleChildScrollView(
+                    padding: const EdgeInsets.all(24),
+                    child: Column(
+                      crossAxisAlignment: CrossAxisAlignment.start,
+                      children: [
+                        _buildItemsSection(items),
+                        const SizedBox(height: 32),
+                        Row(
+                          crossAxisAlignment: CrossAxisAlignment.start,
+                          children: [
+                            Expanded(child: _buildPaymentInfo(referenceNumber, paymentStatus, receiptUrl)),
+                            const SizedBox(width: 16),
+                            Expanded(child: _buildSummary()),
+                          ],
                         ),
+                        const SizedBox(height: 16),
+                      ],
+                    ),
+                  ),
+                ),
+
+                // ── FOOTER ──
+                Container(
+                  padding: const EdgeInsets.fromLTRB(24, 16, 24, 24),
+                  decoration: const BoxDecoration(color: Colors.white, border: Border(top: BorderSide(color: Color(0xFFE5E7EB)))),
+                  child: Row(
+                    mainAxisAlignment: MainAxisAlignment.end,
+                    children: [
+                      OutlinedButton(
+                        onPressed: () => Navigator.pop(context),
+                        style: OutlinedButton.styleFrom(
+                          foregroundColor: const Color(0xFF374151),
+                          side: const BorderSide(color: Color(0xFFD1D5DB)),
+                          padding: const EdgeInsets.symmetric(horizontal: 20, vertical: 12),
+                          shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(8)),
+                        ),
+                        child: const Text('Back', style: TextStyle(fontSize: 13, fontWeight: FontWeight.w500)),
                       ),
                     ],
                   ),
-
-                  const SizedBox(height: 20),
-
-                  // divider line under header
-                  const Divider(color: Color(0xFFE5E7EB), height: 1),
-                ],
-              ),
-            ),
-
-            // ================================================
-            // PART 2 — SCROLLABLE CONTENT
-            // Expanded makes it fill the space between
-            // the header and footer
-            // ================================================
-            Expanded(
-              child: SingleChildScrollView(
-                physics: const AlwaysScrollableScrollPhysics(),
-                padding: const EdgeInsets.all(24),
-                child: Column(
-                  crossAxisAlignment: CrossAxisAlignment.start,
-                  children: [
-
-                    // items purchased table
-                    _buildItemsSection(),
-
-                    const SizedBox(height: 32),
-
-                    // payment info + summary side by side
-                    Row(
-                      crossAxisAlignment: CrossAxisAlignment.start,
-                      children: [
-
-                        // left — payment information
-                        Expanded(
-                          child: _buildPaymentInfo(),
-                        ),
-
-                        const SizedBox(width: 16),
-
-                        // right — order summary
-                        Expanded(
-                          child: _buildSummary(),
-                        ),
-                      ],
-                    ),
-
-                    const SizedBox(height: 16),
-                  ],
                 ),
-              ),
-            ),
-
-            // ================================================
-            // PART 3 — FIXED FOOTER
-            // stays at bottom even when scrolling
-            // same style as AddProductDialog bottom buttons
-            // ================================================
-            Container(
-              padding: const EdgeInsets.fromLTRB(24, 16, 24, 24),
-              decoration: const BoxDecoration(
-                color: Colors.white,
-                border: Border(
-                  top: BorderSide(color: Color(0xFFE5E7EB)),
-                ),
-              ),
-              child: Row(
-                mainAxisAlignment: MainAxisAlignment.end,
-                children: [
-
-                  // Back button closes the dialog
-                  OutlinedButton(
-                    onPressed: () {
-
-                      // Navigator.pop closes this dialog
-                      Navigator.pop(context);
-                    },
-                    style: OutlinedButton.styleFrom(
-                      foregroundColor: const Color(0xFF374151),
-                      side: const BorderSide(color: Color(0xFFD1D5DB)),
-                      padding: const EdgeInsets.symmetric(
-                        horizontal: 20,
-                        vertical: 12,
-                      ),
-                      shape: RoundedRectangleBorder(
-                        borderRadius: BorderRadius.circular(8),
-                      ),
-                    ),
-                    child: const Text(
-                      'Back',
-                      style: TextStyle(
-                        fontSize: 13,
-                        fontWeight: FontWeight.w500,
-                      ),
-                    ),
-                  ),
-                ],
-              ),
-            ),
-          ],
+              ],
+            );
+          },
         ),
       ),
     );
   }
 
-  // ================================================
-  // ITEMS PURCHASED SECTION
-  // full-width table showing all items in this order
-  // fake data for now — replace with Firebase later
-  // ================================================
-  // ================================================
-// ITEMS PURCHASED SECTION
-// now uses CommonTable — the reusable table widget
-// just like how SalesScreen uses it
-// ================================================
-Widget _buildItemsSection() {
+  // ── ITEMS TABLE — now real data from order_item ──
+  Widget _buildItemsSection(List<OrderItem> items) {
+    List<List<Widget>> tableRows = items.map((item) {
+      return [
+        Text(item.productName, style: const TextStyle(fontSize: 13, color: Color(0xFF111827))),
+        Text(item.brand, style: const TextStyle(fontSize: 13, color: Color(0xFF111827))),
+        Text(item.size.toString(), style: const TextStyle(fontSize: 13, color: Color(0xFF111827))),
+        Text(item.quantity.toString(), style: const TextStyle(fontSize: 13, color: Color(0xFF111827))),
+        Text('₱${item.price.toStringAsFixed(0)}', style: const TextStyle(fontSize: 13, color: Color(0xFF111827))),
+        Text('₱${item.total.toStringAsFixed(0)}', style: const TextStyle(fontSize: 13, color: Color(0xFF111827))),
+      ];
+    }).toList();
 
-  // fake items for now — replace with Firebase later
-  final List<Map<String, String>> items = [
-    {
-      'name': 'Nike Air Max',
-      'brand': 'Nike',
-      'size': '42',
-      'qty': '1',
-      'price': '5,500',
-      'total': '5,500',
-    },
-  ];
-
-  // ------------------------------------------------
-  // BUILD ROWS
-  // convert each item map into a list of widgets
-  // same pattern as _buildRows() in sales_screen.dart
-  // ------------------------------------------------
-  List<List<Widget>> tableRows = [];
-
-  for (int i = 0; i < items.length; i = i + 1) {
-
-    // get current item
-    Map<String, String> item = items[i];
-
-    // build one row — each entry is one cell
-    List<Widget> oneRow = [
-
-      // column 1 — product name
-      Text(
-        item['name']!,
-        style: const TextStyle(
-          fontSize: 13,
-          color: Color(0xFF111827),
+    return Column(
+      crossAxisAlignment: CrossAxisAlignment.start,
+      children: [
+        const Text('Items Purchased', style: TextStyle(fontSize: 15, fontWeight: FontWeight.w600, color: Color(0xFF111827))),
+        const SizedBox(height: 12),
+        CommonTable(
+          headers: const ['Product Name', 'Brand', 'Size', 'Quantity', 'Unit Price', 'Total'],
+          rows: tableRows,
         ),
-      ),
-
-      // column 2 — brand
-      Text(
-        item['brand']!,
-        style: const TextStyle(
-          fontSize: 13,
-          color: Color(0xFF111827),
-        ),
-      ),
-
-      // column 3 — size
-      Text(
-        item['size']!,
-        style: const TextStyle(
-          fontSize: 13,
-          color: Color(0xFF111827),
-        ),
-      ),
-
-      // column 4 — quantity
-      Text(
-        item['qty']!,
-        style: const TextStyle(
-          fontSize: 13,
-          color: Color(0xFF111827),
-        ),
-      ),
-
-      // column 5 — unit price
-      Text(
-        item['price']!,
-        style: const TextStyle(
-          fontSize: 13,
-          color: Color(0xFF111827),
-        ),
-      ),
-
-      // column 6 — total
-      Text(
-        item['total']!,
-        style: const TextStyle(
-          fontSize: 13,
-          color: Color(0xFF111827),
-        ),
-      ),
-    ];
-
-    // add this row to our list
-    tableRows.add(oneRow);
-  }
-
-  return Column(
-    crossAxisAlignment: CrossAxisAlignment.start,
-    children: [
-
-      // section title
-      const Text(
-        'Items Purchased',
-        style: TextStyle(
-          fontSize: 15,
-          fontWeight: FontWeight.w600,
-          color: Color(0xFF111827),
-        ),
-      ),
-
-      const SizedBox(height: 12),
-
-      // CommonTable handles all the styling!
-      // just pass headers and the rows we built above
-      CommonTable(
-        headers: const [
-          'Product Name',
-          'Brand',
-          'Size',
-          'Quantity',
-          'Unit Price',
-          'Total',
-        ],
-        rows: tableRows,
-      ),
-    ],
-  );
-}
-
-  // ================================================
-  // TABLE HEADER CELL — gray label text
-  // ================================================
-  Widget _buildTableHeader(String text) {
-    return Padding(
-      padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 12),
-      child: Text(
-        text,
-        style: const TextStyle(
-          fontSize: 12,
-          fontWeight: FontWeight.w600,
-          color: Color(0xFF6B7280),
-        ),
-      ),
+      ],
     );
   }
 
-  // ================================================
-  // TABLE DATA CELL — dark normal text
-  // ================================================
-  Widget _buildTableCell(String text) {
-    return Padding(
-      padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 16),
-      child: Text(
-        text,
-        style: const TextStyle(
-          fontSize: 13,
-          color: Color(0xFF111827),
-        ),
-      ),
-    );
-  }
+  // ── PAYMENT INFO — now real data from payment table ──
+  Widget _buildPaymentInfo(String referenceNumber, String paymentStatus, String? receiptUrl) {
+    final bool isPaid = paymentStatus == 'Paid';
 
-  // ================================================
-  // PAYMENT INFORMATION SECTION
-  // ================================================
-  Widget _buildPaymentInfo() {
     return Container(
       padding: const EdgeInsets.all(20),
-      decoration: BoxDecoration(
-        color: const Color(0xFFF9FAFB),
-        borderRadius: BorderRadius.circular(8),
-        border: Border.all(color: const Color(0xFFE5E7EB)),
-      ),
+      decoration: BoxDecoration(color: const Color(0xFFF9FAFB), borderRadius: BorderRadius.circular(8), border: Border.all(color: const Color(0xFFE5E7EB))),
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.start,
         children: [
-
-          // section title
-          const Text(
-            'Payment Information',
-            style: TextStyle(
-              fontSize: 15,
-              fontWeight: FontWeight.w600,
-              color: Color(0xFF111827),
-            ),
-          ),
-
+          const Text('Payment Information', style: TextStyle(fontSize: 15, fontWeight: FontWeight.w600, color: Color(0xFF111827))),
           const SizedBox(height: 20),
-
-          // payment method
-          _buildInfoRow(
-            icon: Icons.credit_card_outlined,
-            label: 'Payment Method',
-            value: sale['payment'] ?? '',
-          ),
-
+          _buildInfoRow(icon: Icons.credit_card_outlined, label: 'Payment Method', value: widget.sale.paymentMethod),
           const SizedBox(height: 16),
-
-          // reference number
-          _buildInfoRow(
-            icon: Icons.tag,
-            label: 'Reference Number',
-            value: sale['reference'] ?? '',
-          ),
-
+          _buildInfoRow(icon: Icons.tag, label: 'Reference Number', value: referenceNumber.isNotEmpty ? referenceNumber : '—'),
           const SizedBox(height: 16),
-
-          // payment status — special green badge
           Row(
             crossAxisAlignment: CrossAxisAlignment.start,
             children: [
-              const Icon(
-                Icons.check_circle_outline,
-                size: 16,
-                color: Color(0xFF6B7280),
-              ),
+              const Icon(Icons.check_circle_outline, size: 16, color: Color(0xFF6B7280)),
               const SizedBox(width: 12),
               Column(
                 crossAxisAlignment: CrossAxisAlignment.start,
                 children: [
-
-                  const Text(
-                    'Payment Status',
-                    style: TextStyle(
-                      fontSize: 12,
-                      color: Color(0xFF6B7280),
-                    ),
-                  ),
-
+                  const Text('Payment Status', style: TextStyle(fontSize: 12, color: Color(0xFF6B7280))),
                   const SizedBox(height: 4),
-
-                  // green Paid badge
                   Container(
-                    padding: const EdgeInsets.symmetric(
-                      horizontal: 10,
-                      vertical: 4,
-                    ),
+                    padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 4),
                     decoration: BoxDecoration(
-                      color: const Color(0xFFDCFCE7),
+                      color: isPaid ? const Color(0xFFDCFCE7) : const Color(0xFFFEF3C7),
                       borderRadius: BorderRadius.circular(20),
                     ),
                     child: Row(
                       mainAxisSize: MainAxisSize.min,
                       children: [
-
-                        // green dot
                         Container(
-                          width: 6,
-                          height: 6,
-                          decoration: const BoxDecoration(
-                            color: Color(0xFF16A34A),
-                            shape: BoxShape.circle,
-                          ),
+                          width: 6, height: 6,
+                          decoration: BoxDecoration(color: isPaid ? const Color(0xFF16A34A) : const Color(0xFF92400E), shape: BoxShape.circle),
                         ),
-
                         const SizedBox(width: 6),
-
-                        const Text(
-                          'Paid',
-                          style: TextStyle(
-                            fontSize: 12,
-                            fontWeight: FontWeight.w500,
-                            color: Color(0xFF16A34A),
-                          ),
-                        ),
+                        Text(paymentStatus,
+                            style: TextStyle(fontSize: 12, fontWeight: FontWeight.w500, color: isPaid ? const Color(0xFF16A34A) : const Color(0xFF92400E))),
                       ],
                     ),
                   ),
@@ -488,149 +207,64 @@ Widget _buildItemsSection() {
               ),
             ],
           ),
-
-          const SizedBox(height: 16),
-
-          // receipt link
-          _buildInfoRow(
-            icon: Icons.receipt_outlined,
-            label: 'Receipt',
-            value: 'View Receipt',
-            isLink: true,
-          ),
+          if (receiptUrl != null && receiptUrl.isNotEmpty) ...[
+            const SizedBox(height: 16),
+            GestureDetector(
+              onTap: () async {
+                final Uri uri = Uri.parse(receiptUrl);
+                if (await canLaunchUrl(uri)) await launchUrl(uri, mode: LaunchMode.externalApplication);
+              },
+              child: _buildInfoRow(icon: Icons.receipt_outlined, label: 'Receipt', value: 'View Receipt', isLink: true),
+            ),
+          ],
         ],
       ),
     );
   }
 
-  // ================================================
-  // REUSABLE INFO ROW
-  // icon on left, label above value below
-  // ================================================
-  Widget _buildInfoRow({
-    required IconData icon,
-    required String label,
-    required String value,
-    bool isLink = false,
-  }) {
+  Widget _buildInfoRow({required IconData icon, required String label, required String value, bool isLink = false}) {
     return Row(
       crossAxisAlignment: CrossAxisAlignment.start,
       children: [
-
         Icon(icon, size: 16, color: const Color(0xFF6B7280)),
-
         const SizedBox(width: 12),
-
         Column(
           crossAxisAlignment: CrossAxisAlignment.start,
           children: [
-
-            // gray label
-            Text(
-              label,
-              style: const TextStyle(
-                fontSize: 12,
-                color: Color(0xFF6B7280),
-              ),
-            ),
-
+            Text(label, style: const TextStyle(fontSize: 12, color: Color(0xFF6B7280))),
             const SizedBox(height: 2),
-
-            // value — blue if link, dark if normal
-            Text(
-              value,
-              style: TextStyle(
-                fontSize: 13,
-                fontWeight: FontWeight.w500,
-                color: isLink
-                    ? const Color(0xFF2563EB)
-                    : const Color(0xFF111827),
-              ),
-            ),
+            Text(value, style: TextStyle(fontSize: 13, fontWeight: FontWeight.w500, color: isLink ? const Color(0xFF2563EB) : const Color(0xFF111827))),
           ],
         ),
       ],
     );
   }
 
-  // ================================================
-  // ORDER SUMMARY SECTION
-  // ================================================
+  // ── SUMMARY — now real subtotal/discount/total from the order ──
   Widget _buildSummary() {
     return Container(
       padding: const EdgeInsets.all(20),
-      decoration: BoxDecoration(
-        color: const Color(0xFFF9FAFB),
-        borderRadius: BorderRadius.circular(8),
-        border: Border.all(color: const Color(0xFFE5E7EB)),
-      ),
+      decoration: BoxDecoration(color: const Color(0xFFF9FAFB), borderRadius: BorderRadius.circular(8), border: Border.all(color: const Color(0xFFE5E7EB))),
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.start,
         children: [
-
-          // section title
-          const Text(
-            'Summary',
-            style: TextStyle(
-              fontSize: 15,
-              fontWeight: FontWeight.w600,
-              color: Color(0xFF111827),
-            ),
-          ),
-
+          const Text('Summary', style: TextStyle(fontSize: 15, fontWeight: FontWeight.w600, color: Color(0xFF111827))),
           const SizedBox(height: 20),
-
-          // subtotal row
-          _buildSummaryRow(
-            label: 'Subtotal',
-            value: sale['total'] ?? '0',
-          ),
-
+          _buildSummaryRow(label: 'Subtotal', value: '₱${widget.sale.subtotal.toStringAsFixed(0)}'),
           const SizedBox(height: 12),
-
           const Divider(color: Color(0xFFE5E7EB)),
-
           const SizedBox(height: 12),
-
-          // discount row — green color, fake 0 for now
-          _buildSummaryRow(
-            label: 'Discount',
-            value: '0',
-            isDiscount: true,
-          ),
-
+          _buildSummaryRow(label: 'Discount', value: '₱${widget.sale.discountAmount.toStringAsFixed(0)}', isDiscount: true),
           const SizedBox(height: 16),
-
-          // total amount box in blue
           Container(
             width: double.infinity,
             padding: const EdgeInsets.all(16),
-            decoration: BoxDecoration(
-              color: const Color(0xFFEFF6FF),
-              borderRadius: BorderRadius.circular(8),
-              border: Border.all(color: const Color(0xFFBFDBFE)),
-            ),
+            decoration: BoxDecoration(color: const Color(0xFFEFF6FF), borderRadius: BorderRadius.circular(8), border: Border.all(color: const Color(0xFFBFDBFE))),
             child: Row(
               mainAxisAlignment: MainAxisAlignment.spaceBetween,
               children: [
-
-                const Text(
-                  'Total Amount',
-                  style: TextStyle(
-                    fontSize: 14,
-                    fontWeight: FontWeight.w600,
-                    color: Color(0xFF111827),
-                  ),
-                ),
-
-                Text(
-                  sale['total'] ?? '0',
-                  style: const TextStyle(
-                    fontSize: 18,
-                    fontWeight: FontWeight.bold,
-                    color: Color(0xFF2563EB),
-                  ),
-                ),
+                const Text('Total Amount', style: TextStyle(fontSize: 14, fontWeight: FontWeight.w600, color: Color(0xFF111827))),
+                Text('₱${widget.sale.totalAmount.toStringAsFixed(0)}', style: const TextStyle(fontSize: 18, fontWeight: FontWeight.bold, color: Color(0xFF2563EB))),
               ],
             ),
           ),
@@ -639,36 +273,13 @@ Widget _buildItemsSection() {
     );
   }
 
-  // ================================================
-  // SUMMARY ROW — label + value in one line
-  // ================================================
-  Widget _buildSummaryRow({
-    required String label,
-    required String value,
-    bool isDiscount = false,
-  }) {
+  Widget _buildSummaryRow({required String label, required String value, bool isDiscount = false}) {
     return Row(
       mainAxisAlignment: MainAxisAlignment.spaceBetween,
       children: [
-
-        Text(
-          label,
-          style: const TextStyle(
-            fontSize: 13,
-            color: Color(0xFF6B7280),
-          ),
-        ),
-
-        Text(
-          isDiscount ? '-$value' : value,
-          style: TextStyle(
-            fontSize: 13,
-            fontWeight: FontWeight.w500,
-            color: isDiscount
-                ? const Color(0xFF16A34A)
-                : const Color(0xFF111827),
-          ),
-        ),
+        Text(label, style: const TextStyle(fontSize: 13, color: Color(0xFF6B7280))),
+        Text(isDiscount ? '-$value' : value,
+            style: TextStyle(fontSize: 13, fontWeight: FontWeight.w500, color: isDiscount ? const Color(0xFF16A34A) : const Color(0xFF111827))),
       ],
     );
   }

@@ -1,257 +1,662 @@
+// lib/screens/admin/messages/messages_screen.dart
+
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
-import '../../../widgets/admin/messages/customer_list.dart';
-import '../../../widgets/admin/messages/chat_window.dart';
 
-
+import '../../../providers/customer/chat_provider.dart';
+import '../../../models/chat_message_model.dart';
 
 class MessagesScreen extends ConsumerStatefulWidget {
   const MessagesScreen({super.key});
 
   @override
-  ConsumerState<MessagesScreen> createState() {
-    return _MessagesScreenState();
-  }
+  ConsumerState<MessagesScreen> createState() => _MessagesScreenState();
 }
 
 class _MessagesScreenState extends ConsumerState<MessagesScreen> {
-
-  // ================================================
-  // FAKE DATA — for testing only
-  // later this will come from Firebase
-  // ================================================
-
-  // list of customers
-  final List<CustomerChat> _customers = [
-    CustomerChat(
-      customerId: 'customer_001',
-      customerName: 'Angel Tuazon',
-      lastMessage: 'Hello! I want to ask about...',
-      time: '2:45 PM',
-      unreadCount: 3,
-    ),
-    CustomerChat(
-      customerId: 'customer_002',
-      customerName: 'Jay Galang',
-      lastMessage: 'Is this available in size 9?',
-      time: '1:30 PM',
-      unreadCount: 0,
-    ),
-    CustomerChat(
-      customerId: 'customer_003',
-      customerName: 'John Dela Cruz',
-      lastMessage: 'Thank you so much!',
-      time: '11:20 AM',
-      unreadCount: 1,
-    ),
-    CustomerChat(
-      customerId: 'customer_004',
-      customerName: 'Maria Santos',
-      lastMessage: 'When will it be restocked?',
-      time: 'Yesterday',
-      unreadCount: 0,
-    ),
-    CustomerChat(
-      customerId: 'customer_005',
-      customerName: 'Kevin Reyes',
-      lastMessage: 'Got it, thanks!',
-      time: 'Yesterday',
-      unreadCount: 0,
-    ),
-  ];
-
-  // messages per customer
-  // key = customerId, value = list of messages
-  Map<String, List<ChatMessage>> _messages = {
-    'customer_001': [
-      ChatMessage(
-        text: 'Hello! I want to ask about the Nike Panda in Pink size 8. Is it still available?',
-        sender: 'customer',
-        time: '2:30 PM',
-      ),
-      ChatMessage(
-        text: 'Hi Angel! Yes, we still have Nike Panda in Pink size 8 available. We have 6 units in stock.',
-        sender: 'admin',
-        time: '2:32 PM',
-      ),
-      ChatMessage(
-        text: 'That\'s great! How much is it?',
-        sender: 'customer',
-        time: '2:33 PM',
-      ),
-      ChatMessage(
-        text: 'It\'s priced at ₱2,500. Would you like to place an order?',
-        sender: 'admin',
-        time: '2:35 PM',
-      ),
-      ChatMessage(
-        text: 'Yes please! How do I order?',
-        sender: 'customer',
-        time: '2:45 PM',
-      ),
-    ],
-    'customer_002': [
-      ChatMessage(
-        text: 'Is the Nike Air Max available in size 9?',
-        sender: 'customer',
-        time: '1:20 PM',
-      ),
-      ChatMessage(
-        text: 'Hi Jay! Let me check that for you.',
-        sender: 'admin',
-        time: '1:25 PM',
-      ),
-      ChatMessage(
-        text: 'Is this available in size 9?',
-        sender: 'customer',
-        time: '1:30 PM',
-      ),
-    ],
-    'customer_003': [
-      ChatMessage(
-        text: 'I received my order. Thank you so much!',
-        sender: 'customer',
-        time: '11:20 AM',
-      ),
-    ],
-    'customer_004': [
-      ChatMessage(
-        text: 'When will the Adidas Ultraboost be restocked?',
-        sender: 'customer',
-        time: 'Yesterday',
-      ),
-      ChatMessage(
-        text: 'When will it be restocked?',
-        sender: 'customer',
-        time: 'Yesterday',
-      ),
-    ],
-    'customer_005': [
-      ChatMessage(
-        text: 'Thanks for the info!',
-        sender: 'customer',
-        time: 'Yesterday',
-      ),
-      ChatMessage(
-        text: 'Got it, thanks!',
-        sender: 'customer',
-        time: 'Yesterday',
-      ),
-    ],
-  };
-
-  // currently selected customer
-  // starts with first customer selected
-  CustomerChat? _selectedCustomer;
+  final TextEditingController _inputController = TextEditingController();
+  final ScrollController _scrollController = ScrollController();
 
   @override
-  void initState() {
-    super.initState();
-
-    // select first customer by default
-    if (_customers.isNotEmpty) {
-      _selectedCustomer = _customers[0];
-    }
+  void dispose() {
+    _inputController.dispose();
+    _scrollController.dispose();
+    super.dispose();
   }
 
-  // ================================================
-  // ON SEND MESSAGE
-  // adds new message to the list
-  // ================================================
-  void _onSendMessage(String text) {
-
-    // make sure a customer is selected
-    if (_selectedCustomer == null) {
-      return;
-    }
-
-    String customerId = _selectedCustomer!.customerId;
-
-    // create new message
-    ChatMessage newMessage = ChatMessage(
-      text: text,
-      sender: 'admin',
-      time: 'Just now',
-    );
-
-    setState(() {
-
-      // add message to the list
-      if (_messages[customerId] == null) {
-        _messages[customerId] = [];
-      }
-
-      _messages[customerId]!.add(newMessage);
-
-      // update last message preview in customer list
-      for (int i = 0; i < _customers.length; i = i + 1) {
-        if (_customers[i].customerId == customerId) {
-          _customers[i].lastMessage = text;
-          _customers[i].time = 'Just now';
-          break;
-        }
+  void _scrollToBottom() {
+    WidgetsBinding.instance.addPostFrameCallback((_) {
+      if (_scrollController.hasClients) {
+        _scrollController.animateTo(
+          _scrollController.position.maxScrollExtent,
+          duration: const Duration(milliseconds: 300),
+          curve: Curves.easeOut,
+        );
       }
     });
   }
 
-  // ================================================
-  // BUILD
-  // ================================================
+  void _onSend() {
+    final text = _inputController.text.trim();
+    if (text.isEmpty) return;
+    _inputController.clear();
+    ref.read(adminChatProvider.notifier).sendMessage(text);
+    _scrollToBottom();
+  }
+
   @override
   Widget build(BuildContext context) {
-    return Scaffold(
-      // ── page background: matches app-wide grey ──
-      backgroundColor: const Color(0xFFF8F9FA),
-      body: Row(
-        children: [
+    final chatState = ref.watch(adminChatProvider);
 
-          // ── LEFT PANEL — customer list (white card) ──
-          Container(
-            decoration: const BoxDecoration(
-              color: Colors.white,
-              border: Border(
-                right: BorderSide(
-                  color: Color(0xFFF3F4F6 ),
-                  width: 1,
+    // Scroll when messages change
+    ref.listen(adminChatProvider, (prev, next) {
+      if (prev?.messages.length != next.messages.length) {
+        _scrollToBottom();
+      }
+    });
+
+    return Scaffold(
+      backgroundColor: const Color(0xFFF8F9FA),
+      body: chatState.isLoading
+          ? const Center(
+              child: CircularProgressIndicator(color: Colors.black))
+          : Row(
+              children: [
+                // ── LEFT: Customer list ───────────────────────
+                _CustomerList(
+                  conversations:          chatState.conversations,
+                  selectedConversationId: chatState.selectedConversationId,
+                  unreadCounts:           chatState.unreadCounts,
+                  onSelect: (id) =>
+                      ref.read(adminChatProvider.notifier).selectConversation(id),
                 ),
+
+                // ── RIGHT: Chat window ────────────────────────
+                Expanded(
+                  child: chatState.selectedConversation == null
+                      ? const Center(
+                          child: Text(
+                            'Select a customer to start chatting.',
+                            style: TextStyle(
+                              fontFamily: 'Inter',
+                              fontSize: 13,
+                              color: Color(0xFF9CA3AF),
+                            ),
+                          ),
+                        )
+                      : _ChatWindow(
+                          conversation:    chatState.selectedConversation!,
+                          messages:        chatState.messages,
+                          isLoading:       chatState.isMessagesLoading,
+                          scrollController: _scrollController,
+                          inputController: _inputController,
+                          onSend:          _onSend,
+                        ),
+                ),
+              ],
+            ),
+    );
+  }
+}
+
+// ─── Customer list (left panel) ────────────────────────────────────────────────
+
+class _CustomerList extends StatefulWidget {
+  final List<Conversation> conversations;
+  final String? selectedConversationId;
+  final Map<String, int> unreadCounts;
+  final void Function(String id) onSelect;
+
+  const _CustomerList({
+    required this.conversations,
+    required this.selectedConversationId,
+    required this.unreadCounts,
+    required this.onSelect,
+  });
+
+  @override
+  State<_CustomerList> createState() => _CustomerListState();
+}
+
+class _CustomerListState extends State<_CustomerList> {
+  final TextEditingController _search = TextEditingController();
+  String _query = '';
+
+  @override
+  void dispose() {
+    _search.dispose();
+    super.dispose();
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    final filtered = widget.conversations
+        .where((c) =>
+            c.customerName.toLowerCase().contains(_query.toLowerCase()))
+        .toList();
+
+    return Container(
+      width: 280,
+      decoration: const BoxDecoration(
+        color: Colors.white,
+        border: Border(
+          right: BorderSide(color: Color(0xFFE5E7EB), width: 1),
+        ),
+      ),
+      child: Column(
+        children: [
+          // Header
+          Container(
+            padding: const EdgeInsets.all(16),
+            decoration: const BoxDecoration(
+              border: Border(
+                bottom: BorderSide(color: Color(0xFFE5E7EB), width: 1),
               ),
             ),
-            child: CustomerList(
-              customers: _customers,
-              selectedCustomerId: _selectedCustomer?.customerId,
-              onCustomerSelected: (CustomerChat customer) {
-                setState(() {
-                  _selectedCustomer = customer;
-                });
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                const Text(
+                  'Messages',
+                  style: TextStyle(
+                    fontFamily: 'Archivo Narrow',
+                    fontSize: 16,
+                    fontWeight: FontWeight.w700,
+                    color: Color(0xFF111827),
+                    letterSpacing: 0.3,
+                  ),
+                ),
+                const SizedBox(height: 10),
+                Container(
+                  height: 36,
+                  padding: const EdgeInsets.symmetric(horizontal: 10),
+                  decoration: BoxDecoration(
+                    color: const Color(0xFFF9FAFB),
+                    border: Border.all(
+                        color: const Color(0xFFE5E7EB), width: 0.5),
+                  ),
+                  child: Row(
+                    children: [
+                      const Icon(Icons.search,
+                          size: 16, color: Color(0xFF9CA3AF)),
+                      const SizedBox(width: 8),
+                      Expanded(
+                        child: TextField(
+                          controller: _search,
+                          onChanged: (v) => setState(() => _query = v),
+                          style: const TextStyle(
+                              fontFamily: 'Inter',
+                              fontSize: 13,
+                              color: Color(0xFF374151)),
+                          decoration: const InputDecoration(
+                            hintText: 'Search customers...',
+                            hintStyle: TextStyle(
+                                fontFamily: 'Inter',
+                                fontSize: 13,
+                                color: Color(0xFF9CA3AF)),
+                            border: InputBorder.none,
+                            isDense: true,
+                            contentPadding: EdgeInsets.zero,
+                          ),
+                        ),
+                      ),
+                    ],
+                  ),
+                ),
+              ],
+            ),
+          ),
+
+          // List
+          Expanded(
+            child: ListView.builder(
+              itemCount: filtered.length,
+              itemBuilder: (context, i) {
+                final conv = filtered[i];
+                final isSelected =
+                    widget.selectedConversationId == conv.id;
+                final unread = widget.unreadCounts[conv.id] ?? 0;
+
+                return _ConversationListItem(
+                  conversation: conv,
+                  isSelected:   isSelected,
+                  unreadCount:  unread,
+                  onTap:        () => widget.onSelect(conv.id),
+                );
               },
             ),
           ),
+        ],
+      ),
+    );
+  }
+}
 
-          // ── RIGHT PANEL — chat window (light grey bg) ──
-          Expanded(
-            child: Container(
-              color: const Color(0xFFF3F4F6),
-              child: _selectedCustomer == null
+// ─── Conversation list item ─────────────────────────────────────────────────────
 
-                  // no customer selected yet
-                  ? const Center(
-                      child: Text(
-                        'Select a customer to start chatting.',
-                        style: TextStyle(
-                          fontSize: 13,
-                          color: Color(0xFF9CA3AF),
-                        ),
-                      ),
-                    )
+class _ConversationListItem extends StatelessWidget {
+  final Conversation conversation;
+  final bool isSelected;
+  final int unreadCount;
+  final VoidCallback onTap;
 
-                  // show chat window for selected customer
-                  : ChatWindow(
-                      customer: _selectedCustomer!,
-                      messages: _messages[_selectedCustomer!.customerId] ?? [],
-                      onSendMessage: _onSendMessage,
+  const _ConversationListItem({
+    required this.conversation,
+    required this.isSelected,
+    required this.unreadCount,
+    required this.onTap,
+  });
+
+  String _initials(String name) {
+    final words = name.split(' ');
+    return words.take(2).map((w) => w.isEmpty ? '' : w[0].toUpperCase()).join();
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    return GestureDetector(
+      onTap: onTap,
+      child: Container(
+        padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 12),
+        decoration: BoxDecoration(
+          color: isSelected
+              ? const Color(0xFFF3F4F6)
+              : Colors.transparent,
+          border: Border(
+            left: BorderSide(
+              color: isSelected ? Colors.black : Colors.transparent,
+              width: 3,
+            ),
+            bottom: const BorderSide(color: Color(0xFFE5E7EB), width: 0.5),
+          ),
+        ),
+        child: Row(
+          children: [
+            // Avatar
+            Container(
+              width: 38,
+              height: 38,
+              color: const Color(0xFFEEEEEE),
+              alignment: Alignment.center,
+              child: Text(
+                _initials(conversation.customerName),
+                style: const TextStyle(
+                  fontFamily: 'Archivo Narrow',
+                  fontSize: 13,
+                  fontWeight: FontWeight.w700,
+                  color: Colors.black,
+                ),
+              ),
+            ),
+            const SizedBox(width: 10),
+
+            // Name + status badge
+            Expanded(
+              child: Column(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  Text(
+                    conversation.customerName,
+                    style: TextStyle(
+                      fontFamily: 'Inter',
+                      fontSize: 13,
+                      fontWeight: FontWeight.w500,
+                      color: isSelected
+                          ? Colors.black
+                          : const Color(0xFF111827),
                     ),
+                  ),
+                  const SizedBox(height: 2),
+                  Container(
+                    padding: const EdgeInsets.symmetric(
+                        horizontal: 5, vertical: 1),
+                    color: conversation.status == ConversationStatus.open
+                        ? Colors.black
+                        : const Color(0xFFEEEEEE),
+                    child: Text(
+                      conversation.status == ConversationStatus.open
+                          ? 'OPEN'
+                          : 'CLOSED',
+                      style: TextStyle(
+                        fontFamily: 'Inter',
+                        fontSize: 9,
+                        fontWeight: FontWeight.w700,
+                        letterSpacing: 0.8,
+                        color: conversation.status == ConversationStatus.open
+                            ? Colors.white
+                            : const Color(0xFF656464),
+                      ),
+                    ),
+                  ),
+                ],
+              ),
+            ),
+
+            // Unread badge
+            if (unreadCount > 0)
+              Container(
+                padding: const EdgeInsets.symmetric(
+                    horizontal: 6, vertical: 2),
+                color: Colors.black,
+                child: Text(
+                  '$unreadCount',
+                  style: const TextStyle(
+                    fontFamily: 'Inter',
+                    fontSize: 10,
+                    fontWeight: FontWeight.w700,
+                    color: Colors.white,
+                  ),
+                ),
+              ),
+          ],
+        ),
+      ),
+    );
+  }
+}
+
+// ─── Chat window (right panel) ─────────────────────────────────────────────────
+
+class _ChatWindow extends StatelessWidget {
+  final Conversation conversation;
+  final List<Message> messages;
+  final bool isLoading;
+  final ScrollController scrollController;
+  final TextEditingController inputController;
+  final VoidCallback onSend;
+
+  const _ChatWindow({
+    required this.conversation,
+    required this.messages,
+    required this.isLoading,
+    required this.scrollController,
+    required this.inputController,
+    required this.onSend,
+  });
+
+  String _initials(String name) {
+    final words = name.split(' ');
+    return words.take(2).map((w) => w.isEmpty ? '' : w[0].toUpperCase()).join();
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    return Column(
+      children: [
+        // Header
+        Container(
+          padding: const EdgeInsets.symmetric(horizontal: 20, vertical: 14),
+          decoration: const BoxDecoration(
+            color: Colors.white,
+            border: Border(
+              bottom: BorderSide(color: Color(0xFFE5E7EB), width: 1),
             ),
           ),
+          child: Row(
+            children: [
+              Container(
+                width: 36,
+                height: 36,
+                color: const Color(0xFFEEEEEE),
+                alignment: Alignment.center,
+                child: Text(
+                  _initials(conversation.customerName),
+                  style: const TextStyle(
+                    fontFamily: 'Archivo Narrow',
+                    fontSize: 12,
+                    fontWeight: FontWeight.w700,
+                    color: Colors.black,
+                  ),
+                ),
+              ),
+              const SizedBox(width: 12),
+              Expanded(
+                child: Column(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    Text(
+                      conversation.customerName,
+                      style: const TextStyle(
+                        fontFamily: 'Archivo Narrow',
+                        fontSize: 15,
+                        fontWeight: FontWeight.w700,
+                        color: Colors.black,
+                      ),
+                    ),
+                    const SizedBox(height: 2),
+                    Row(
+                      children: [
+                        Container(
+                          width: 6,
+                          height: 6,
+                          decoration: const BoxDecoration(
+                            color: Color(0xFF22C55E),
+                            shape: BoxShape.circle,
+                          ),
+                        ),
+                        const SizedBox(width: 4),
+                        const Text(
+                          'Online',
+                          style: TextStyle(
+                            fontFamily: 'Inter',
+                            fontSize: 12,
+                            color: Color(0xFF22C55E),
+                          ),
+                        ),
+                      ],
+                    ),
+                  ],
+                ),
+              ),
+              GestureDetector(
+                onTap: () {},
+                child: Container(
+                  width: 32,
+                  height: 32,
+                  decoration: BoxDecoration(
+                    border: Border.all(
+                        color: const Color(0xFFE5E7EB), width: 0.5),
+                  ),
+                  child: const Icon(Icons.more_vert,
+                      size: 16, color: Color(0xFF6B7280)),
+                ),
+              ),
+            ],
+          ),
+        ),
+
+        // Messages
+        Expanded(
+          child: isLoading
+              ? const Center(
+                  child: CircularProgressIndicator(color: Colors.black))
+              : Container(
+                  color: const Color(0xFFF9FAFB),
+                  child: ListView.builder(
+                    controller: scrollController,
+                    padding: const EdgeInsets.all(20),
+                    itemCount: messages.length,
+                    itemBuilder: (context, i) =>
+                        _AdminMessageBubble(
+                      message: messages[i],
+                      customerName: conversation.customerName,
+                    ),
+                  ),
+                ),
+        ),
+
+        // Input
+        Container(
+          padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 14),
+          decoration: const BoxDecoration(
+            color: Colors.white,
+            border: Border(
+              top: BorderSide(color: Color(0xFFE5E7EB), width: 1),
+            ),
+          ),
+          child: Row(
+            children: [
+              Expanded(
+                child: Container(
+                  padding: const EdgeInsets.symmetric(
+                      horizontal: 14, vertical: 8),
+                  decoration: BoxDecoration(
+                    color: const Color(0xFFF9FAFB),
+                    border: Border.all(
+                        color: const Color(0xFFE5E7EB), width: 0.5),
+                    borderRadius: BorderRadius.circular(20),
+                  ),
+                  child: TextField(
+                    controller: inputController,
+                    style: const TextStyle(
+                        fontFamily: 'Inter',
+                        fontSize: 13,
+                        color: Color(0xFF374151)),
+                    decoration: const InputDecoration(
+                      hintText: 'Type a message...',
+                      hintStyle: TextStyle(
+                          fontFamily: 'Inter',
+                          fontSize: 13,
+                          color: Color(0xFF9CA3AF)),
+                      border: InputBorder.none,
+                      isDense: true,
+                      contentPadding: EdgeInsets.zero,
+                    ),
+                    onSubmitted: (_) => onSend(),
+                    textInputAction: TextInputAction.send,
+                  ),
+                ),
+              ),
+              const SizedBox(width: 10),
+              GestureDetector(
+                onTap: onSend,
+                child: Container(
+                  width: 36,
+                  height: 36,
+                  color: Colors.black,
+                  child: const Icon(Icons.send,
+                      size: 16, color: Colors.white),
+                ),
+              ),
+            ],
+          ),
+        ),
+      ],
+    );
+  }
+}
+
+// ─── Admin message bubble ──────────────────────────────────────────────────────
+
+class _AdminMessageBubble extends StatelessWidget {
+  final Message message;
+  final String customerName;
+
+  const _AdminMessageBubble({
+    required this.message,
+    required this.customerName,
+  });
+
+  String _initials(String name) {
+    final words = name.split(' ');
+    return words.take(2).map((w) => w.isEmpty ? '' : w[0].toUpperCase()).join();
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    final isAdmin = !message.isFromCustomer;
+
+    return Padding(
+      padding: const EdgeInsets.symmetric(vertical: 6),
+      child: Row(
+        mainAxisAlignment:
+            isAdmin ? MainAxisAlignment.end : MainAxisAlignment.start,
+        crossAxisAlignment: CrossAxisAlignment.end,
+        children: [
+          // Customer avatar
+          if (!isAdmin)
+            Container(
+              width: 28,
+              height: 28,
+              margin: const EdgeInsets.only(right: 8),
+              color: const Color(0xFFEEEEEE),
+              alignment: Alignment.center,
+              child: Text(
+                _initials(customerName),
+                style: const TextStyle(
+                  fontFamily: 'Archivo Narrow',
+                  fontSize: 10,
+                  fontWeight: FontWeight.w700,
+                  color: Colors.black,
+                ),
+              ),
+            ),
+
+          // Bubble + time
+          Column(
+            crossAxisAlignment:
+                isAdmin ? CrossAxisAlignment.end : CrossAxisAlignment.start,
+            children: [
+              Container(
+                constraints: const BoxConstraints(maxWidth: 320),
+                padding: const EdgeInsets.symmetric(
+                    horizontal: 14, vertical: 10),
+                decoration: BoxDecoration(
+                  color: isAdmin ? Colors.black : Colors.white,
+                  borderRadius: BorderRadius.only(
+                    topLeft: const Radius.circular(16),
+                    topRight: const Radius.circular(16),
+                    bottomLeft: isAdmin
+                        ? const Radius.circular(16)
+                        : const Radius.circular(4),
+                    bottomRight: isAdmin
+                        ? const Radius.circular(4)
+                        : const Radius.circular(16),
+                  ),
+                  border: isAdmin
+                      ? null
+                      : Border.all(
+                          color: const Color(0xFFE5E7EB), width: 0.5),
+                ),
+                child: Text(
+                  message.text,
+                  style: TextStyle(
+                    fontFamily: 'Inter',
+                    fontSize: 13,
+                    color: isAdmin ? Colors.white : const Color(0xFF111827),
+                    height: 1.5,
+                  ),
+                ),
+              ),
+              const SizedBox(height: 4),
+              Text(
+                message.formattedTime,
+                style: const TextStyle(
+                  fontSize: 10,
+                  color: Color(0xFF9CA3AF),
+                ),
+              ),
+            ],
+          ),
+
+          // Admin avatar
+          if (isAdmin)
+            Container(
+              width: 28,
+              height: 28,
+              margin: const EdgeInsets.only(left: 8),
+              color: Colors.black,
+              alignment: Alignment.center,
+              child: const Text(
+                'A',
+                style: TextStyle(
+                  fontFamily: 'Archivo Narrow',
+                  fontSize: 10,
+                  fontWeight: FontWeight.w700,
+                  color: Colors.white,
+                ),
+              ),
+            ),
         ],
       ),
     );

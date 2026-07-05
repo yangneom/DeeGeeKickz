@@ -38,43 +38,7 @@ class _AdminDashboardScreenState
   final int _cancelled = 2;
 
   // recent feedback data
-  final List<FeedbackItem> _recentFeedback = [
-    FeedbackItem(
-      customerName: 'Angel Tuazon',
-      productName: 'Nike Air Force 1',
-      rating: 3,
-      status: 'Flagged',
-      date: 'May 6, 2025',
-    ),
-    FeedbackItem(
-      customerName: 'Jay Galang',
-      productName: 'Adidas Samba',
-      rating: 4,
-      status: 'Visible',
-      date: 'May 6, 2025',
-    ),
-    FeedbackItem(
-      customerName: 'John Dela Cruz',
-      productName: 'New Balance 550',
-      rating: 5,
-      status: 'Visible',
-      date: 'May 5, 2025',
-    ),
-    FeedbackItem(
-      customerName: 'Maria Santos',
-      productName: 'Nike Dunk Low',
-      rating: 2,
-      status: 'Flagged',
-      date: 'May 5, 2025',
-    ),
-    FeedbackItem(
-      customerName: 'Kevin Reyes',
-      productName: 'Puma RS-X',
-      rating: 3,
-      status: 'Visible',
-      date: 'May 4, 2025',
-    ),
-  ];
+
 
   // ================================================
   // BUILD PRIORITY BADGE
@@ -442,7 +406,7 @@ IntrinsicHeight(
       Expanded(
         flex: 2,
         child: RecentFeedbackCard(
-          feedbackItems: _recentFeedback,
+
           onViewAll: () {
             print('View feedback');
           },

@@ -11,6 +11,7 @@ class CheckoutOrderSummary extends StatelessWidget {
   final double total;
   final VoidCallback onPlaceOrder;
   final bool showPlaceOrder;
+  final bool isProcessing;
 
   const CheckoutOrderSummary({
     super.key,
@@ -21,6 +22,7 @@ class CheckoutOrderSummary extends StatelessWidget {
     required this.total,
     required this.onPlaceOrder,
     this.showPlaceOrder = true,
+    this.isProcessing = false,
   });
 
 
@@ -152,7 +154,10 @@ class CheckoutOrderSummary extends StatelessWidget {
           const SizedBox(height: 24),
 
           if (showPlaceOrder) ...[
-            _PlaceOrderButton(onTap: onPlaceOrder),
+            _PlaceOrderButton(
+              onTap: onPlaceOrder,
+              isProcessing: isProcessing,
+            ),
             const SizedBox(height: 16),
           ],
 
@@ -209,7 +214,8 @@ class _Row extends StatelessWidget {
 
 class _PlaceOrderButton extends StatefulWidget {
   final VoidCallback onTap;
-  const _PlaceOrderButton({required this.onTap});
+  final bool isProcessing;
+  const _PlaceOrderButton({required this.onTap, required this.isProcessing});
 
   @override
   State<_PlaceOrderButton> createState() => _PlaceOrderButtonState();
@@ -221,30 +227,59 @@ class _PlaceOrderButtonState extends State<_PlaceOrderButton> {
   @override
   Widget build(BuildContext context) {
     return GestureDetector(
-      onTapDown: (_) => setState(() => _pressed = true),
-      onTapUp: (_) {
-        setState(() => _pressed = false);
-        widget.onTap();
-      },
-      onTapCancel: () => setState(() => _pressed = false),
+      onTapDown: widget.isProcessing ? null : (_) => setState(() => _pressed = true),
+      onTapUp: widget.isProcessing
+          ? null
+          : (_) {
+              setState(() => _pressed = false);
+              widget.onTap();
+            },
+      onTapCancel: widget.isProcessing
+          ? null
+          : () => setState(() => _pressed = false),
       child: AnimatedScale(
         scale: _pressed ? 0.98 : 1.0,
         duration: const Duration(milliseconds: 80),
         child: Container(
           width: double.infinity,
           padding: const EdgeInsets.symmetric(vertical: 16),
-          color: Colors.black,
+          color: widget.isProcessing ? const Color(0xFF656464) : Colors.black,
           alignment: Alignment.center,
-          child: const Text(
-            'PLACE ORDER',
-            style: TextStyle(
-              fontFamily: 'Inter',
-              fontSize: 14,
-              fontWeight: FontWeight.w600,
-              letterSpacing: 3.0,
-              color: Colors.white,
-            ),
-          ),
+          child: widget.isProcessing
+              ? const Row(
+                  mainAxisAlignment: MainAxisAlignment.center,
+                  children: [
+                    SizedBox(
+                      width: 16,
+                      height: 16,
+                      child: CircularProgressIndicator(
+                        strokeWidth: 2,
+                        color: Colors.white,
+                      ),
+                    ),
+                    SizedBox(width: 10),
+                    Text(
+                      'Processing...',
+                      style: TextStyle(
+                        fontFamily: 'Inter',
+                        fontSize: 14,
+                        fontWeight: FontWeight.w600,
+                        letterSpacing: 3.0,
+                        color: Colors.white,
+                      ),
+                    ),
+                  ],
+                )
+              : const Text(
+                  'PLACE ORDER',
+                  style: TextStyle(
+                    fontFamily: 'Inter',
+                    fontSize: 14,
+                    fontWeight: FontWeight.w600,
+                    letterSpacing: 3.0,
+                    color: Colors.white,
+                  ),
+                ),
         ),
       ),
     );

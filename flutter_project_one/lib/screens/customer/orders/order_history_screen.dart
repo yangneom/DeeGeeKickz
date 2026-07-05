@@ -35,14 +35,28 @@ class _OrderHistoryScreenState extends State<OrderHistoryScreen> {
     super.initState();
     _loadOrders();
   }
+  
+  @override
+void didChangeDependencies() {
+  super.didChangeDependencies();
+  if (!_loading) _loadOrders();
+}
+
 
   Future<void> _loadOrders() async {
+    setState(() => _loading = true);
+
     final orders = await _service.getMyOrders();
 
-    setState(() {
-      _allOrders = orders;
-      _loading = false;
-    });
+    if (mounted) {
+      setState(() {
+        // Extra safety — never show Awaiting Payment on customer side
+        _allOrders = orders
+            .where((o) => o.orderStatus.toLowerCase() != 'awaiting payment')
+            .toList();
+        _loading = false;
+      });
+    }
   }
 
   List<Order> get _filtered {

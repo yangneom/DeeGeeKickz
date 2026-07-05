@@ -4,9 +4,14 @@ import '../../../models/customer_address.dart';
 /// Address selector shown at the top of Step 1.
 /// Lets user pick a saved address (auto-fills form),
 /// edit a saved address, or add a new one.
+///
+/// [userName] and [userPhone] come from the logged-in
+/// user's profile (users table) — not from the address.
 class CheckoutAddressSelector extends StatelessWidget {
   final List<CustomerAddress> addresses;
   final String? selectedAddressId;
+  final String userName;
+  final String userPhone;
   final ValueChanged<CustomerAddress?> onSelected;
   final ValueChanged<CustomerAddress> onEdit;
   final VoidCallback onAddNew;
@@ -15,6 +20,8 @@ class CheckoutAddressSelector extends StatelessWidget {
     super.key,
     required this.addresses,
     required this.selectedAddressId,
+    required this.userName,
+    required this.userPhone,
     required this.onSelected,
     required this.onEdit,
     required this.onAddNew,
@@ -25,6 +32,7 @@ class CheckoutAddressSelector extends StatelessWidget {
     return Column(
       crossAxisAlignment: CrossAxisAlignment.start,
       children: [
+
         // ── Header ──────────────────────────────────
         const Text(
           'SAVED ADDRESSES',
@@ -39,14 +47,16 @@ class CheckoutAddressSelector extends StatelessWidget {
         const SizedBox(height: 16),
 
         // ── Saved address cards ──────────────────────
-        ...addresses.map((address) {
-          final isSelected = selectedAddressId == address.id;
+        ...addresses.map((CustomerAddress address) {
+          final bool isSelected = selectedAddressId == address.id;
           return Padding(
             padding: const EdgeInsets.only(bottom: 12),
             child: _AddressCard(
-              address: address,
+              address:   address,
+              userName:  userName,
+              userPhone: userPhone,
               isSelected: isSelected,
-              onTap: () => onSelected(address),
+              onTap:  () => onSelected(address),
               onEdit: () => onEdit(address),
             ),
           );
@@ -67,9 +77,9 @@ class CheckoutAddressSelector extends StatelessWidget {
                 width: 1,
               ),
             ),
-            child: Row(
+            child: const Row(
               mainAxisAlignment: MainAxisAlignment.center,
-              children: const [
+              children: [
                 Icon(Icons.add, size: 16, color: Colors.black),
                 SizedBox(width: 8),
                 Text(
@@ -95,14 +105,20 @@ class CheckoutAddressSelector extends StatelessWidget {
   }
 }
 
+// ─── Address card ─────────────────────────────────────────────────────────────
+
 class _AddressCard extends StatelessWidget {
   final CustomerAddress address;
+  final String userName;
+  final String userPhone;
   final bool isSelected;
   final VoidCallback onTap;
   final VoidCallback onEdit;
 
   const _AddressCard({
     required this.address,
+    required this.userName,
+    required this.userPhone,
     required this.isSelected,
     required this.onTap,
     required this.onEdit,
@@ -127,7 +143,8 @@ class _AddressCard extends StatelessWidget {
         child: Row(
           crossAxisAlignment: CrossAxisAlignment.start,
           children: [
-            // ── Radio indicator ────────────────────
+
+            // ── Radio indicator ──────────────────────
             Padding(
               padding: const EdgeInsets.only(top: 2),
               child: AnimatedContainer(
@@ -145,26 +162,24 @@ class _AddressCard extends StatelessWidget {
                   ),
                 ),
                 child: isSelected
-                    ? const Icon(
-                        Icons.circle,
-                        size: 8,
-                        color: Colors.white,
-                      )
+                    ? const Icon(Icons.circle, size: 8, color: Colors.white)
                     : null,
               ),
             ),
 
             const SizedBox(width: 16),
 
-            // ── Address details ────────────────────
+            // ── Address details ──────────────────────
             Expanded(
               child: Column(
                 crossAxisAlignment: CrossAxisAlignment.start,
                 children: [
+
+                  // Name + DEFAULT badge
                   Row(
                     children: [
                       Text(
-                        address.fullName,
+                        userName.isNotEmpty ? userName : 'No name',
                         style: const TextStyle(
                           fontFamily: 'Inter',
                           fontSize: 14,
@@ -192,6 +207,8 @@ class _AddressCard extends StatelessWidget {
                     ],
                   ),
                   const SizedBox(height: 4),
+
+                  // Street
                   Text(
                     address.street,
                     style: const TextStyle(
@@ -200,36 +217,70 @@ class _AddressCard extends StatelessWidget {
                       color: Color(0xFF4C4546),
                     ),
                   ),
+
+                  // Barangay
+                  if (address.barangay.isNotEmpty)
+                    Text(
+                      address.barangay,
+                      style: const TextStyle(
+                        fontFamily: 'Inter',
+                        fontSize: 13,
+                        color: Color(0xFF4C4546),
+                      ),
+                    ),
+
+                  // City, Province, Zip
                   Text(
-                    '${address.city}, ${address.postal}',
+                    [address.city, address.province, address.zipCode]
+                        .where((s) => s.isNotEmpty)
+                        .join(', '),
                     style: const TextStyle(
                       fontFamily: 'Inter',
                       fontSize: 13,
                       color: Color(0xFF4C4546),
                     ),
                   ),
-                  Text(
-                    address.country,
-                    style: const TextStyle(
-                      fontFamily: 'Inter',
-                      fontSize: 13,
-                      color: Color(0xFF4C4546),
+
+                  // Region
+                  if (address.region.isNotEmpty)
+                    Text(
+                      address.region,
+                      style: const TextStyle(
+                        fontFamily: 'Inter',
+                        fontSize: 13,
+                        color: Color(0xFF4C4546),
+                      ),
                     ),
-                  ),
+
+                  // Landmark
+                  if (address.landmark.isNotEmpty)
+                    Text(
+                      address.landmark,
+                      style: const TextStyle(
+                        fontFamily: 'Inter',
+                        fontSize: 12,
+                        color: Color(0xFF9CA3AF),
+                        fontStyle: FontStyle.italic,
+                      ),
+                    ),
+
                   const SizedBox(height: 4),
-                  Text(
-                    address.phone,
-                    style: const TextStyle(
-                      fontFamily: 'Inter',
-                      fontSize: 13,
-                      color: Color(0xFF4C4546),
+
+                  // Phone from user profile
+                  if (userPhone.isNotEmpty)
+                    Text(
+                      userPhone,
+                      style: const TextStyle(
+                        fontFamily: 'Inter',
+                        fontSize: 13,
+                        color: Color(0xFF4C4546),
+                      ),
                     ),
-                  ),
                 ],
               ),
             ),
 
-            // ── Edit button ────────────────────────
+            // ── Edit button ──────────────────────────
             GestureDetector(
               onTap: onEdit,
               child: const Padding(

@@ -1,56 +1,37 @@
-// Basic Flutter import - needed for every Flutter app
 import 'package:flutter/material.dart';
-
-// Supabase import - replaces Firebase
+import 'package:flutter/foundation.dart';
 import 'package:supabase_flutter/supabase_flutter.dart';
-
-// Riverpod import - needed for state management
 import 'package:flutter_riverpod/flutter_riverpod.dart';
-
-// ScreenUtil import - needed for responsive design
 import 'package:flutter_screenutil/flutter_screenutil.dart';
-
-// Environment variables
 import 'package:flutter_dotenv/flutter_dotenv.dart';
+import 'package:app_links/app_links.dart';
 
-// This is our Login screen
-// import 'screens/auth/login_screen.dart';
-
-import '../../screens/customer/homescreen/home_screen.dart';
-
-
+import 'screens/customer/homescreen/home_screen.dart';
+import 'screens/customer/orders/order_history_screen.dart';
 
 // ================================================
 // MAIN FUNCTION
 // ================================================
 void main() async {
-
-  // Make sure Flutter is ready before we do anything
   WidgetsFlutterBinding.ensureInitialized();
 
-  // Load .env file first
   await dotenv.load(fileName: '.env');
 
   print('URL = ${dotenv.env['SUPABASE_URL']}');
   print('KEY = ${dotenv.env['SUPABASE_ANON_KEY']}');
 
-  // Initialize Supabase
   try {
     await Supabase.initialize(
       url: dotenv.env['SUPABASE_URL']!,
       anonKey: dotenv.env['SUPABASE_ANON_KEY']!,
     );
-
     print('Supabase initialized successfully');
-
     final user = Supabase.instance.client.auth.currentUser;
-
-print('CURRENT USER: ${user?.email}');
+    print('CURRENT USER: ${user?.email}');
   } catch (error) {
     print('Supabase initialization failed: $error');
   }
 
-  // Start the app
   runApp(
     const ProviderScope(
       child: MyApp(),
@@ -61,8 +42,49 @@ print('CURRENT USER: ${user?.email}');
 // ================================================
 // MY APP
 // ================================================
-class MyApp extends StatelessWidget {
+class MyApp extends StatefulWidget {
   const MyApp({super.key});
+
+  @override
+  State<MyApp> createState() => _MyAppState();
+}
+
+class _MyAppState extends State<MyApp> {
+  final GlobalKey<NavigatorState> _navigatorKey = GlobalKey<NavigatorState>();
+  AppLinks? _appLinks;
+
+  @override
+  void initState() {
+    super.initState();
+    // Only set up deep links on mobile — not needed on web
+    if (!kIsWeb) {
+      _initDeepLinks();
+    }
+  }
+
+  void _initDeepLinks() {
+    _appLinks = AppLinks();
+    _appLinks!.uriLinkStream.listen((Uri uri) {
+      if (uri.scheme == 'dgeekickz') {
+        if (uri.host == 'payment-success') {
+          final orderId = uri.queryParameters['order'];
+          print('GCash payment success for order: $orderId');
+          // Navigate to order history
+          _navigatorKey.currentState?.pushAndRemoveUntil(
+            MaterialPageRoute(
+              builder: (_) => const OrderHistoryScreen(),
+            ),
+            (route) => route.isFirst,
+          );
+        } else if (uri.host == 'payment-cancel') {
+          final orderId = uri.queryParameters['order'];
+          print('GCash payment cancelled for order: $orderId');
+          // Just go back to home
+          _navigatorKey.currentState?.popUntil((route) => route.isFirst);
+        }
+      }
+    });
+  }
 
   @override
   Widget build(BuildContext context) {
@@ -72,6 +94,7 @@ class MyApp extends StatelessWidget {
       splitScreenMode: true,
       builder: (context, child) {
         return MaterialApp(
+          navigatorKey: _navigatorKey, // ← needed for deep link navigation
           title: 'DeeGee Kickz',
           debugShowCheckedModeBanner: false,
           theme: ThemeData(

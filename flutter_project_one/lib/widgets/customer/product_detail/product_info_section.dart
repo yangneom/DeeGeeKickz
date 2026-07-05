@@ -1,154 +1,192 @@
 import 'package:flutter/material.dart';
-
-import '../../../models/product_detail_model.dart';
-import '../../../screens/customer/messages/customer_chat_screen.dart';
-
 import 'package:flutter_riverpod/flutter_riverpod.dart';
-
-import '../../../providers/customer/customer_cart_provider.dart';
+ 
+import '../../../models/product.dart';
 import '../../../models/customer_cart_item.dart';
-
-
-
-/// Product info panel: name, series, price, rating, size picker,
-/// quantity selector, and the three CTA buttons.
+import '../../../models/discount_model.dart';
+import '../../../providers/customer/customer_cart_provider.dart';
+import '../../../services/admin/promotionDiscount/discount_service.dart';
+import '../../../screens/customer/messages/customer_chat_screen.dart';
+ 
+/// Product info panel backed by the real [Product] model.
+/// Color picker → variant images update gallery via callback (future).
+/// Size picker → shows only sizes with available stock.
 ///
-/// Accepts optional [discountPercent] and [originalPrice] from promo
-/// navigation — when present, shows a sale banner, strikethrough
-/// original price, and the discounted price in bold.
+/// If this product has an active discount, the sale price is shown
+/// (strikethrough original + red sale price) and — importantly — the
+/// DISCOUNTED price is what gets stored on the CustomerCartItem when
+/// "Add to Bag" is tapped. Since Cart/Checkout just sum item.subtotal,
+/// this is the only place the discount needs to be applied for it to
+/// flow through correctly everywhere downstream.
 class ProductInfoSection extends ConsumerStatefulWidget {
-  final ProductDetailModel product;
-  final int? discountPercent;
-  final double? originalPrice;
-
-  const ProductInfoSection({
-    super.key,
-    required this.product,
-    this.discountPercent,
-    this.originalPrice,
-  });
-
+  final Product product;
+ 
+  const ProductInfoSection({super.key, required this.product});
+ 
   @override
-  ConsumerState<ProductInfoSection> createState() => _ProductInfoSectionState();
+  ConsumerState<ProductInfoSection> createState() =>
+      _ProductInfoSectionState();
 }
-
-class _ProductInfoSectionState extends ConsumerState<ProductInfoSection> {
+ 
+class _ProductInfoSectionState
+    extends ConsumerState<ProductInfoSection> {
+  late ProductVariant _selectedVariant;
   String? _selectedSize;
   int _quantity = 1;
   bool _isFavorited = false;
 
-  bool get _isOnSale =>
-      widget.discountPercent != null && widget.discountPercent! > 0;
+  // Active discount for this product, if any.
+  Discount? _discount;
+ 
+  @override
+  void initState() {
+    super.initState();
+    // Default to first variant
+    _selectedVariant = widget.product.variants.first;
+    _loadDiscount();
+  }
 
+  Future<void> _loadDiscount() async {
+    final int? pid = int.tryParse(widget.product.productId);
+    if (pid == null) return;
+    final Map<int, Discount> discounts =
+        await DiscountService().fetchActiveDiscountsByProduct();
+    if (!mounted) return;
+    setState(() => _discount = discounts[pid]);
+  }
+
+  // Applies the active discount (if any) to a base price.
+  double _applyDiscount(double basePrice) {
+    if (_discount == null) return basePrice;
+    double result;
+    if (_discount!.discountType == 'Percentage') {
+      result = basePrice - (basePrice * (_discount!.discountValue / 100));
+    } else {
+      result = basePrice - _discount!.discountValue;
+    }
+    return result < 0 ? 0 : result;
+  }
+ 
+  void _selectVariant(ProductVariant v) {
+    setState(() {
+      _selectedVariant = v;
+      _selectedSize = null; // reset size on color change
+      _quantity = 1;
+    });
+  }
+ 
   void _decrementQty() {
     if (_quantity > 1) setState(() => _quantity--);
   }
+ 
+  void _incrementQty() {
+    final max = _availableQtyForSize;
+    if (_quantity < max) setState(() => _quantity++);
+  }
+ 
+  /// Available qty for the currently selected size
+  int get _availableQtyForSize {
+    if (_selectedSize == null) return 0;
+    final entry = _selectedVariant.sizes
+        .cast<SizeEntry?>()
+        .firstWhere((s) => s!.size == _selectedSize,
+            orElse: () => null);
+    return entry?.availableQty ?? 0;
+  }
+ 
+  /// Finds the SizeEntry matching the currently selected size string,
+  /// so we can pull its real sizeId (FK to product_variant_size).
+  SizeEntry? get _selectedSizeEntry {
+    if (_selectedSize == null) return null;
+    return _selectedVariant.sizes
+        .cast<SizeEntry?>()
+        .firstWhere((s) => s!.size == _selectedSize, orElse: () => null);
+  }
+ 
+  void _onAddToBag() {
+    if (_selectedSize == null) {
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(content: Text('Please select a size')),
+      );
+      return;
+    }
+ 
+    if (_availableQtyForSize == 0) {
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(content: Text('This size is out of stock')),
+      );
+      return;
+    }
+ 
+    // Real FK to product_variant_size — required for stock reservation
+    // at checkout. If this is null, the size lookup failed and the
+    // cart item will not be reservable/orderable correctly.
+    final int? sizeId = _selectedSizeEntry?.sizeId;
 
-  void _incrementQty() => setState(() => _quantity++);
-
-void _onAddToBag() {
-  if (_selectedSize == null) {
+    // Apply the active discount now, so the cart stores the price the
+    // customer actually saw and agreed to — Cart/Checkout don't need
+    // to know about discounts at all, they just sum this value.
+    final double unitPrice = _applyDiscount(_selectedVariant.retailPrice);
+ 
+    final cartItem = CustomerCartItem(
+      productId: widget.product.productId,
+      productName: widget.product.productName,
+      brand: widget.product.brand,
+      color: _selectedVariant.color,
+      size: _selectedSize!,
+      sizeId: sizeId,
+      retailPrice: unitPrice,
+      imageUrl: _selectedVariant.primaryImageUrl ?? '',
+      quantity: _quantity,
+    );
+ 
+    ref.read(customerCartProvider.notifier).addItem(cartItem);
+ 
     ScaffoldMessenger.of(context).showSnackBar(
-      const SnackBar(
-        content: Text('PLEASE SELECT A SIZE'),
+      SnackBar(
+        content: Text(
+            '${widget.product.productName} added to bag'),
       ),
     );
-    return;
   }
-
-  final product = widget.product;
-
-  final cartItem = CustomerCartItem(
-    productId: product.id,
-    productName: product.name,
-    brand: product.brand,
-    color: 'Default',
-    size: _selectedSize!,
-    retailPrice: product.price,
-    imageUrl: product.imageUrls.first,
-    quantity: _quantity,
-  );
-
-  ref
-      .read(customerCartProvider.notifier)
-      .addItem(cartItem);
-
-  ScaffoldMessenger.of(context).showSnackBar(
-    SnackBar(
-      content: Text(
-        '${product.name} added to bag',
-      ),
-    ),
-  );
-}
-
+ 
   @override
   Widget build(BuildContext context) {
     final product = widget.product;
-
+    final price = _selectedVariant.retailPrice;
+    final double displayPrice = _applyDiscount(price);
+ 
     return Column(
       crossAxisAlignment: CrossAxisAlignment.start,
       children: [
-
-        // ── Sale banner (promo only) ────────────────────────────
-        if (_isOnSale) ...[
-          Container(
-            width: double.infinity,
-            color: const Color(0xFFBA1A1A),
-            padding:
-                const EdgeInsets.symmetric(horizontal: 12, vertical: 8),
-            child: Row(
-              children: [
-                const Icon(Icons.local_offer,
-                    color: Colors.white, size: 14),
-                const SizedBox(width: 8),
-                Text(
-                  'PROMO — ${widget.discountPercent}% OFF  ·  LIMITED TIME',
-                  style: const TextStyle(
-                    fontFamily: 'Inter',
-                    fontSize: 11,
-                    fontWeight: FontWeight.w700,
-                    letterSpacing: 1.2,
-                    color: Colors.white,
-                  ),
-                ),
-              ],
-            ),
+        // ── Brand · Category ──────────────────────────────────
+        Text(
+          '${product.brand} · ${product.category}'.toUpperCase(),
+          style: const TextStyle(
+            fontFamily: 'Inter',
+            fontSize: 11,
+            fontWeight: FontWeight.w500,
+            letterSpacing: 1,
+            color: Color(0xFF5F5E5E),
           ),
-          const SizedBox(height: 16),
-        ],
-
-        // ── Name + favourite ────────────────────────────────────
+        ),
+        const SizedBox(height: 6),
+ 
+        // ── Name + favourite ──────────────────────────────────
         Row(
           crossAxisAlignment: CrossAxisAlignment.start,
           children: [
             Expanded(
-              child: Column(
-                crossAxisAlignment: CrossAxisAlignment.start,
-                children: [
-                  Text(
-                    product.name.toUpperCase(),
-                    style: const TextStyle(
-                      fontFamily: 'Archivo Narrow',
-                      fontSize: 32,
-                      fontWeight: FontWeight.w700,
-                      letterSpacing: -0.5,
-                      height: 1.1,
-                      color: Colors.black,
-                    ),
-                  ),
-                  const SizedBox(height: 6),
-                  Text(
-                    product.series.toUpperCase(),
-                    style: const TextStyle(
-                      fontFamily: 'Inter',
-                      fontSize: 12,
-                      fontWeight: FontWeight.w600,
-                      letterSpacing: 2,
-                      color: Color(0xFF5F5E5E),
-                    ),
-                  ),
-                ],
+              child: Text(
+                product.productName.toUpperCase(),
+                style: const TextStyle(
+                  fontFamily: 'Archivo Narrow',
+                  fontSize: 32,
+                  fontWeight: FontWeight.w700,
+                  letterSpacing: -0.5,
+                  height: 1.1,
+                  color: Colors.black,
+                ),
               ),
             ),
             const SizedBox(width: 12),
@@ -158,8 +196,8 @@ void _onAddToBag() {
               child: Container(
                 padding: const EdgeInsets.all(8),
                 decoration: BoxDecoration(
-                  border:
-                      Border.all(color: const Color(0xFFCFC4C5)),
+                  border: Border.all(
+                      color: const Color(0xFFCFC4C5)),
                   borderRadius: BorderRadius.circular(999),
                 ),
                 child: Icon(
@@ -173,89 +211,104 @@ void _onAddToBag() {
             ),
           ],
         ),
-
+ 
         const SizedBox(height: 16),
-
-        // ── Price row ───────────────────────────────────────────
-        Row(
-          crossAxisAlignment: CrossAxisAlignment.baseline,
-          textBaseline: TextBaseline.alphabetic,
-          children: [
-            // Current (discounted or regular) price
-            Text(
-              product.formattedPrice,
-              style: const TextStyle(
-                fontFamily: 'Archivo Narrow',
-                fontSize: 32,
-                fontWeight: FontWeight.w700,
-                color: Colors.black,
-              ),
-            ),
-
-            // Original price strikethrough (promo only)
-            if (_isOnSale && widget.originalPrice != null) ...[
-              const SizedBox(width: 12),
-              Text(
-                '\$${widget.originalPrice!.toStringAsFixed(0)}',
+ 
+        // ── Price ─────────────────────────────────────────────
+        _discount != null
+            ? Row(
+                crossAxisAlignment: CrossAxisAlignment.end,
+                children: [
+                  Text(
+                    '₱${displayPrice.toStringAsFixed(0)}',
+                    style: const TextStyle(
+                      fontFamily: 'Archivo Narrow',
+                      fontSize: 32,
+                      fontWeight: FontWeight.w700,
+                      color: Color(0xFFBA1A1A),
+                    ),
+                  ),
+                  const SizedBox(width: 10),
+                  Padding(
+                    padding: const EdgeInsets.only(bottom: 4),
+                    child: Text(
+                      '₱${price.toStringAsFixed(0)}',
+                      style: const TextStyle(
+                        fontFamily: 'Inter',
+                        fontSize: 16,
+                        color: Color(0xFF9CA3AF),
+                        decoration: TextDecoration.lineThrough,
+                      ),
+                    ),
+                  ),
+                ],
+              )
+            : Text(
+                '₱${price.toStringAsFixed(0)}',
                 style: const TextStyle(
                   fontFamily: 'Archivo Narrow',
-                  fontSize: 22,
-                  fontWeight: FontWeight.w400,
-                  color: Color(0xFF7E7576),
-                  decoration: TextDecoration.lineThrough,
-                  decorationColor: Color(0xFF7E7576),
+                  fontSize: 32,
+                  fontWeight: FontWeight.w700,
+                  color: Colors.black,
                 ),
               ),
-              const SizedBox(width: 10),
-              // Savings chip
-              Container(
-                padding: const EdgeInsets.symmetric(
-                    horizontal: 8, vertical: 4),
-                color: const Color(0xFFBA1A1A),
-                child: Text(
-                  'SAVE \$${(widget.originalPrice! - product.price).toStringAsFixed(0)}',
-                  style: const TextStyle(
-                    fontFamily: 'Inter',
-                    fontSize: 11,
-                    fontWeight: FontWeight.w700,
-                    letterSpacing: 0.5,
-                    color: Colors.white,
+ 
+        const SizedBox(height: 24),
+ 
+        // ── Color picker ──────────────────────────────────────
+        if (product.variants.length > 1) ...[
+          Text(
+            'COLOR: ${_selectedVariant.color.toUpperCase()}',
+            style: const TextStyle(
+              fontFamily: 'Inter',
+              fontSize: 13,
+              fontWeight: FontWeight.w600,
+              letterSpacing: 0.7,
+              color: Colors.black,
+            ),
+          ),
+          const SizedBox(height: 10),
+          Wrap(
+            spacing: 8,
+            runSpacing: 8,
+            children: product.variants.map((v) {
+              final isSelected = v.variantId ==
+                  _selectedVariant.variantId;
+              return GestureDetector(
+                onTap: () => _selectVariant(v),
+                child: Container(
+                  padding: const EdgeInsets.symmetric(
+                      horizontal: 14, vertical: 8),
+                  decoration: BoxDecoration(
+                    color: isSelected
+                        ? Colors.black
+                        : Colors.transparent,
+                    border: Border.all(
+                      color: isSelected
+                          ? Colors.black
+                          : const Color(0xFFCFC4C5),
+                      width: isSelected ? 2 : 1,
+                    ),
+                  ),
+                  child: Text(
+                    v.color,
+                    style: TextStyle(
+                      fontFamily: 'Inter',
+                      fontSize: 13,
+                      fontWeight: FontWeight.w500,
+                      color: isSelected
+                          ? Colors.white
+                          : Colors.black,
+                    ),
                   ),
                 ),
-              ),
-            ],
-
-            const SizedBox(width: 16),
-
-            // Rating
-            const Icon(Icons.star_rounded,
-                color: Colors.black, size: 18),
-            const SizedBox(width: 4),
-            Text(
-              product.rating.toStringAsFixed(1),
-              style: const TextStyle(
-                fontFamily: 'Inter',
-                fontSize: 14,
-                fontWeight: FontWeight.w600,
-                letterSpacing: 0.5,
-                color: Colors.black,
-              ),
-            ),
-            const SizedBox(width: 4),
-            Text(
-              '(${_formatCount(product.reviewCount)} Reviews)',
-              style: const TextStyle(
-                fontFamily: 'Inter',
-                fontSize: 12,
-                color: Color(0xFF4C4546),
-              ),
-            ),
-          ],
-        ),
-
-        const SizedBox(height: 24),
-
-        // ── Size selection ──────────────────────────────────────
+              );
+            }).toList(),
+          ),
+          const SizedBox(height: 24),
+        ],
+ 
+        // ── Size picker ───────────────────────────────────────
         Row(
           mainAxisAlignment: MainAxisAlignment.spaceBetween,
           children: [
@@ -269,23 +322,19 @@ void _onAddToBag() {
                 color: Colors.black,
               ),
             ),
-            GestureDetector(
-              onTap: () {},
-              child: const Text(
-                'Size Guide',
-                style: TextStyle(
-                  fontFamily: 'Inter',
-                  fontSize: 12,
-                  color: Color(0xFF4C4546),
-                  decoration: TextDecoration.underline,
-                ),
+            const Text(
+              'Size Guide',
+              style: TextStyle(
+                fontFamily: 'Inter',
+                fontSize: 12,
+                color: Color(0xFF4C4546),
+                decoration: TextDecoration.underline,
               ),
             ),
           ],
         ),
-
         const SizedBox(height: 12),
-
+ 
         GridView.builder(
           shrinkWrap: true,
           physics: const NeverScrollableScrollPhysics(),
@@ -296,19 +345,23 @@ void _onAddToBag() {
             mainAxisSpacing: 8,
             childAspectRatio: 2.2,
           ),
-          itemCount: product.sizes.length,
+          itemCount: _selectedVariant.sizes.length,
           itemBuilder: (context, index) {
-            final size = product.sizes[index];
-            final isSelected = _selectedSize == size.label;
-            final isUnavailable = !size.available;
-
+            final sizeEntry =
+                _selectedVariant.sizes[index];
+            final isSelected =
+                _selectedSize == sizeEntry.size;
+            final isUnavailable =
+                sizeEntry.availableQty == 0;
+ 
             return GestureDetector(
               onTap: isUnavailable
                   ? null
                   : () => setState(
-                      () => _selectedSize = size.label),
+                      () => _selectedSize = sizeEntry.size),
               child: AnimatedContainer(
-                duration: const Duration(milliseconds: 150),
+                duration:
+                    const Duration(milliseconds: 150),
                 alignment: Alignment.center,
                 decoration: BoxDecoration(
                   color: isSelected
@@ -322,12 +375,11 @@ void _onAddToBag() {
                   ),
                 ),
                 child: Text(
-                  size.label,
+                  sizeEntry.size,
                   style: TextStyle(
                     fontFamily: 'Inter',
-                    fontSize: 14,
+                    fontSize: 13,
                     fontWeight: FontWeight.w600,
-                    letterSpacing: 0.5,
                     color: isSelected
                         ? Colors.white
                         : isUnavailable
@@ -342,10 +394,10 @@ void _onAddToBag() {
             );
           },
         ),
-
+ 
         const SizedBox(height: 24),
-
-        // ── Quantity ────────────────────────────────────────────
+ 
+        // ── Quantity ──────────────────────────────────────────
         const Text(
           'QUANTITY',
           style: TextStyle(
@@ -356,28 +408,30 @@ void _onAddToBag() {
             color: Colors.black,
           ),
         ),
-
         const SizedBox(height: 12),
-
+ 
         Container(
           decoration: BoxDecoration(
-            border: Border.all(color: const Color(0xFFCFC4C5)),
+            border:
+                Border.all(color: const Color(0xFFCFC4C5)),
           ),
           child: Row(
             mainAxisSize: MainAxisSize.min,
             children: [
               _QtyButton(
-                  icon: Icons.remove,
-                  onTap: _decrementQty,
-                  enabled: _quantity > 1),
+                icon: Icons.remove,
+                onTap: _decrementQty,
+                enabled: _quantity > 1,
+              ),
               Container(
                 width: 56,
-                padding:
-                    const EdgeInsets.symmetric(vertical: 10),
+                padding: const EdgeInsets.symmetric(
+                    vertical: 10),
                 decoration: const BoxDecoration(
                   border: Border.symmetric(
                     vertical: BorderSide(
-                        color: Color(0xFFCFC4C5), width: 1),
+                        color: Color(0xFFCFC4C5),
+                        width: 1),
                   ),
                 ),
                 alignment: Alignment.center,
@@ -387,35 +441,51 @@ void _onAddToBag() {
                     fontFamily: 'Inter',
                     fontSize: 14,
                     fontWeight: FontWeight.w600,
-                    letterSpacing: 0.5,
                     color: Colors.black,
                   ),
                 ),
               ),
               _QtyButton(
-                  icon: Icons.add,
-                  onTap: _incrementQty,
-                  enabled: true),
+                icon: Icons.add,
+                onTap: _incrementQty,
+                enabled: _selectedSize != null &&
+                    _quantity < _availableQtyForSize,
+              ),
             ],
           ),
         ),
-
+ 
+        // Stock hint
+        if (_selectedSize != null)
+          Padding(
+            padding: const EdgeInsets.only(top: 6),
+            child: Text(
+              '$_availableQtyForSize available',
+              style: const TextStyle(
+                fontFamily: 'Inter',
+                fontSize: 12,
+                color: Color(0xFF4C4546),
+              ),
+            ),
+          ),
+ 
         const SizedBox(height: 32),
-
-        // ── CTAs ────────────────────────────────────────────────
+ 
+        // ── CTAs ──────────────────────────────────────────────
         _CtaButton(
-            label: 'Add to Bag', filled: true, onTap: _onAddToBag),
+            label: 'Add to Bag',
+            filled: true,
+            onTap: _onAddToBag),
         const SizedBox(height: 12),
-        _CtaButton(label: 'Buy Now', filled: false, onTap: () {}),
+        _CtaButton(
+            label: 'Buy Now', filled: false, onTap: () {}),
         const SizedBox(height: 8),
-
+ 
         TextButton.icon(
           onPressed: () {
-            Navigator.of(context).push(
-              MaterialPageRoute(
-                builder: (_) => const CustomerChatScreen(),
-              ),
-            );
+            Navigator.of(context).push(MaterialPageRoute(
+              builder: (_) => const CustomerChatScreen(),
+            ));
           },
           icon: const Icon(Icons.chat_bubble_outline,
               size: 18, color: Color(0xFF656464)),
@@ -430,35 +500,26 @@ void _onAddToBag() {
             ),
           ),
           style: TextButton.styleFrom(
-            padding: const EdgeInsets.symmetric(vertical: 8),
+            padding:
+                const EdgeInsets.symmetric(vertical: 8),
             minimumSize: const Size(double.infinity, 48),
           ),
         ),
       ],
     );
   }
-
-  String _formatCount(int count) {
-    if (count >= 1000) {
-      return '${(count / 1000).toStringAsFixed(1)}k';
-    }
-    return '$count';
-  }
 }
-
-// ── Sub-widgets ──────────────────────────────────────────────────
-
+ 
 class _QtyButton extends StatelessWidget {
   final IconData icon;
   final VoidCallback onTap;
   final bool enabled;
-
-  const _QtyButton({
-    required this.icon,
-    required this.onTap,
-    required this.enabled,
-  });
-
+ 
+  const _QtyButton(
+      {required this.icon,
+      required this.onTap,
+      required this.enabled});
+ 
   @override
   Widget build(BuildContext context) {
     return GestureDetector(
@@ -468,34 +529,33 @@ class _QtyButton extends StatelessWidget {
         height: 44,
         alignment: Alignment.center,
         color: Colors.transparent,
-        child: Icon(
-          icon,
-          size: 20,
-          color: enabled ? Colors.black : const Color(0xFFCFC4C5),
-        ),
+        child: Icon(icon,
+            size: 20,
+            color: enabled
+                ? Colors.black
+                : const Color(0xFFCFC4C5)),
       ),
     );
   }
 }
-
+ 
 class _CtaButton extends StatefulWidget {
   final String label;
   final bool filled;
   final VoidCallback onTap;
-
-  const _CtaButton({
-    required this.label,
-    required this.filled,
-    required this.onTap,
-  });
-
+ 
+  const _CtaButton(
+      {required this.label,
+      required this.filled,
+      required this.onTap});
+ 
   @override
   State<_CtaButton> createState() => _CtaButtonState();
 }
-
+ 
 class _CtaButtonState extends State<_CtaButton> {
   bool _pressed = false;
-
+ 
   @override
   Widget build(BuildContext context) {
     return GestureDetector(
@@ -512,8 +572,9 @@ class _CtaButtonState extends State<_CtaButton> {
           width: double.infinity,
           padding: const EdgeInsets.symmetric(vertical: 18),
           decoration: BoxDecoration(
-            color:
-                widget.filled ? Colors.black : Colors.transparent,
+            color: widget.filled
+                ? Colors.black
+                : Colors.transparent,
             border: Border.all(
               color: Colors.black,
               width: widget.filled ? 0 : 2,
@@ -527,13 +588,13 @@ class _CtaButtonState extends State<_CtaButton> {
               fontSize: 14,
               fontWeight: FontWeight.w600,
               letterSpacing: 2,
-              color:
-                  widget.filled ? Colors.white : Colors.black,
+              color: widget.filled
+                  ? Colors.white
+                  : Colors.black,
             ),
           ),
         ),
       ),
     );
   }
-  
 }

@@ -4,11 +4,11 @@ import 'package:flutter/material.dart';
 import '../../../models/chat_message_model.dart';
 
 class ChatBubble extends StatelessWidget {
-  final CustomerChatMessage message;
+  final Message message;                                      // ✅ was CustomerChatMessage
 
   const ChatBubble({super.key, required this.message});
 
-  bool get _isSupport => message.sender == CustomerChatSender.support;
+  bool get _isSupport => message.senderRole != SenderRole.customer; // ✅ was CustomerChatSender.support
 
   @override
   Widget build(BuildContext context) {
@@ -43,7 +43,7 @@ class ChatBubble extends StatelessWidget {
 }
 
 class _ReceivedBubble extends StatelessWidget {
-  final CustomerChatMessage message;
+  final Message message;                                      // ✅ was CustomerChatMessage
   const _ReceivedBubble({required this.message});
 
   @override
@@ -80,7 +80,7 @@ class _ReceivedBubble extends StatelessWidget {
 }
 
 class _SentBubble extends StatelessWidget {
-  final CustomerChatMessage message;
+  final Message message;                                      // ✅ was CustomerChatMessage
   const _SentBubble({required this.message});
 
   @override

@@ -6,6 +6,7 @@ import '../../../widgets/common/buttons/search_bar.dart';
 import '../../../widgets/common/buttons/filter_button.dart';
 import '../../../widgets/common/buttons/filter_panel.dart';
 import '../../../widgets/admin/orders/order_details_dialog.dart';
+import '../../../services/admin/order/order_management_service.dart';
 
 class OrdersScreen extends ConsumerStatefulWidget {
   const OrdersScreen({super.key});
@@ -15,6 +16,11 @@ class OrdersScreen extends ConsumerStatefulWidget {
 }
 
 class _OrdersScreenState extends ConsumerState<OrdersScreen> {
+
+  // ================================================
+  // SERVICE
+  // ================================================
+  final OrderManagementService _orderService = OrderManagementService();
 
   // ================================================
   // CONTROLLERS AND STATE
@@ -31,11 +37,12 @@ class _OrdersScreenState extends ConsumerState<OrdersScreen> {
   String? _selectedOrderStatus;
 
   // ================================================
-  // FAKE DATA — just for testing
-  // later this will come from Supabase
+  // DATA STATE
   // ================================================
-  late List<Order> _allOrders;
-  late List<Order> _filteredOrders;
+  List<Order> _allOrders = [];
+  List<Order> _filteredOrders = [];
+  bool _isLoading = true;
+  String? _errorMessage;
 
   // ================================================
   // INIT STATE
@@ -43,23 +50,7 @@ class _OrdersScreenState extends ConsumerState<OrdersScreen> {
   @override
   void initState() {
     super.initState();
-
-    // deep copy so status updates reflect in table
-    _allOrders = fakeOrders.map((Order o) => Order(
-      orderId: o.orderId,
-      customerName: o.customerName,
-      contact: o.contact,
-      landmark: o.landmark,
-      address: o.address,
-      totalAmount: o.totalAmount,
-      paymentMethod: o.paymentMethod,
-      paymentStatus: o.paymentStatus,
-      orderStatus: o.orderStatus,
-      dateTime: o.dateTime,
-      items: o.items,
-    )).toList();
-
-    _filteredOrders = _allOrders;
+    _loadOrders();
   }
 
   // ================================================
@@ -69,6 +60,31 @@ class _OrdersScreenState extends ConsumerState<OrdersScreen> {
   void dispose() {
     _searchController.dispose();
     super.dispose();
+  }
+
+  // ================================================
+  // LOAD ORDERS FROM SUPABASE
+  // ================================================
+  Future<void> _loadOrders() async {
+    setState(() {
+      _isLoading = true;
+      _errorMessage = null;
+    });
+
+    try {
+      final List<Order> orders = await _orderService.loadOrders();
+      setState(() {
+        _allOrders = orders;
+        _filteredOrders = orders;
+        _isLoading = false;
+      });
+    } catch (e) {
+      setState(() {
+        _errorMessage = 'Failed to load orders. Please try again.';
+        _isLoading = false;
+      });
+      print('Error loading orders: $e');
+    }
   }
 
   // ================================================
@@ -131,7 +147,6 @@ class _OrdersScreenState extends ConsumerState<OrdersScreen> {
 
   // ================================================
   // BUILD PAYMENT STATUS BADGE
-  // same pattern as feedback_screen _buildStatusBadge
   // ================================================
   Widget _buildPaymentBadge(String status) {
 
@@ -246,7 +261,6 @@ class _OrdersScreenState extends ConsumerState<OrdersScreen> {
 
   // ================================================
   // BUILD TABLE ROWS
-  // same pattern as feedback_screen _buildRows()
   // ================================================
   List<List<Widget>> _buildRows() {
 
@@ -292,40 +306,37 @@ class _OrdersScreenState extends ConsumerState<OrdersScreen> {
         ),
 
         // column 6 — view button
-        // same pattern as feedback_screen
         Align(
           alignment: Alignment.centerLeft,
           child: OutlinedButton(
             onPressed: () {
               showOrderDetailsDialog(
-                context,
-                order,
-                (String newStatus) {
-
-                  // update status in list when dialog saves
-                  setState(() {
-                    for (int j = 0; j < _allOrders.length; j = j + 1) {
-                      if (_allOrders[j].orderId == order.orderId) {
-                        _allOrders[j] = Order(
-                          orderId: _allOrders[j].orderId,
-                          customerName: _allOrders[j].customerName,
-                          contact: _allOrders[j].contact,
-                          landmark: _allOrders[j].landmark,
-                          address: _allOrders[j].address,
-                          totalAmount: _allOrders[j].totalAmount,
-                          paymentMethod: _allOrders[j].paymentMethod,
-                          paymentStatus: _allOrders[j].paymentStatus,
-                          orderStatus: newStatus,
-                          dateTime: _allOrders[j].dateTime,
-                          items: _allOrders[j].items,
-                        );
-                        break;
+                  context,
+                  order,
+                  (String newStatus, String newPaymentStatus) {
+                    setState(() {
+                      for (int j = 0; j < _allOrders.length; j = j + 1) {
+                        if (_allOrders[j].orderId == order.orderId) {
+                          _allOrders[j] = Order(
+                            orderId: _allOrders[j].orderId,
+                            customerName: _allOrders[j].customerName,
+                            contact: _allOrders[j].contact,
+                            landmark: _allOrders[j].landmark,
+                            address: _allOrders[j].address,
+                            totalAmount: _allOrders[j].totalAmount,
+                            paymentMethod: _allOrders[j].paymentMethod,
+                            paymentStatus: newPaymentStatus,
+                            orderStatus: newStatus,
+                            dateTime: _allOrders[j].dateTime,
+                            items: _allOrders[j].items,
+                          );
+                          break;
+                        }
                       }
-                    }
-                    _applyFilters();
-                  });
-                },
-              );
+                      _applyFilters();
+                    });
+                  },
+                );
             },
             style: OutlinedButton.styleFrom(
               foregroundColor: const Color(0xFF374151),
@@ -469,23 +480,44 @@ class _OrdersScreenState extends ConsumerState<OrdersScreen> {
               const SizedBox(height: 16),
 
               // ================================================
-              // ORDERS TABLE — reusable CommonTable
-              // same pattern as feedback_screen
+              // ORDERS TABLE — loading / error / data states
               // ================================================
               Expanded(
-                child: SingleChildScrollView(
-                  child: CommonTable(
-                    headers: const [
-                      'Total Amount',
-                      'Payment Method',
-                      'Payment Status',
-                      'Order Status',
-                      'Date & Time',
-                      'Action',
-                    ],
-                    rows: _buildRows(),
-                  ),
-                ),
+                child: _isLoading
+                    ? const Center(child: CircularProgressIndicator())
+                    : _errorMessage != null
+                        ? Center(
+                            child: Column(
+                              mainAxisSize: MainAxisSize.min,
+                              children: [
+                                Text(
+                                  _errorMessage!,
+                                  style: const TextStyle(
+                                    fontSize: 14,
+                                    color: Color(0xFF6B7280),
+                                  ),
+                                ),
+                                const SizedBox(height: 12),
+                                ElevatedButton(
+                                  onPressed: _loadOrders,
+                                  child: const Text('Retry'),
+                                ),
+                              ],
+                            ),
+                          )
+                        : SingleChildScrollView(
+                            child: CommonTable(
+                              headers: const [
+                                'Total Amount',
+                                'Payment Method',
+                                'Payment Status',
+                                'Order Status',
+                                'Date & Time',
+                                'Action',
+                              ],
+                              rows: _buildRows(),
+                            ),
+                          ),
               ),
             ],
           ),

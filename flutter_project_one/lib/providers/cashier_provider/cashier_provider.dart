@@ -16,13 +16,15 @@ class CashierNotifier extends Notifier<List<CartItem>> {
   // ADD TO CART
   // ==========================================
   void addToCart({
-    required String productId,
-    required String productName,
-    required String color,
-    required String size,
-    required double retailPrice,
-    required int quantity,
-  }) {
+      required String productId,
+      required String productName,
+      required String brand,
+      required String color,
+      required String size,
+      int? sizeId,
+      required double retailPrice,
+      required int quantity,
+    }) {
     final updatedCart = [...state];
 
     final existingIndex = updatedCart.indexWhere(
@@ -36,15 +38,17 @@ class CashierNotifier extends Notifier<List<CartItem>> {
       updatedCart[existingIndex].quantity += quantity;
     } else {
       updatedCart.add(
-        CartItem(
-          productId: productId,
-          productName: productName,
-          color: color,
-          size: size,
-          retailPrice: retailPrice,
-          quantity: quantity,
-        ),
-      );
+      CartItem(
+        productId:   productId,
+        productName: productName,
+        brand:       brand,
+        color:       color,
+        size:        size,
+        sizeId:      sizeId,
+        retailPrice: retailPrice,
+        quantity:    quantity,
+      ),
+    );
     }
 
     state = updatedCart;

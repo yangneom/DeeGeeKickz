@@ -1,21 +1,9 @@
 // ================================================
 // ORDER MODEL
-//
-// This file defines what an Order looks like in code
-// Think of it as a "blueprint" for an order
-//
-// It contains:
-//   - OrderItem class     → one item inside an order
-//   - Order class         → one order with a list of items
-//   - fakeOrders          → fake hardcoded data for now
-//
-// Later we will replace fakeOrders with real Supabase data
-// But the Order and OrderItem classes stay the same
 // ================================================
 
 // ================================================
 // ORDER ITEM CLASS
-// One item = one product inside an order
 // ================================================
 class OrderItem {
   final String productName;
@@ -33,24 +21,57 @@ class OrderItem {
     required this.price,
     required this.total,
   });
+
+  factory OrderItem.fromMap(Map<String, dynamic> map) {
+    final int qty      = (map['quantity'] as num).toInt();
+    final double price = (map['unit_price'] as num).toDouble();
+    final double total = (map['subtotal'] as num).toDouble();
+
+    int parsedSize = 0;
+    final dynamic rawSize = map['size_snapshot'];
+    if (rawSize != null) {
+      parsedSize = int.tryParse(rawSize.toString()) ?? 0;
+    }
+
+    return OrderItem(
+      productName: map['product_name_snapshot'] ?? '',
+      brand:       map['brand_snapshot'] ?? '',
+      size:        parsedSize,
+      quantity:    qty,
+      price:       price,
+      total:       total,
+    );
+  }
 }
 
 // ================================================
 // ORDER CLASS
-// One order = one customer purchase
+//
+// FIX: Added trackingUrl and receiptUrl fields.
+//      These are nullable — not every order will
+//      have a Lalamove link or receipt yet.
 // ================================================
 class Order {
-  final String orderId;
-  final String customerName;
-  final String contact;
-  final String landmark;
-  final String address;
-  final double totalAmount;
-  final String paymentMethod;
-  final String paymentStatus;
-  final String orderStatus;
-  final String dateTime;
+  final String  orderId;
+  final String  customerName;
+  final String  contact;
+  final String  landmark;
+  final String  address;
+  final double  totalAmount;
+  final String  paymentMethod;
+  final String  paymentStatus;
+  final String  orderStatus;
+  final String  dateTime;
+  final String? adminNote;  // ← ADD
   final List<OrderItem> items;
+
+  // NEW — Lalamove delivery tracking URL saved by admin
+  final String? trackingUrl;
+
+  // NEW — PDF receipt URL stored after payment confirmed
+  final String? receiptUrl;
+  final String? cancelReason;  // ← ADD THIS
+
 
   Order({
     required this.orderId,
@@ -64,117 +85,82 @@ class Order {
     required this.orderStatus,
     required this.dateTime,
     required this.items,
+    this.trackingUrl,
+    this.receiptUrl,
+    this.cancelReason,  // ← ADD THIS
+    this.adminNote,  // ← ADD
   });
+
+    factory Order.fromMap(
+    Map<String, dynamic> map, {
+    String  paymentStatus = '',
+    String? trackingUrl,
+    String? receiptUrl,
+    String? cancelReason,
+    String? adminNote,
+  }) {
+    // ── user info ──
+    final dynamic rawUser           = map['users'];
+    final Map<String, dynamic> user = (rawUser is Map<String, dynamic>)
+        ? rawUser
+        : {};
+    final String firstName    = user['first_name'] ?? '';
+    final String lastName     = user['last_name']  ?? '';
+    final String customerName = '$firstName $lastName'.trim().isEmpty
+        ? 'Unknown'
+        : '$firstName $lastName'.trim();
+    final String contact = user['phone'] ?? '';
+
+    // ── address info ──
+    final dynamic rawAddr           = map['address'];
+    final Map<String, dynamic> addr = (rawAddr is Map<String, dynamic>)
+        ? rawAddr
+        : {};
+    final String landmark    = addr['landmark'] ?? '';
+    final String street      = addr['street']   ?? '';
+    final String city        = addr['city']      ?? '';
+    final String zipCode     = addr['zip_code']  ?? '';
+    final String fullAddress = [street, city, zipCode]
+        .where((s) => s.isNotEmpty)
+        .join(', ');
+
+    // ── order items ──
+    final List<dynamic>   rawItems = map['order_item'] ?? [];
+    final List<OrderItem> items    = rawItems
+        .map((dynamic item) =>
+            OrderItem.fromMap(item as Map<String, dynamic>))
+        .toList();
+
+    // ── date formatting ──
+    String dateTime = '';
+    if (map['created_at'] != null) {
+      final DateTime dt   =
+          DateTime.parse(map['created_at'].toString()).toLocal();
+      final String month  = dt.month.toString().padLeft(2, '0');
+      final String day    = dt.day.toString().padLeft(2, '0');
+      final String year   = dt.year.toString();
+      final int    hour12 = dt.hour % 12 == 0 ? 12 : dt.hour % 12;
+      final String minute = dt.minute.toString().padLeft(2, '0');
+      final String amPm   = dt.hour < 12 ? 'am' : 'pm';
+      dateTime = '$month/$day/$year ${hour12}:$minute $amPm';
+    }
+
+    return Order(
+      orderId:       map['order_id'].toString(),
+      customerName:  customerName,
+      contact:       contact,
+      landmark:      landmark,
+      address:       fullAddress,
+      totalAmount:   (map['total_amount'] as num).toDouble(),
+      paymentMethod: map['payment_method'] ?? '',
+      paymentStatus: paymentStatus,
+      orderStatus:   map['order_status'] ?? 'Pending',
+      dateTime:      dateTime,
+      items:         items,
+      trackingUrl:   trackingUrl ?? map['tracking_url'] as String?,
+      receiptUrl:    receiptUrl,
+      cancelReason:  cancelReason,
+      adminNote:     adminNote,
+    );
+  }
 }
-
-// ================================================
-// FAKE ORDERS DATA
-// Temporary hardcoded data for testing
-// Replace with real Supabase data later
-// ================================================
-final List<Order> fakeOrders = [
-
-  // ------------------------------------------------
-  // Order 1
-  // ------------------------------------------------
-  Order(
-    orderId: '13',
-    customerName: 'Angel Tuazon',
-    contact: '09991506274',
-    landmark: 'Alcay Store',
-    address: 'Camarin Caloocan City 178',
-    totalAmount: 10500,
-    paymentMethod: 'GCash',
-    paymentStatus: 'Paid',
-    orderStatus: 'Pending',
-    dateTime: '02/05/2025 9:15 am',
-    items: [
-      OrderItem(
-        productName: 'Tsinelas',
-        brand: 'Adidas',
-        size: 43,
-        quantity: 2,
-        price: 5500,
-        total: 10500,
-      ),
-    ],
-  ),
-
-  // ------------------------------------------------
-  // Order 2
-  // ------------------------------------------------
-  Order(
-    orderId: 'order_002',
-    customerName: 'Jay Galang',
-    contact: '09171234567',
-    landmark: 'SM North',
-    address: 'Quezon City 1105',
-    totalAmount: 3200,
-    paymentMethod: 'Cash',
-    paymentStatus: 'Pending',
-    orderStatus: 'Confirmed',
-    dateTime: '02/05/2025 10:30 am',
-    items: [
-      OrderItem(
-        productName: 'Nike Panda',
-        brand: 'Nike',
-        size: 42,
-        quantity: 1,
-        price: 3200,
-        total: 3200,
-      ),
-    ],
-  ),
-
-  // ------------------------------------------------
-  // Order 3
-  // ------------------------------------------------
-  Order(
-    orderId: 'order_003',
-    customerName: 'Maria Santos',
-    contact: '09281112222',
-    landmark: 'Jollibee Monumento',
-    address: 'Caloocan City 1400',
-    totalAmount: 8900,
-    paymentMethod: 'Card',
-    paymentStatus: 'Paid',
-    orderStatus: 'Preparing',
-    dateTime: '02/05/2025 11:00 am',
-    items: [
-      OrderItem(
-        productName: 'Adidas Ultraboost',
-        brand: 'Adidas',
-        size: 40,
-        quantity: 1,
-        price: 8900,
-        total: 8900,
-      ),
-    ],
-  ),
-
-  // ------------------------------------------------
-  // Order 4
-  // ------------------------------------------------
-  Order(
-    orderId: 'order_004',
-    customerName: 'Carlo Reyes',
-    contact: '09559998888',
-    landmark: 'Mercury Drug Tandang Sora',
-    address: 'Quezon City 1116',
-    totalAmount: 4500,
-    paymentMethod: 'GCash',
-    paymentStatus: 'Paid',
-    orderStatus: 'Shipped',
-    dateTime: '02/05/2025 1:00 pm',
-    items: [
-      OrderItem(
-        productName: 'Nike Air Max',
-        brand: 'Nike',
-        size: 44,
-        quantity: 1,
-        price: 4500,
-        total: 4500,
-      ),
-    ],
-  ),
-];

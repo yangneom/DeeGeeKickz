@@ -24,14 +24,13 @@ class _ProfileAddressSectionState extends State<ProfileAddressSection> {
 
   // ── Add new ────────────────────────────────────────────────────────────────
   Future<void> _onAddNew() async {
-    final result = await showAddressBottomSheet(
+    final CustomerAddress? result = await showAddressBottomSheet(
       context: context,
       existing: null,
     );
     if (result == null) return;
 
     setState(() {
-      // If new address is set as default, unset others
       if (result.isDefault) {
         _addresses = _addresses
             .map((a) => a.copyWith(isDefault: false))
@@ -43,17 +42,16 @@ class _ProfileAddressSectionState extends State<ProfileAddressSection> {
 
   // ── Edit existing ──────────────────────────────────────────────────────────
   Future<void> _onEdit(CustomerAddress address) async {
-    final result = await showAddressBottomSheet(
+    final CustomerAddress? result = await showAddressBottomSheet(
       context: context,
       existing: address,
     );
     if (result == null) return;
 
     setState(() {
-      final idx = _addresses.indexWhere((a) => a.id == result.id);
+      final int idx = _addresses.indexWhere((a) => a.id == result.id);
       if (idx == -1) return;
 
-      // If updated address is now default, unset others
       if (result.isDefault) {
         _addresses = _addresses
             .map((a) => a.copyWith(isDefault: false))
@@ -65,8 +63,8 @@ class _ProfileAddressSectionState extends State<ProfileAddressSection> {
 
   @override
   Widget build(BuildContext context) {
-    final isDesktop = MediaQuery.of(context).size.width >= 768;
-    final padding   = isDesktop ? 48.0 : 16.0;
+    final bool isDesktop = MediaQuery.of(context).size.width >= 768;
+    final double padding = isDesktop ? 48.0 : 16.0;
 
     return Container(
       width: double.infinity,
@@ -78,6 +76,7 @@ class _ProfileAddressSectionState extends State<ProfileAddressSection> {
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.start,
         children: [
+
           // ── Header ─────────────────────────────────────────────
           Row(
             mainAxisAlignment: MainAxisAlignment.spaceBetween,
@@ -155,7 +154,7 @@ class _ProfileAddressSectionState extends State<ProfileAddressSection> {
           else
             Column(
               children: _addresses
-                  .map((addr) => _AddressTile(
+                  .map((CustomerAddress addr) => _AddressTile(
                         address: addr,
                         onEdit: () => _onEdit(addr),
                       ))
@@ -192,12 +191,14 @@ class _AddressTile extends StatelessWidget {
       child: Row(
         crossAxisAlignment: CrossAxisAlignment.start,
         children: [
-          // ── Left: badge + label + address text ─────────────────
+
+          // ── Left: address details ───────────────────────────────
           Expanded(
             child: Column(
               crossAxisAlignment: CrossAxisAlignment.start,
               children: [
-                // DEFAULT badge + HOME label
+
+                // DEFAULT badge
                 Row(
                   children: [
                     if (address.isDefault) ...[
@@ -232,16 +233,7 @@ class _AddressTile extends StatelessWidget {
 
                 const SizedBox(height: 6),
 
-                Text(
-                  address.fullName,
-                  style: const TextStyle(
-                    fontFamily: 'Inter',
-                    fontSize: 15,
-                    fontWeight: FontWeight.w500,
-                    color: Colors.black,
-                  ),
-                ),
-                const SizedBox(height: 2),
+                // Street
                 Text(
                   address.street,
                   style: const TextStyle(
@@ -250,31 +242,54 @@ class _AddressTile extends StatelessWidget {
                     color: Color(0xFF4C4546),
                   ),
                 ),
+
+                // Barangay
+                if (address.barangay.isNotEmpty)
+                  Text(
+                    address.barangay,
+                    style: const TextStyle(
+                      fontFamily: 'Inter',
+                      fontSize: 14,
+                      color: Color(0xFF4C4546),
+                    ),
+                  ),
+
+                // City, Province, Zip
                 Text(
-                  '${address.city}, ${address.postal}',
+                  [address.city, address.province, address.zipCode]
+                      .where((s) => s.isNotEmpty)
+                      .join(', '),
                   style: const TextStyle(
                     fontFamily: 'Inter',
                     fontSize: 14,
                     color: Color(0xFF4C4546),
                   ),
                 ),
-                Text(
-                  address.country,
-                  style: const TextStyle(
-                    fontFamily: 'Inter',
-                    fontSize: 14,
-                    color: Color(0xFF4C4546),
+
+                // Region
+                if (address.region.isNotEmpty)
+                  Text(
+                    address.region,
+                    style: const TextStyle(
+                      fontFamily: 'Inter',
+                      fontSize: 14,
+                      color: Color(0xFF4C4546),
+                    ),
                   ),
-                ),
-                const SizedBox(height: 4),
-                Text(
-                  address.phone,
-                  style: const TextStyle(
-                    fontFamily: 'Inter',
-                    fontSize: 13,
-                    color: Color(0xFF656464),
+
+                // Landmark
+                if (address.landmark.isNotEmpty) ...[
+                  const SizedBox(height: 4),
+                  Text(
+                    address.landmark,
+                    style: const TextStyle(
+                      fontFamily: 'Inter',
+                      fontSize: 13,
+                      color: Color(0xFF9CA3AF),
+                      fontStyle: FontStyle.italic,
+                    ),
                   ),
-                ),
+                ],
               ],
             ),
           ),

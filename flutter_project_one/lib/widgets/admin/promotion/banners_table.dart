@@ -1,6 +1,10 @@
 import 'package:flutter/material.dart';
 import '../../common/dialog/confirm_dialog.dart';
-import 'add_banner_dialog.dart'; // 👈 import the dialog
+import '../../common/buttons/table_pill_button.dart';
+import 'add_banner_dialog.dart';
+import 'edit_banner_dialog.dart';
+import '../../../models/promotion_banner_model.dart';
+import '../../../services/admin/promotionDiscount/banner_service.dart';
 
 class BannersTable extends StatefulWidget {
   const BannersTable({super.key});
@@ -10,34 +14,72 @@ class BannersTable extends StatefulWidget {
 }
 
 class _BannersTableState extends State<BannersTable> {
+  final BannerService _bannerService = BannerService();
+  List<PromotionBanner> _banners = [];
+  bool _isLoading = true;
 
-  final List<Map<String, dynamic>> _banners = [
-    {
-      'imageUrl': 'https://via.placeholder.com/160x80/1a1a1a/ff0000?text=SALE+50%25',
-      'uploadDate': 'Mar 1, 2026',
-      'status': 'Active',
-    },
-    {
-      'imageUrl': 'https://via.placeholder.com/160x80/0a0a2e/ffffff?text=SALE',
-      'uploadDate': 'Feb 28, 2026',
-      'status': 'Inactive',
-    },
-  ];
+  @override
+  void initState() {
+    super.initState();
+    _fetchBanners();
+  }
 
-  // ================================================
-  // OPEN ADD BANNER DIALOG
-  // Waits for the result and adds it to the list
-  // ================================================
-  Future<void> _handleAddBanner() async {
-    final Map<String, dynamic>? result = await showAddBannerDialog(context);
-
-    // if user cancelled, result is null — do nothing
-    if (result == null) return;
-
-    // add the new banner to the list
+  Future<void> _fetchBanners() async {
+    setState(() => _isLoading = true);
+    final List<PromotionBanner> result = await _bannerService.fetchBanners();
+    if (!mounted) return;
     setState(() {
-      _banners.add(result);
+      _banners = result;
+      _isLoading = false;
     });
+  }
+
+  String _formatDate(DateTime date) {
+    const List<String> months = [
+      'Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun',
+      'Jul', 'Aug', 'Sep', 'Oct', 'Nov', 'Dec',
+    ];
+    return '${months[date.month - 1]} ${date.day}, ${date.year}';
+  }
+
+  Future<void> _handleAddBanner() async {
+    final bool? result = await showAddBannerDialog(context);
+    if (result != true) return;
+    await _fetchBanners();
+  }
+
+  Future<void> _handleEditBanner(PromotionBanner banner) async {
+    final bool? result = await showEditBannerDialog(context, banner: banner);
+    if (result != true) return;
+    await _fetchBanners();
+  }
+
+  Future<void> _handleDelete(PromotionBanner banner) async {
+    final bool? confirmed = await showConfirmDialog(
+      context: context,
+      title: 'Delete this banner?',
+      message: 'This banner will be permanently removed from the homepage slider.',
+      confirmLabel: 'Delete',
+      confirmColor: const Color(0xFFDC2626),
+    );
+    if (confirmed != true) return;
+
+    final String? error = await _bannerService.deleteBanner(
+      bannerId: banner.bannerId,
+      imageUrl: banner.imageUrl,
+    );
+
+    if (!mounted) return;
+    if (error != null) {
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(
+          content: Text('Failed to delete banner: $error'),
+          backgroundColor: const Color(0xFFDC2626),
+        ),
+      );
+      return;
+    }
+    await _fetchBanners();
   }
 
   Widget _buildStatusBadge(String status) {
@@ -47,9 +89,7 @@ class _BannersTableState extends State<BannersTable> {
       decoration: BoxDecoration(
         color: isActive ? const Color(0xFFDCFCE7) : const Color(0xFFF3F4F6),
         borderRadius: BorderRadius.circular(20),
-        border: Border.all(
-          color: isActive ? const Color(0xFF86EFAC) : const Color(0xFFD1D5DB),
-        ),
+        border: Border.all(color: isActive ? const Color(0xFF86EFAC) : const Color(0xFFD1D5DB)),
       ),
       child: Text(
         status,
@@ -60,66 +100,6 @@ class _BannersTableState extends State<BannersTable> {
         ),
       ),
     );
-  }
-
-  Widget _buildActions({
-    required VoidCallback onEdit,
-    required VoidCallback onDelete,
-  }) {
-    return Row(
-      mainAxisSize: MainAxisSize.min,
-      children: [
-        GestureDetector(
-          onTap: onEdit,
-          child: const Row(
-            mainAxisSize: MainAxisSize.min,
-            children: [
-              Icon(Icons.edit_outlined, size: 15, color: Color(0xFF2563EB)),
-              SizedBox(width: 4),
-              Text(
-                'Edit',
-                style: TextStyle(
-                  fontSize: 13,
-                  color: Color(0xFF2563EB),
-                  fontWeight: FontWeight.w500,
-                ),
-              ),
-            ],
-          ),
-        ),
-        const SizedBox(width: 16),
-        GestureDetector(
-          onTap: onDelete,
-          child: const Row(
-            mainAxisSize: MainAxisSize.min,
-            children: [
-              Icon(Icons.delete_outline, size: 15, color: Color(0xFFDC2626)),
-              SizedBox(width: 4),
-              Text(
-                'Delete',
-                style: TextStyle(
-                  fontSize: 13,
-                  color: Color(0xFFDC2626),
-                  fontWeight: FontWeight.w500,
-                ),
-              ),
-            ],
-          ),
-        ),
-      ],
-    );
-  }
-
-  Future<void> _handleDelete(int index) async {
-    final bool? confirmed = await showConfirmDialog(
-      context: context,
-      title: 'Delete this banner?',
-      message: 'This banner will be permanently removed from the homepage slider.',
-      confirmLabel: 'Delete',
-      confirmColor: const Color(0xFFDC2626),
-    );
-    if (confirmed != true) return;
-    setState(() => _banners.removeAt(index));
   }
 
   @override
@@ -134,8 +114,6 @@ class _BannersTableState extends State<BannersTable> {
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.start,
         children: [
-
-          // ---- HEADER ----
           Padding(
             padding: const EdgeInsets.all(20),
             child: Row(
@@ -144,44 +122,28 @@ class _BannersTableState extends State<BannersTable> {
                 const Column(
                   crossAxisAlignment: CrossAxisAlignment.start,
                   children: [
-                    Text(
-                      'Homepage Promotion Banners',
-                      style: TextStyle(
-                        fontSize: 16,
-                        fontWeight: FontWeight.w600,
-                        color: Color(0xFF111827),
-                      ),
-                    ),
+                    Text('Homepage Promotion Banners',
+                        style: TextStyle(fontSize: 16, fontWeight: FontWeight.w600, color: Color(0xFF111827))),
                     SizedBox(height: 4),
-                    Text(
-                      'Upload banner images that appear in the landing page slider.',
-                      style: TextStyle(fontSize: 13, color: Color(0xFF6B7280)),
-                    ),
+                    Text('Upload banner images that appear in the landing page slider.',
+                        style: TextStyle(fontSize: 13, color: Color(0xFF6B7280))),
                   ],
                 ),
                 ElevatedButton(
-                  onPressed: _handleAddBanner, // 👈 connected
+                  onPressed: _handleAddBanner,
                   style: ElevatedButton.styleFrom(
                     backgroundColor: const Color(0xFF2563EB),
                     foregroundColor: Colors.white,
                     elevation: 0,
                     padding: const EdgeInsets.symmetric(horizontal: 20, vertical: 12),
-                    shape: RoundedRectangleBorder(
-                      borderRadius: BorderRadius.circular(8),
-                    ),
+                    shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(8)),
                   ),
-                  child: const Text(
-                    'Add Banner',
-                    style: TextStyle(fontSize: 13, fontWeight: FontWeight.w500),
-                  ),
+                  child: const Text('Add Banner', style: TextStyle(fontSize: 13, fontWeight: FontWeight.w500)),
                 ),
               ],
             ),
           ),
-
           const Divider(color: Color(0xFFE5E7EB), height: 1),
-
-          // ---- COLUMN HEADERS ----
           const Padding(
             padding: EdgeInsets.symmetric(horizontal: 20, vertical: 12),
             child: Row(
@@ -193,25 +155,22 @@ class _BannersTableState extends State<BannersTable> {
               ],
             ),
           ),
-
           const Divider(color: Color(0xFFE5E7EB), height: 1),
-
-          // ---- ROWS ----
-          if (_banners.isEmpty)
+          if (_isLoading)
+            const Padding(
+              padding: EdgeInsets.all(32),
+              child: Center(child: SizedBox(width: 20, height: 20, child: CircularProgressIndicator(strokeWidth: 2))),
+            )
+          else if (_banners.isEmpty)
             const _EmptyMessage('No banners yet.')
           else
             for (int i = 0; i < _banners.length; i++)
               Column(
                 children: [
                   Padding(
-                    padding: const EdgeInsets.symmetric(
-                      horizontal: 20,
-                      vertical: 12,
-                    ),
+                    padding: const EdgeInsets.symmetric(horizontal: 20, vertical: 12),
                     child: Row(
                       children: [
-
-                        // Banner Preview
                         Expanded(
                           flex: 4,
                           child: Align(
@@ -219,69 +178,47 @@ class _BannersTableState extends State<BannersTable> {
                             child: ClipRRect(
                               borderRadius: BorderRadius.circular(6),
                               child: Image.network(
-                                _banners[i]['imageUrl'],
-                                width: 160,
-                                height: 80,
-                                fit: BoxFit.cover,
+                                _banners[i].imageUrl,
+                                width: 160, height: 80, fit: BoxFit.cover,
                                 errorBuilder: (_, __, ___) => Container(
-                                  width: 160,
-                                  height: 80,
-                                  decoration: BoxDecoration(
-                                    color: const Color(0xFF1a1a2e),
-                                    borderRadius: BorderRadius.circular(6),
-                                  ),
-                                  child: const Center(
-                                    child: Icon(
-                                      Icons.image_outlined,
-                                      color: Colors.white54,
-                                      size: 24,
-                                    ),
-                                  ),
+                                  width: 160, height: 80,
+                                  decoration: BoxDecoration(color: const Color(0xFF1a1a2e), borderRadius: BorderRadius.circular(6)),
+                                  child: const Center(child: Icon(Icons.image_outlined, color: Colors.white54, size: 24)),
                                 ),
                               ),
                             ),
                           ),
                         ),
-
-                        // Upload Date
                         Expanded(
                           flex: 2,
-                          child: Text(
-                            _banners[i]['uploadDate'],
-                            style: const TextStyle(
-                              fontSize: 13,
-                              color: Color(0xFF111827),
-                            ),
-                          ),
+                          child: Text(_formatDate(_banners[i].uploadDate),
+                              style: const TextStyle(fontSize: 13, color: Color(0xFF111827))),
                         ),
-
-                        // Status badge
                         Expanded(
                           flex: 2,
-                          child: Align(
-                            alignment: Alignment.centerLeft,
-                            child: _buildStatusBadge(_banners[i]['status']),
-                          ),
+                          child: Align(alignment: Alignment.centerLeft, child: _buildStatusBadge(_banners[i].status)),
                         ),
-
-                        // Actions
                         Expanded(
                           flex: 2,
-                          child: _buildActions(
-                            onEdit: () {
-                              // TODO: open edit banner dialog
-                            },
-                            onDelete: () => _handleDelete(i),
+                          child: Row(
+                            mainAxisSize: MainAxisSize.min,
+                            children: [
+                              TablePillButton.edit(
+                                onPressed: () => _handleEditBanner(_banners[i]),
+                              ),
+                              const SizedBox(width: 8),
+                              TablePillButton.delete(
+                                onPressed: () => _handleDelete(_banners[i]),
+                              ),
+                            ],
                           ),
                         ),
                       ],
                     ),
                   ),
-                  if (i < _banners.length - 1)
-                    const Divider(color: Color(0xFFE5E7EB), height: 1),
+                  if (i < _banners.length - 1) const Divider(color: Color(0xFFE5E7EB), height: 1),
                 ],
               ),
-
           const SizedBox(height: 8),
         ],
       ),
@@ -289,39 +226,23 @@ class _BannersTableState extends State<BannersTable> {
   }
 }
 
-// ---- Private helpers ----
-
 class _HeaderCell extends StatelessWidget {
   final String label;
   const _HeaderCell(this.label);
-
   @override
   Widget build(BuildContext context) {
-    return Text(
-      label,
-      style: const TextStyle(
-        fontSize: 13,
-        fontWeight: FontWeight.w600,
-        color: Color(0xFF374151),
-      ),
-    );
+    return Text(label, style: const TextStyle(fontSize: 13, fontWeight: FontWeight.w600, color: Color(0xFF374151)));
   }
 }
 
 class _EmptyMessage extends StatelessWidget {
   final String message;
   const _EmptyMessage(this.message);
-
   @override
   Widget build(BuildContext context) {
     return Padding(
       padding: const EdgeInsets.all(32),
-      child: Center(
-        child: Text(
-          message,
-          style: const TextStyle(fontSize: 13, color: Color(0xFF9CA3AF)),
-        ),
-      ),
+      child: Center(child: Text(message, style: const TextStyle(fontSize: 13, color: Color(0xFF9CA3AF)))),
     );
   }
 }

@@ -43,8 +43,8 @@ class ProfileScreen extends StatelessWidget {
   // ── Mock addresses ──────────────────────────────────────────────────────────
   static final List<CustomerAddress> _mockAddresses = mockSavedAddresses;
 
-  // ── Mock orders ─────────────────────────────────────────────────────────────
-  static final List<Order> _allOrders = fakeOrders;
+  // ── Orders — empty until real Supabase load is wired up ────────────────────
+  static const List<Order> _allOrders = [];
 
   // Active order = first order that is NOT delivered or cancelled
   static Order? get _activeOrder {

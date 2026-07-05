@@ -1,8 +1,9 @@
+// lib/widgets/customer/notifications/notification_tile_offer.dart
+
 import 'package:flutter/material.dart';
 import '../../../models/notification_model.dart';
 
-/// Notification card for [NotificationType.offer].
-/// Shows a stars icon, title, body, and "Shop The Vault" CTA.
+/// Notification card for [NotificationType.promotion].
 class NotificationTileOffer extends StatelessWidget {
   final AppNotification notification;
   final VoidCallback onMarkRead;
@@ -49,7 +50,6 @@ class NotificationTileOffer extends StatelessWidget {
               child: Column(
                 crossAxisAlignment: CrossAxisAlignment.start,
                 children: [
-                  // Type label + time + unread dot
                   Row(
                     mainAxisAlignment: MainAxisAlignment.spaceBetween,
                     children: [
@@ -114,7 +114,6 @@ class NotificationTileOffer extends StatelessWidget {
 
                   const SizedBox(height: 14),
 
-                  // CTA button
                   GestureDetector(
                     onTap: () {
                       // TODO: navigate to promo/shop screen

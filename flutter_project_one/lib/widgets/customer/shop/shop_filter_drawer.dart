@@ -1,7 +1,5 @@
 import 'package:flutter/material.dart';
-import '../../../models/product_model.dart';
 
-/// Filter state passed in and out of the drawer.
 class ShopFilterState {
   final Set<String> brands;
   final Set<String> categories;
@@ -12,7 +10,7 @@ class ShopFilterState {
     this.brands = const {},
     this.categories = const {},
     this.size,
-    this.maxPrice = 500,
+    this.maxPrice = 5000,
   });
 
   ShopFilterState copyWith({
@@ -31,26 +29,37 @@ class ShopFilterState {
   }
 
   bool get isEmpty =>
-      brands.isEmpty && categories.isEmpty && size == null && maxPrice == 500;
+      brands.isEmpty && categories.isEmpty && size == null && maxPrice == 5000;
 }
 
-/// Shows the filter bottom sheet on mobile.
-/// Returns the updated [ShopFilterState] or null if dismissed.
 Future<ShopFilterState?> showShopFilterDrawer(
   BuildContext context,
-  ShopFilterState current,
-) {
+  ShopFilterState current, {
+  required List<String> availableBrands,
+  required List<String> availableCategories,
+}) {
   return showModalBottomSheet<ShopFilterState>(
     context: context,
     isScrollControlled: true,
     backgroundColor: Colors.transparent,
-    builder: (_) => _FilterSheet(current: current),
+    builder: (_) => _FilterSheet(
+      current: current,
+      availableBrands: availableBrands,
+      availableCategories: availableCategories,
+    ),
   );
 }
 
 class _FilterSheet extends StatefulWidget {
   final ShopFilterState current;
-  const _FilterSheet({required this.current});
+  final List<String> availableBrands;
+  final List<String> availableCategories;
+
+  const _FilterSheet({
+    required this.current,
+    required this.availableBrands,
+    required this.availableCategories,
+  });
 
   @override
   State<_FilterSheet> createState() => _FilterSheetState();
@@ -62,6 +71,11 @@ class _FilterSheetState extends State<_FilterSheet> {
   late String? _size;
   late double _maxPrice;
 
+  static const List<String> _sizes = [
+    '6', '6.5', '7', '7.5', '8', '8.5', '9',
+    '9.5', '10', '10.5', '11', '12',
+  ];
+
   @override
   void initState() {
     super.initState();
@@ -71,25 +85,19 @@ class _FilterSheetState extends State<_FilterSheet> {
     _maxPrice = widget.current.maxPrice;
   }
 
-  void _clear() {
-    setState(() {
-      _brands = {};
-      _categories = {};
-      _size = null;
-      _maxPrice = 500;
-    });
-  }
+  void _clear() => setState(() {
+        _brands = {};
+        _categories = {};
+        _size = null;
+        _maxPrice = 5000;
+      });
 
-  void _apply() {
-    Navigator.of(context).pop(
-      ShopFilterState(
+  void _apply() => Navigator.of(context).pop(ShopFilterState(
         brands: _brands,
         categories: _categories,
         size: _size,
         maxPrice: _maxPrice,
-      ),
-    );
-  }
+      ));
 
   @override
   Widget build(BuildContext context) {
@@ -105,7 +113,6 @@ class _FilterSheetState extends State<_FilterSheet> {
           ),
           child: Column(
             children: [
-              // Handle bar
               Container(
                 margin: const EdgeInsets.only(top: 12, bottom: 4),
                 width: 40,
@@ -115,8 +122,6 @@ class _FilterSheetState extends State<_FilterSheet> {
                   borderRadius: BorderRadius.circular(2),
                 ),
               ),
-
-              // Header
               Padding(
                 padding: const EdgeInsets.fromLTRB(16, 8, 8, 8),
                 child: Row(
@@ -138,10 +143,7 @@ class _FilterSheetState extends State<_FilterSheet> {
                   ],
                 ),
               ),
-
               const Divider(height: 1, color: Color(0xFFCFC4C5)),
-
-              // Scrollable filter content
               Expanded(
                 child: ListView(
                   controller: scrollController,
@@ -150,37 +152,33 @@ class _FilterSheetState extends State<_FilterSheet> {
                     _SectionLabel('Brand'),
                     const SizedBox(height: 12),
                     _ChipRow(
-                      options: kShopBrands,
+                      options: widget.availableBrands,
                       selected: _brands,
-                      onToggle: (v) => setState(() {
-                        _brands.contains(v)
-                            ? _brands.remove(v)
-                            : _brands.add(v);
-                      }),
+                      onToggle: (v) => setState(() => _brands.contains(v)
+                          ? _brands.remove(v)
+                          : _brands.add(v)),
                     ),
                     const SizedBox(height: 24),
-
                     _SectionLabel('Category'),
                     const SizedBox(height: 12),
-                    _CategoryGrid(
+                    _ChipRow(
+                      options: widget.availableCategories,
                       selected: _categories,
-                      onToggle: (v) => setState(() {
-                        _categories.contains(v)
-                            ? _categories.remove(v)
-                            : _categories.add(v);
-                      }),
+                      onToggle: (v) => setState(() =>
+                          _categories.contains(v)
+                              ? _categories.remove(v)
+                              : _categories.add(v)),
                     ),
                     const SizedBox(height: 24),
-
                     _SectionLabel('Size (US)'),
                     const SizedBox(height: 12),
                     _SizeGrid(
+                      sizes: _sizes,
                       selected: _size,
-                      onSelect: (v) => setState(
-                          () => _size = (_size == v) ? null : v),
+                      onSelect: (v) =>
+                          setState(() => _size = (_size == v) ? null : v),
                     ),
                     const SizedBox(height: 24),
-
                     _SectionLabel('Max Price'),
                     const SizedBox(height: 12),
                     _PriceSlider(
@@ -191,28 +189,18 @@ class _FilterSheetState extends State<_FilterSheet> {
                   ],
                 ),
               ),
-
-              // Action buttons
               const Divider(height: 1, color: Color(0xFFCFC4C5)),
               Padding(
                 padding: const EdgeInsets.fromLTRB(16, 12, 16, 20),
                 child: Row(
                   children: [
                     Expanded(
-                      child: _ActionButton(
-                        label: 'CLEAR',
-                        filled: false,
-                        onTap: _clear,
-                      ),
-                    ),
+                        child: _ActionButton(
+                            label: 'CLEAR', filled: false, onTap: _clear)),
                     const SizedBox(width: 8),
                     Expanded(
-                      child: _ActionButton(
-                        label: 'APPLY',
-                        filled: true,
-                        onTap: _apply,
-                      ),
-                    ),
+                        child: _ActionButton(
+                            label: 'APPLY', filled: true, onTap: _apply)),
                   ],
                 ),
               ),
@@ -224,7 +212,7 @@ class _FilterSheetState extends State<_FilterSheet> {
   }
 }
 
-// ── Sub-widgets ─────────────────────────────────────────────────
+// ── Sub-widgets ──────────────────────────────────────────────────
 
 class _SectionLabel extends StatelessWidget {
   final String text;
@@ -250,11 +238,10 @@ class _ChipRow extends StatelessWidget {
   final Set<String> selected;
   final ValueChanged<String> onToggle;
 
-  const _ChipRow({
-    required this.options,
-    required this.selected,
-    required this.onToggle,
-  });
+  const _ChipRow(
+      {required this.options,
+      required this.selected,
+      required this.onToggle});
 
   @override
   Widget build(BuildContext context) {
@@ -266,12 +253,12 @@ class _ChipRow extends StatelessWidget {
         return GestureDetector(
           onTap: () => onToggle(opt),
           child: Container(
-            padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 8),
+            padding:
+                const EdgeInsets.symmetric(horizontal: 16, vertical: 8),
             decoration: BoxDecoration(
               color: isOn ? Colors.black : Colors.transparent,
               border: Border.all(
-                color: isOn ? Colors.black : const Color(0xFFCFC4C5),
-              ),
+                  color: isOn ? Colors.black : const Color(0xFFCFC4C5)),
             ),
             child: Text(
               opt,
@@ -289,102 +276,37 @@ class _ChipRow extends StatelessWidget {
   }
 }
 
-class _CategoryGrid extends StatelessWidget {
-  final Set<String> selected;
-  final ValueChanged<String> onToggle;
-
-  const _CategoryGrid({required this.selected, required this.onToggle});
-
-  @override
-  Widget build(BuildContext context) {
-    return GridView.count(
-      crossAxisCount: 2,
-      shrinkWrap: true,
-      physics: const NeverScrollableScrollPhysics(),
-      crossAxisSpacing: 8,
-      mainAxisSpacing: 8,
-      childAspectRatio: 3.5,
-      children: kShopCategories.map((cat) {
-        final isOn = selected.contains(cat);
-        return GestureDetector(
-          onTap: () => onToggle(cat),
-          child: Container(
-            decoration: BoxDecoration(
-              border: Border.all(
-                color: isOn ? Colors.black : const Color(0xFFCFC4C5),
-              ),
-            ),
-            child: Row(
-              children: [
-                Padding(
-                  padding: const EdgeInsets.only(left: 10),
-                  child: SizedBox(
-                    width: 20,
-                    height: 20,
-                    child: Checkbox(
-                      value: isOn,
-                      onChanged: (_) => onToggle(cat),
-                      activeColor: Colors.black,
-                      side: const BorderSide(color: Colors.black, width: 1.5),
-                      shape: const RoundedRectangleBorder(
-                        borderRadius: BorderRadius.zero,
-                      ),
-                    ),
-                  ),
-                ),
-                const SizedBox(width: 8),
-                Flexible(
-                  child: Text(
-                    cat,
-                    style: const TextStyle(
-                      fontFamily: 'Inter',
-                      fontSize: 12,
-                      fontWeight: FontWeight.w500,
-                      color: Colors.black,
-                    ),
-                    overflow: TextOverflow.ellipsis,
-                  ),
-                ),
-              ],
-            ),
-          ),
-        );
-      }).toList(),
-    );
-  }
-}
-
 class _SizeGrid extends StatelessWidget {
+  final List<String> sizes;
   final String? selected;
   final ValueChanged<String> onSelect;
 
-  const _SizeGrid({required this.selected, required this.onSelect});
+  const _SizeGrid(
+      {required this.sizes, required this.selected, required this.onSelect});
 
   @override
   Widget build(BuildContext context) {
-    return GridView.count(
-      crossAxisCount: 7,
-      shrinkWrap: true,
-      physics: const NeverScrollableScrollPhysics(),
-      crossAxisSpacing: 6,
-      mainAxisSpacing: 6,
-      children: kShopSizes.map((s) {
+    return Wrap(
+      spacing: 6,
+      runSpacing: 6,
+      children: sizes.map((s) {
         final isOn = selected == s;
         return GestureDetector(
           onTap: () => onSelect(s),
           child: Container(
+            width: 48,
+            height: 40,
             decoration: BoxDecoration(
               color: isOn ? Colors.black : Colors.transparent,
               border: Border.all(
-                color: isOn ? Colors.black : const Color(0xFFCFC4C5),
-              ),
+                  color: isOn ? Colors.black : const Color(0xFFCFC4C5)),
             ),
             alignment: Alignment.center,
             child: Text(
               s,
               style: TextStyle(
                 fontFamily: 'Inter',
-                fontSize: 13,
+                fontSize: 12,
                 fontWeight: FontWeight.w600,
                 color: isOn ? Colors.white : Colors.black,
               ),
@@ -416,7 +338,7 @@ class _PriceSlider extends StatelessWidget {
           ),
           child: Slider(
             min: 0,
-            max: 500,
+            max: 5000,
             value: value,
             onChanged: onChanged,
           ),
@@ -426,12 +348,11 @@ class _PriceSlider extends StatelessWidget {
           child: Row(
             mainAxisAlignment: MainAxisAlignment.spaceBetween,
             children: [
-              Text('\$0',
-                  style: _priceStyle),
-              Text('\$${value.toStringAsFixed(0)}',
-                  style: _priceStyle.copyWith(fontWeight: FontWeight.w700)),
-              Text('\$500+',
-                  style: _priceStyle),
+              Text('₱0', style: _priceStyle),
+              Text('₱${value.toStringAsFixed(0)}',
+                  style:
+                      _priceStyle.copyWith(fontWeight: FontWeight.w700)),
+              Text('₱5000+', style: _priceStyle),
             ],
           ),
         ),
@@ -452,11 +373,8 @@ class _ActionButton extends StatelessWidget {
   final bool filled;
   final VoidCallback onTap;
 
-  const _ActionButton({
-    required this.label,
-    required this.filled,
-    required this.onTap,
-  });
+  const _ActionButton(
+      {required this.label, required this.filled, required this.onTap});
 
   @override
   Widget build(BuildContext context) {
@@ -467,8 +385,7 @@ class _ActionButton extends StatelessWidget {
         decoration: BoxDecoration(
           color: filled ? Colors.black : Colors.transparent,
           border: Border.all(
-            color: filled ? Colors.black : const Color(0xFFCFC4C5),
-          ),
+              color: filled ? Colors.black : const Color(0xFFCFC4C5)),
         ),
         alignment: Alignment.center,
         child: Text(

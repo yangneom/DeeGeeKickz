@@ -1,5 +1,7 @@
-import 'package:flutter/material.dart';
+﻿import 'package:flutter/material.dart';
 import '../../../models/product.dart';
+import '../../../models/discount_model.dart';
+import '../../../services/admin/promotionDiscount/discount_service.dart';
 
 // ================================================
 // SELECT VARIANT DIALOG
@@ -52,6 +54,39 @@ class _SelectVariantDialogState extends State<SelectVariantDialog> {
   String? _selectedColor;
   SizeEntry? _selectedSize;
   int _quantity = 1;
+
+  // Active discount for this product, if any — fetched once on open.
+  Discount? _discount;
+
+  @override
+  void initState() {
+    super.initState();
+    _loadDiscount();
+  }
+
+  Future<void> _loadDiscount() async {
+    print('DEBUG: raw productId = "${widget.product.productId}"');
+    final int? pid = int.tryParse(widget.product.productId);
+    print('DEBUG: parsed pid = $pid');
+    final Map<int, Discount> discounts =
+        await DiscountService().fetchActiveDiscountsByProduct();
+    print('DEBUG: discounts map = $discounts');
+    if (!mounted) return;
+    setState(() => _discount = discounts[pid]);
+    print('DEBUG: matched discount = $_discount');
+  }
+
+  // Applies the active discount (if any) to a base price.
+  double _applyDiscount(double basePrice) {
+    if (_discount == null) return basePrice;
+    double result;
+    if (_discount!.discountType == 'Percentage') {
+      result = basePrice - (basePrice * (_discount!.discountValue / 100));
+    } else {
+      result = basePrice - _discount!.discountValue;
+    }
+    return result < 0 ? 0 : result;
+  }
 
   // ================================================
   // GET UNIQUE COLORS from variants
@@ -137,8 +172,6 @@ class _SelectVariantDialogState extends State<SelectVariantDialog> {
               mainAxisSize: MainAxisSize.min,
               crossAxisAlignment: CrossAxisAlignment.start,
               children: [
-
-                // ---- TITLE ----
                 const Text(
                   'Item Reserved',
                   style: TextStyle(
@@ -147,10 +180,7 @@ class _SelectVariantDialogState extends State<SelectVariantDialog> {
                     color: Color(0xFF111827),
                   ),
                 ),
-
                 const SizedBox(height: 10),
-
-                // ---- MESSAGE ----
                 const Text(
                   'This item is fully reserved for an online order and cannot be sold in-store right now.',
                   style: TextStyle(
@@ -159,10 +189,7 @@ class _SelectVariantDialogState extends State<SelectVariantDialog> {
                     height: 1.5,
                   ),
                 ),
-
                 const SizedBox(height: 10),
-
-                // ---- HINT BOX ----
                 Container(
                   padding: const EdgeInsets.all(10),
                   decoration: BoxDecoration(
@@ -179,10 +206,7 @@ class _SelectVariantDialogState extends State<SelectVariantDialog> {
                     ),
                   ),
                 ),
-
                 const SizedBox(height: 24),
-
-                // ---- BUTTON ----
                 Row(
                   mainAxisAlignment: MainAxisAlignment.end,
                   children: [
@@ -229,9 +253,17 @@ class _SelectVariantDialogState extends State<SelectVariantDialog> {
 
     final double price =
         variant?.retailPrice ?? widget.product.averagePrice;
+    final double displayPrice = _applyDiscount(price);
 
     final int maxQty =
         size?.availableQty ?? 1;
+
+    // Prefer the selected variant's image; fall back to the product's
+    // first variant image if no color has been picked yet.
+    final String? imageUrl = variant?.primaryImageUrl ??
+        (widget.product.variants.isNotEmpty
+            ? widget.product.variants.first.primaryImageUrl
+            : null);
 
     return Dialog(
       shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
@@ -244,7 +276,6 @@ class _SelectVariantDialogState extends State<SelectVariantDialog> {
           crossAxisAlignment: CrossAxisAlignment.start,
           children: [
 
-            // ── TITLE ──
             const Text(
               'Select Variant',
               style: TextStyle(
@@ -272,34 +303,34 @@ class _SelectVariantDialogState extends State<SelectVariantDialog> {
                 Column(
                   crossAxisAlignment: CrossAxisAlignment.start,
                   children: [
-                    const Text(
-                      'Item Preview',
-                      style: TextStyle(
-                        fontSize: 12,
-                        fontWeight: FontWeight.w500,
-                        color: Color(0xFF374151),
-                      ),
-                    ),
-                    const SizedBox(height: 8),
-                    Container(
-                      width: 140,
-                      height: 140,
-                      decoration: BoxDecoration(
-                        color: const Color(0xFFE5E7EB),
-                        borderRadius: BorderRadius.circular(8),
-                      ),
-                      child: const Icon(
-                        Icons.image_outlined,
-                        size: 40,
-                        color: Color(0xFF9CA3AF),
+                    ClipRRect(
+                      borderRadius: BorderRadius.circular(8),
+                      child: Container(
+                        width: 140,
+                        height: 140,
+                        color: const Color(0xFFF3F4F6),
+                        child: (imageUrl != null && imageUrl.isNotEmpty)
+                            ? Image.network(
+                                imageUrl,
+                                width: 140,
+                                height: 140,
+                                fit: BoxFit.cover,
+                                errorBuilder: (_, __, ___) => const Icon(
+                                  Icons.image_outlined,
+                                  size: 40,
+                                  color: Color(0xFF9CA3AF),
+                                ),
+                              )
+                            : const Icon(
+                                Icons.image_outlined,
+                                size: 40,
+                                color: Color(0xFF9CA3AF),
+                              ),
                       ),
                     ),
 
                     const SizedBox(height: 12),
 
-                    // ── STOCK INFO BOX ──
-                    // shows stock / reserved / available
-                    // only when a variant is selected
                     if (variant != null)
                       Container(
                         width: 140,
@@ -314,17 +345,12 @@ class _SelectVariantDialogState extends State<SelectVariantDialog> {
                         child: Column(
                           crossAxisAlignment: CrossAxisAlignment.start,
                           children: [
-
-                            // stock qty
                             _buildStockRow(
                               'Stock',
                               '${size?.stockQty ?? 0}',
                               const Color(0xFF374151),
                             ),
-
                             const SizedBox(height: 4),
-
-                            // reserved qty — red if > 0
                             _buildStockRow(
                               'Reserved',
                               '${size?.reservedQty ?? 0}',
@@ -332,13 +358,10 @@ class _SelectVariantDialogState extends State<SelectVariantDialog> {
                                   ? const Color(0xFFDC2626)
                                   : const Color(0xFF374151),
                             ),
-
                             const Divider(
                               height: 12,
                               color: Color(0xFFE5E7EB),
                             ),
-
-                            // available qty — green if > 0, red if 0
                             _buildStockRow(
                               'Available',
                               '${size?.availableQty ?? 0}',
@@ -355,25 +378,48 @@ class _SelectVariantDialogState extends State<SelectVariantDialog> {
 
                 const SizedBox(width: 20),
 
-                // ── VARIANT SELECTORS ──
                 Expanded(
                   child: Column(
                     crossAxisAlignment: CrossAxisAlignment.start,
                     children: [
 
-                      // price
-                      Text(
-                        '₱${price.toStringAsFixed(0)}',
-                        style: const TextStyle(
-                          fontSize: 18,
-                          fontWeight: FontWeight.bold,
-                          color: Color(0xFF111827),
-                        ),
-                      ),
+                      _discount != null
+                          ? Row(
+                              crossAxisAlignment: CrossAxisAlignment.end,
+                              children: [
+                                Text(
+                                  '₱${displayPrice.toStringAsFixed(0)}',
+                                  style: const TextStyle(
+                                    fontSize: 18,
+                                    fontWeight: FontWeight.bold,
+                                    color: Color(0xFFDC2626),
+                                  ),
+                                ),
+                                const SizedBox(width: 8),
+                                Padding(
+                                  padding: const EdgeInsets.only(bottom: 2),
+                                  child: Text(
+                                    '₱${price.toStringAsFixed(0)}',
+                                    style: const TextStyle(
+                                      fontSize: 13,
+                                      color: Color(0xFF9CA3AF),
+                                      decoration: TextDecoration.lineThrough,
+                                    ),
+                                  ),
+                                ),
+                              ],
+                            )
+                          : Text(
+                              '₱${price.toStringAsFixed(0)}',
+                              style: const TextStyle(
+                                fontSize: 18,
+                                fontWeight: FontWeight.bold,
+                                color: Color(0xFF111827),
+                              ),
+                            ),
 
                       const SizedBox(height: 16),
 
-                      // ── COLOR SELECTOR ──
                       const Text(
                         'Color',
                         style: TextStyle(
@@ -392,7 +438,6 @@ class _SelectVariantDialogState extends State<SelectVariantDialog> {
                             onTap: () {
                               setState(() {
                                 _selectedColor = color;
-                                // reset size when color changes
                                 _selectedSize = null;
                                 _quantity = 1;
                               });
@@ -432,7 +477,6 @@ class _SelectVariantDialogState extends State<SelectVariantDialog> {
 
                       const SizedBox(height: 16),
 
-                      // ── SIZE SELECTOR ──
                       const Text(
                         'Sizes',
                         style: TextStyle(
@@ -462,19 +506,13 @@ class _SelectVariantDialogState extends State<SelectVariantDialog> {
 
                                 return GestureDetector(
                                   onTap: () {
-
-                                    // if fully reserved → show error popup
                                     if (isReserved == true) {
                                       _showReservedError();
                                       return;
                                     }
-
-                                    // if no stock at all → do nothing
                                     if (isAvailable == false) {
                                       return;
                                     }
-
-                                    // otherwise select it
                                     setState(() {
                                       _selectedSize = size;
                                       _quantity = 1;
@@ -483,8 +521,6 @@ class _SelectVariantDialogState extends State<SelectVariantDialog> {
                                   child: Stack(
                                     clipBehavior: Clip.none,
                                     children: [
-
-                                      // size chip
                                       Container(
                                         padding: const EdgeInsets.symmetric(
                                           horizontal: 14,
@@ -528,9 +564,6 @@ class _SelectVariantDialogState extends State<SelectVariantDialog> {
                                           ),
                                         ),
                                       ),
-
-                                      // reserved badge — small lock icon
-                                      // shown on top-right corner of chip
                                       if (isReserved == true)
                                         Positioned(
                                           top: -6,
@@ -557,7 +590,6 @@ class _SelectVariantDialogState extends State<SelectVariantDialog> {
 
                       const SizedBox(height: 8),
 
-                      // legend for size chip colors
                       if (_selectedColor != null)
                         Wrap(
                           spacing: 12,
@@ -579,7 +611,6 @@ class _SelectVariantDialogState extends State<SelectVariantDialog> {
 
                       const SizedBox(height: 16),
 
-                      // ── QUANTITY ──
                       const Text(
                         'Quantity',
                         style: TextStyle(
@@ -592,8 +623,6 @@ class _SelectVariantDialogState extends State<SelectVariantDialog> {
 
                       Row(
                         children: [
-
-                          // decrease button
                           _buildQtyButton(
                             icon: Icons.remove,
                             onTap: () {
@@ -602,8 +631,6 @@ class _SelectVariantDialogState extends State<SelectVariantDialog> {
                               }
                             },
                           ),
-
-                          // quantity display
                           Padding(
                             padding: const EdgeInsets.symmetric(horizontal: 14),
                             child: Text(
@@ -615,8 +642,6 @@ class _SelectVariantDialogState extends State<SelectVariantDialog> {
                               ),
                             ),
                           ),
-
-                          // increase button — capped at availableQty
                           _buildQtyButton(
                             icon: Icons.add,
                             onTap: () {
@@ -625,8 +650,6 @@ class _SelectVariantDialogState extends State<SelectVariantDialog> {
                               }
                             },
                           ),
-
-                          // max available hint
                           if (size != null && size.availableQty > 0)
                             Padding(
                               padding: const EdgeInsets.only(left: 10),
@@ -648,12 +671,9 @@ class _SelectVariantDialogState extends State<SelectVariantDialog> {
 
             const SizedBox(height: 24),
 
-            // ── BOTTOM BUTTONS ──
             Row(
               mainAxisAlignment: MainAxisAlignment.end,
               children: [
-
-                // cancel
                 OutlinedButton(
                   onPressed: () => Navigator.pop(context),
                   style: OutlinedButton.styleFrom(
@@ -675,10 +695,7 @@ class _SelectVariantDialogState extends State<SelectVariantDialog> {
                     ),
                   ),
                 ),
-
                 const SizedBox(width: 12),
-
-                // add to cart — disabled if not selected or fully reserved
                 ElevatedButton(
                   onPressed: (
                     _selectedColor != null &&
@@ -726,10 +743,6 @@ class _SelectVariantDialogState extends State<SelectVariantDialog> {
     );
   }
 
-  // ================================================
-  // STOCK INFO ROW
-  // label on left, value on right
-  // ================================================
   Widget _buildStockRow(
     String label,
     String value,
@@ -758,10 +771,6 @@ class _SelectVariantDialogState extends State<SelectVariantDialog> {
     );
   }
 
-  // ================================================
-  // LEGEND ITEM
-  // small colored dot + label
-  // ================================================
   Widget _buildLegendItem({
     required Color color,
     required String label,
@@ -789,9 +798,6 @@ class _SelectVariantDialogState extends State<SelectVariantDialog> {
     );
   }
 
-  // ================================================
-  // QUANTITY BUTTON
-  // ================================================
   Widget _buildQtyButton({
     required IconData icon,
     required VoidCallback onTap,

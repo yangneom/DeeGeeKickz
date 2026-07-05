@@ -1,16 +1,21 @@
+import 'dart:typed_data';
+import 'package:file_picker/file_picker.dart';
 import 'package:flutter/material.dart';
+import 'package:crop_your_image/crop_your_image.dart';
+import '../../../services/admin/promotionDiscount/banner_service.dart';
 
 // ================================================
 // ADD BANNER DIALOG
 //
-// This dialog lets the admin upload a banner image
-// and pick Active or Inactive status.
+// This dialog lets the admin upload a banner image.
+// New banners always upload as "Active" — pausing a
+// banner (setting it Inactive) is an editing concern
+// only, handled in EditBannerDialog.
 //
 // Features:
-//   - Upload area (click to pick image)
-//   - Image crop preview — the image is cropped
-//     to fit a 16:5 banner ratio using BoxFit.cover
-//   - Status radio buttons (Active / Inactive)
+//   - Upload area (file_picker, Flutter Web)
+//   - Real interactive crop step locked to 16:5
+//     using crop_your_image
 //   - Cancel and Upload Banner buttons
 //
 // How to open:
@@ -19,10 +24,13 @@ import 'package:flutter/material.dart';
 
 // ================================================
 // SHOW FUNCTION
-// Call this from BannersTable to open the dialog
+// Call this from BannersTable to open the dialog.
+// Returns `true` on a successful upload (the table
+// re-fetches from Supabase rather than receiving a
+// Map back).
 // ================================================
-Future<Map<String, dynamic>?> showAddBannerDialog(BuildContext context) {
-  return showDialog<Map<String, dynamic>>(
+Future<bool?> showAddBannerDialog(BuildContext context) {
+  return showDialog<bool>(
     context: context,
     barrierDismissible: false,
     builder: (BuildContext dialogContext) {
@@ -33,9 +41,6 @@ Future<Map<String, dynamic>?> showAddBannerDialog(BuildContext context) {
 
 // ================================================
 // STATEFUL WIDGET
-// We need state because the user can:
-//   - toggle status
-//   - pick an image (simulated with a flag)
 // ================================================
 class AddBannerDialog extends StatefulWidget {
   const AddBannerDialog({super.key});
@@ -45,45 +50,88 @@ class AddBannerDialog extends StatefulWidget {
 }
 
 class _AddBannerDialogState extends State<AddBannerDialog> {
+  // New banners always go live immediately as Active.
+  static const String _uploadStatus = 'Active';
 
-  // ── STATUS ──
-  // 'Active' or 'Inactive'
-  // default is Active when opening the dialog
-  String _selectedStatus = 'Active';
+  // ── IMAGE PICKED (raw, pre-crop) ──
+  Uint8List? _pickedBytes;
+  String _fileExt = 'jpg';
 
-  // ── IMAGE PICKED ──
-  // We simulate image picking with a bool flag
-  // In a real app this would be a File or Uint8List
-  // from image_picker package
-  bool _hasImage = false;
+  // ── CROPPED RESULT (what actually gets uploaded) ──
+  Uint8List? _croppedBytes;
 
-  // ── FAKE IMAGE URL ──
-  // We use a placeholder to simulate a picked image
-  // Replace this with the actual picked image later
-  final String _fakeImageUrl =
-      'https://via.placeholder.com/960x300/1a1a2e/ffffff?text=Banner+Preview';
+  // ── CROP STEP STATE ──
+  bool _isCropping = false;
+  final CropController _cropController = CropController();
+
+  // ── UPLOAD STATE ──
+  bool _isUploading = false;
+
+  final BannerService _bannerService = BannerService();
 
   // ================================================
-  // SIMULATE PICKING AN IMAGE
-  // In a real app: use image_picker package
-  // For now: just set _hasImage to true
+  // PICK IMAGE
+  // Opens file_picker (Web) with bytes, then enters
+  // crop mode locked to 16:5.
   // ================================================
-  void _pickImage() {
+  Future<void> _pickImage() async {
+    final FilePickerResult? result = await FilePicker.platform.pickFiles(
+      type: FileType.image,
+      withData: true,
+    );
+
+    if (result == null || result.files.isEmpty) return;
+
+    final PlatformFile file = result.files.first;
+    if (file.bytes == null) return;
+
     setState(() {
-      // pretend the user picked an image
-      _hasImage = true;
+      _pickedBytes = file.bytes;
+      _fileExt = (file.extension ?? 'jpg').toLowerCase();
+      _croppedBytes = null;
+      _isCropping = true;
     });
   }
 
   // ================================================
-  // HANDLE UPLOAD BUTTON
-  // Returns the data back to BannersTable
-  // so the table can add it to the list
+  // CONFIRM CROP
+  // Triggers CropController.crop(); result arrives
+  // via the Crop widget's onCropped callback.
   // ================================================
-  void _handleUpload() {
+  void _confirmCrop() {
+    _cropController.crop();
+  }
 
-    // make sure user picked an image first
-    if (_hasImage == false) {
+  // ================================================
+  // HANDLE CROP RESULT
+  // ================================================
+  void _handleCropResult(CropResult result) {
+    switch (result) {
+      case CropSuccess(:final croppedImage):
+        setState(() {
+          _croppedBytes = croppedImage;
+          _isCropping = false;
+        });
+        break;
+      case CropFailure(:final cause):
+        setState(() {
+          _isCropping = false;
+        });
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(
+            content: Text('Could not crop image: $cause'),
+            backgroundColor: const Color(0xFFDC2626),
+          ),
+        );
+        break;
+    }
+  }
+
+  // ================================================
+  // HANDLE UPLOAD BUTTON
+  // ================================================
+  Future<void> _handleUpload() async {
+    if (_croppedBytes == null) {
       ScaffoldMessenger.of(context).showSnackBar(
         const SnackBar(
           content: Text('Please upload a banner image first.'),
@@ -93,39 +141,29 @@ class _AddBannerDialogState extends State<AddBannerDialog> {
       return;
     }
 
-    // build the result data to send back
-    Map<String, dynamic> result = {
-      'imageUrl': _fakeImageUrl,
-      'uploadDate': _getFormattedDate(),
-      'status': _selectedStatus,
-    };
+    setState(() => _isUploading = true);
 
-    // close the dialog and return the result
-    Navigator.pop(context, result);
-  }
+    final String? error = await _bannerService.addBanner(
+      imageBytes: _croppedBytes!,
+      fileExt: _fileExt,
+      status: _uploadStatus,
+    );
 
-  // ================================================
-  // GET FORMATTED DATE
-  // Returns today's date in "Mar 1, 2026" format
-  // We build this manually with basic code
-  // ================================================
-  String _getFormattedDate() {
+    if (!mounted) return;
 
-    // list of month names in order
-    List<String> months = [
-      'Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun',
-      'Jul', 'Aug', 'Sep', 'Oct', 'Nov', 'Dec',
-    ];
+    setState(() => _isUploading = false);
 
-    // get today's date
-    DateTime now = DateTime.now();
+    if (error != null) {
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(
+          content: Text('Failed to upload banner: $error'),
+          backgroundColor: const Color(0xFFDC2626),
+        ),
+      );
+      return;
+    }
 
-    // build the string: "Mar 1, 2026"
-    String month = months[now.month - 1];
-    String day = now.day.toString();
-    String year = now.year.toString();
-
-    return '$month $day, $year';
+    Navigator.pop(context, true);
   }
 
   // ================================================
@@ -148,7 +186,6 @@ class _AddBannerDialogState extends State<AddBannerDialog> {
           mainAxisSize: MainAxisSize.min,
           crossAxisAlignment: CrossAxisAlignment.start,
           children: [
-
             // ── TITLE ROW ──
             Row(
               mainAxisAlignment: MainAxisAlignment.spaceBetween,
@@ -161,9 +198,8 @@ class _AddBannerDialogState extends State<AddBannerDialog> {
                     color: Color(0xFF111827),
                   ),
                 ),
-                // X close button
                 GestureDetector(
-                  onTap: () => Navigator.pop(context),
+                  onTap: _isUploading ? null : () => Navigator.pop(context),
                   child: const Icon(
                     Icons.close,
                     size: 20,
@@ -187,23 +223,23 @@ class _AddBannerDialogState extends State<AddBannerDialog> {
 
             const SizedBox(height: 8),
 
-            // ── UPLOAD AREA ──
-            // If no image picked → show dashed upload box
-            // If image picked → show cropped preview
-            GestureDetector(
-              onTap: _pickImage,
-              child: _hasImage == false
-                  ? _buildUploadPlaceholder()
-                  : _buildCroppedPreview(),
-            ),
+            // ── UPLOAD AREA / CROP STEP / PREVIEW ──
+            if (_isCropping)
+              _buildCropStep()
+            else if (_croppedBytes == null)
+              GestureDetector(
+                onTap: _pickImage,
+                child: _buildUploadPlaceholder(),
+              )
+            else
+              _buildCroppedPreview(),
 
             // ── CROP NOTE ──
-            // Only show when image is picked
-            if (_hasImage == true)
+            if (_croppedBytes != null && !_isCropping)
               const Padding(
                 padding: EdgeInsets.only(top: 6),
                 child: Text(
-                  'Image is auto-cropped to fit the banner ratio (16:5).',
+                  'Image is cropped to fit the banner ratio (16:5).',
                   style: TextStyle(
                     fontSize: 11,
                     color: Color(0xFF9CA3AF),
@@ -211,38 +247,18 @@ class _AddBannerDialogState extends State<AddBannerDialog> {
                 ),
               ),
 
-            const SizedBox(height: 20),
-
-            // ── STATUS LABEL ──
-            const Text(
-              'Status',
-              style: TextStyle(
-                fontSize: 13,
-                fontWeight: FontWeight.w500,
-                color: Color(0xFF374151),
-              ),
-            ),
-
             const SizedBox(height: 8),
 
-            // ── STATUS RADIO BUTTONS ──
-            Row(
-              children: [
-
-                // Active radio
-                _buildRadio(
-                  label: 'Active',
-                  value: 'Active',
-                ),
-
-                const SizedBox(width: 24),
-
-                // Inactive radio
-                _buildRadio(
-                  label: 'Inactive',
-                  value: 'Inactive',
-                ),
-              ],
+            // ── LIVE-ON-UPLOAD NOTE ──
+            // Replaces the old status radio group — new banners always
+            // go live immediately. Pausing happens later, via Edit.
+            const Text(
+              'This banner will go live on the homepage immediately after upload. '
+              'You can pause it later from the Edit dialog.',
+              style: TextStyle(
+                fontSize: 11,
+                color: Color(0xFF9CA3AF),
+              ),
             ),
 
             const SizedBox(height: 28),
@@ -250,11 +266,10 @@ class _AddBannerDialogState extends State<AddBannerDialog> {
             // ── BOTTOM BUTTONS ──
             Row(
               children: [
-
-                // Cancel button — takes up half the width
                 Expanded(
                   child: OutlinedButton(
-                    onPressed: () => Navigator.pop(context),
+                    onPressed:
+                        _isUploading ? null : () => Navigator.pop(context),
                     style: OutlinedButton.styleFrom(
                       foregroundColor: const Color(0xFF374151),
                       side: const BorderSide(color: Color(0xFFD1D5DB)),
@@ -272,13 +287,10 @@ class _AddBannerDialogState extends State<AddBannerDialog> {
                     ),
                   ),
                 ),
-
                 const SizedBox(width: 12),
-
-                // Upload Banner button — takes up half the width
                 Expanded(
                   child: ElevatedButton(
-                    onPressed: _handleUpload,
+                    onPressed: _isUploading ? null : _handleUpload,
                     style: ElevatedButton.styleFrom(
                       backgroundColor: const Color(0xFF2563EB),
                       foregroundColor: Colors.white,
@@ -288,13 +300,23 @@ class _AddBannerDialogState extends State<AddBannerDialog> {
                         borderRadius: BorderRadius.circular(8),
                       ),
                     ),
-                    child: const Text(
-                      'Upload Banner',
-                      style: TextStyle(
-                        fontSize: 13,
-                        fontWeight: FontWeight.w500,
-                      ),
-                    ),
+                    child: _isUploading
+                        ? const SizedBox(
+                            width: 16,
+                            height: 16,
+                            child: CircularProgressIndicator(
+                              strokeWidth: 2,
+                              valueColor:
+                                  AlwaysStoppedAnimation<Color>(Colors.white),
+                            ),
+                          )
+                        : const Text(
+                            'Upload Banner',
+                            style: TextStyle(
+                              fontSize: 13,
+                              fontWeight: FontWeight.w500,
+                            ),
+                          ),
                   ),
                 ),
               ],
@@ -307,7 +329,6 @@ class _AddBannerDialogState extends State<AddBannerDialog> {
 
   // ================================================
   // BUILD UPLOAD PLACEHOLDER
-  // Shows the dashed box with upload icon
   // ================================================
   Widget _buildUploadPlaceholder() {
     return Container(
@@ -316,23 +337,17 @@ class _AddBannerDialogState extends State<AddBannerDialog> {
       decoration: BoxDecoration(
         color: const Color(0xFFF9FAFB),
         borderRadius: BorderRadius.circular(8),
-        border: Border.all(
-          color: const Color(0xFFD1D5DB),
-          // dashed border using strokeAlign trick
-          // simple approach: just use a solid light border
-        ),
+        border: Border.all(color: const Color(0xFFD1D5DB)),
       ),
       child: const Column(
         mainAxisAlignment: MainAxisAlignment.center,
         children: [
-          // Upload arrow icon
           Icon(
             Icons.upload_outlined,
             size: 28,
             color: Color(0xFF9CA3AF),
           ),
           SizedBox(height: 8),
-          // Click to upload text
           Row(
             mainAxisAlignment: MainAxisAlignment.center,
             children: [
@@ -354,7 +369,6 @@ class _AddBannerDialogState extends State<AddBannerDialog> {
             ],
           ),
           SizedBox(height: 4),
-          // Size hint
           Text(
             'Recommended size: 1920x700 JPG or PNG',
             style: TextStyle(
@@ -368,34 +382,96 @@ class _AddBannerDialogState extends State<AddBannerDialog> {
   }
 
   // ================================================
+  // BUILD CROP STEP
+  // Real interactive crop UI, locked to 16:5, shown
+  // right after a file is picked and before upload.
+  // ================================================
+  Widget _buildCropStep() {
+    return Column(
+      crossAxisAlignment: CrossAxisAlignment.start,
+      children: [
+        ClipRRect(
+          borderRadius: BorderRadius.circular(8),
+          child: Container(
+            width: double.infinity,
+            height: 220,
+            color: const Color(0xFF111827),
+            child: Crop(
+              controller: _cropController,
+              image: _pickedBytes!,
+              aspectRatio: 16 / 5,
+              baseColor: const Color(0xFF111827),
+              maskColor: Colors.black.withOpacity(0.55),
+              onCropped: _handleCropResult,
+            ),
+          ),
+        ),
+        const SizedBox(height: 10),
+        Row(
+          children: [
+            Expanded(
+              child: OutlinedButton(
+                onPressed: () {
+                  setState(() {
+                    _isCropping = false;
+                    _pickedBytes = null;
+                  });
+                },
+                style: OutlinedButton.styleFrom(
+                  foregroundColor: const Color(0xFF374151),
+                  side: const BorderSide(color: Color(0xFFD1D5DB)),
+                  padding: const EdgeInsets.symmetric(vertical: 10),
+                  shape: RoundedRectangleBorder(
+                    borderRadius: BorderRadius.circular(8),
+                  ),
+                ),
+                child: const Text(
+                  'Cancel',
+                  style: TextStyle(fontSize: 13, fontWeight: FontWeight.w500),
+                ),
+              ),
+            ),
+            const SizedBox(width: 12),
+            Expanded(
+              child: ElevatedButton(
+                onPressed: _confirmCrop,
+                style: ElevatedButton.styleFrom(
+                  backgroundColor: const Color(0xFF2563EB),
+                  foregroundColor: Colors.white,
+                  elevation: 0,
+                  padding: const EdgeInsets.symmetric(vertical: 10),
+                  shape: RoundedRectangleBorder(
+                    borderRadius: BorderRadius.circular(8),
+                  ),
+                ),
+                child: const Text(
+                  'Confirm Crop',
+                  style: TextStyle(fontSize: 13, fontWeight: FontWeight.w500),
+                ),
+              ),
+            ),
+          ],
+        ),
+      ],
+    );
+  }
+
+  // ================================================
   // BUILD CROPPED PREVIEW
-  // Shows the picked image cropped to 16:5 ratio
-  //
-  // HOW CROPPING WORKS:
-  // We use AspectRatio(16/5) to lock the container
-  // to a wide banner shape.
-  // Then BoxFit.cover fills the space and crops
-  // whatever doesn't fit — just like object-fit:cover in CSS.
-  // The image stays centered and fills edge to edge.
+  // Shows the final cropped bytes at the 16:5 ratio.
   // ================================================
   Widget _buildCroppedPreview() {
     return Stack(
       children: [
-
-        // ── THE CROPPED IMAGE ──
         ClipRRect(
           borderRadius: BorderRadius.circular(8),
           child: AspectRatio(
-            // 16:5 ratio — wide banner shape
             aspectRatio: 16 / 5,
-            child: Image.network(
-              _fakeImageUrl,
+            child: Image.memory(
+              _croppedBytes!,
               width: double.infinity,
-              // BoxFit.cover = fill the box and crop the rest
-              // This is what makes the image "fit" the banner
               fit: BoxFit.cover,
               errorBuilder: (_, __, ___) {
-                // if image fails to load show dark placeholder
                 return Container(
                   color: const Color(0xFF1a1a2e),
                   child: const Center(
@@ -410,20 +486,13 @@ class _AddBannerDialogState extends State<AddBannerDialog> {
             ),
           ),
         ),
-
-        // ── CHANGE IMAGE BUTTON ──
-        // Floating button on top of the preview
-        // so user can pick a different image
         Positioned(
           bottom: 8,
           right: 8,
           child: GestureDetector(
             onTap: _pickImage,
             child: Container(
-              padding: const EdgeInsets.symmetric(
-                horizontal: 10,
-                vertical: 6,
-              ),
+              padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 6),
               decoration: BoxDecoration(
                 color: Colors.black.withOpacity(0.6),
                 borderRadius: BorderRadius.circular(6),
@@ -431,18 +500,11 @@ class _AddBannerDialogState extends State<AddBannerDialog> {
               child: const Row(
                 mainAxisSize: MainAxisSize.min,
                 children: [
-                  Icon(
-                    Icons.swap_horiz,
-                    size: 14,
-                    color: Colors.white,
-                  ),
+                  Icon(Icons.swap_horiz, size: 14, color: Colors.white),
                   SizedBox(width: 4),
                   Text(
                     'Change image',
-                    style: TextStyle(
-                      fontSize: 12,
-                      color: Colors.white,
-                    ),
+                    style: TextStyle(fontSize: 12, color: Colors.white),
                   ),
                 ],
               ),
@@ -450,53 +512,6 @@ class _AddBannerDialogState extends State<AddBannerDialog> {
           ),
         ),
       ],
-    );
-  }
-
-  // ================================================
-  // BUILD RADIO BUTTON
-  // A single radio option (Active or Inactive)
-  // ================================================
-  Widget _buildRadio({
-    required String label,
-    required String value,
-  }) {
-    return GestureDetector(
-      onTap: () {
-        // when tapped update selected status
-        setState(() {
-          _selectedStatus = value;
-        });
-      },
-      child: Row(
-        mainAxisSize: MainAxisSize.min,
-        children: [
-          // the radio circle
-          Radio<String>(
-            value: value,
-            groupValue: _selectedStatus,
-            onChanged: (String? newValue) {
-              if (newValue != null) {
-                setState(() {
-                  _selectedStatus = newValue;
-                });
-              }
-            },
-            activeColor: const Color(0xFF2563EB),
-            materialTapTargetSize: MaterialTapTargetSize.shrinkWrap,
-            visualDensity: VisualDensity.compact,
-          ),
-          const SizedBox(width: 4),
-          // the label text
-          Text(
-            label,
-            style: const TextStyle(
-              fontSize: 13,
-              color: Color(0xFF374151),
-            ),
-          ),
-        ],
-      ),
     );
   }
 }

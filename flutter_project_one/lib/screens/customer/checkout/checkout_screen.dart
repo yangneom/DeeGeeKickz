@@ -1,6 +1,7 @@
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import '../../../providers/customer/order_service.dart';
+import '../../../services/customer/payment/payment_service.dart';
 import 'package:supabase_flutter/supabase_flutter.dart';
 
 import '../../../providers/customer/customer_cart_provider.dart';
@@ -13,8 +14,6 @@ import 'checkout_step1_shipping.dart';
 import 'checkout_step2_review.dart';
 import 'checkout_step3_payment.dart';
 
-
-
 /// Checkout shell — manages the 3-step flow.
 /// Holds all shared state (shipping info, payment method)
 /// and passes it down to each step screen.
@@ -22,53 +21,95 @@ class CheckoutScreen extends ConsumerStatefulWidget {
   const CheckoutScreen({super.key});
 
   @override
-  ConsumerState<CheckoutScreen> createState() =>
-      _CheckoutScreenState();
+  ConsumerState<CheckoutScreen> createState() => _CheckoutScreenState();
 }
 
-class _CheckoutScreenState
-    extends ConsumerState<CheckoutScreen> {
-  // ── Step tracker ─────────────────────────────────────────────────────
+class _CheckoutScreenState extends ConsumerState<CheckoutScreen> {
+
+  // ── Step tracker ──────────────────────────────────────────────────────
   int _currentStep = 1;
 
-  // ── Shared state passed between steps ────────────────────────────────
-  String firstName = '';
-  String lastName = '';
-  String street = '';
-  String city = '';
-  String postal = '';
-  String phone = '';
-  String country = 'Philippines';
+  // ── Shared shipping state ─────────────────────────────────────────────
+  String street   = '';
+  String barangay = '';
+  String city     = '';
+  String province = '';
+  String region   = '';
+  String zipCode  = '';
+  String landmark = '';
+
+  // ── Customer info ─────────────────────────────────────────────────────
+  String customerName  = '';
+  String customerEmail = '';
+  bool   _customerInfoLoaded = false;  // ← add this flag
+
+
+  // Add this method to _CheckoutScreenState:
+  Future<void> _loadCustomerInfo() async {
+    if (_customerInfoLoaded) return;
+
+    final user = Supabase.instance.client.auth.currentUser;
+    if (user == null) return;
+
+    try {
+      final dynamic profile = await Supabase.instance.client
+          .from('users')
+          .select('first_name, last_name')
+          .eq('id', user.id)
+          .single();
+
+      if (mounted) {
+        setState(() {
+          customerName         = '${profile['first_name'] ?? ''} ${profile['last_name'] ?? ''}'.trim();
+          customerEmail        = user.email ?? '';
+          _customerInfoLoaded  = true;
+        });
+      }
+    } catch (e) {
+      // fallback — email only
+      customerEmail = user.email ?? '';
+      _customerInfoLoaded = true;
+    }
+  }
+
+  // Call it in initState:
+  @override
+  void initState() {
+    super.initState();
+    _loadCustomerInfo();
+  }
+
+
+  // ── Payment ───────────────────────────────────────────────────────────
   String paymentMethod = 'gcash';
 
   // ── Step navigation ───────────────────────────────────────────────────
   void _goToStep(int step) => setState(() => _currentStep = step);
 
   void _onShippingContinue({
-    required String fn,
-    required String ln,
-    required String st,
-    required String ct,
-    required String ps,
-    required String ph,
-    required String co,
+    required String street,
+    required String barangay,
+    required String city,
+    required String province,
+    required String region,
+    required String zipCode,
+    required String landmark,
   }) {
     setState(() {
-      firstName = fn;
-      lastName = ln;
-      street = st;
-      city = ct;
-      postal = ps;
-      phone = ph;
-      country = co;
-      _currentStep = 2;
+      this.street   = street;
+      this.barangay = barangay;
+      this.city     = city;
+      this.province = province;
+      this.region   = region;
+      this.zipCode  = zipCode;
+      this.landmark = landmark;
+      _currentStep  = 2;
     });
   }
 
   void _onReviewContinue() => setState(() => _currentStep = 3);
 
-Future<void> _onPlaceOrder() async {
-  try {
+  Future<int> _onPlaceOrder() async {
     final user = Supabase.instance.client.auth.currentUser;
 
     if (user == null) {
@@ -77,77 +118,52 @@ Future<void> _onPlaceOrder() async {
 
     final items = ref.read(customerCartProvider);
 
-    final subtotal = items.fold<double>(
+    final double subtotal = items.fold<double>(
       0,
       (sum, item) => sum + item.subtotal,
     );
 
-    final shipping = subtotal >= 150 ? 0.0 : 10.0;
+    final double shipping = subtotal >= 150 ? 0.0 : 10.0;
+    final double total    = subtotal + shipping;
 
-    final total = subtotal + shipping;
+    final int orderId = await OrderService().createOrder(
+  userId:        user.id,
+  street:        street,
+  city:          city,
+  postal:        zipCode,
+  country:       region,
+  items:         items,
+  subtotal:      subtotal,
+  shipping:      shipping,
+  total:         total,
+  paymentMethod: paymentMethod,
+);
 
-    final service = OrderService();
+ref.read(customerCartProvider.notifier).clearCart();
 
-    final orderId = await service.createOrder(
-      userId: user.id,
-
-      street: street,
-      city: city,
-      postal: postal,
-      country: country,
-
-      items: items,
-
-      subtotal: subtotal,
-      shipping: shipping,
-      total: total,
-    );
-
-    ref.read(customerCartProvider.notifier).clearCart();
-
-    if (!mounted) return;
-
-    ScaffoldMessenger.of(context).showSnackBar(
-      SnackBar(
-        content: Text('Order #$orderId placed successfully'),
-        backgroundColor: Colors.green,
-      ),
-    );
-
-    Navigator.of(context).popUntil((route) => route.isFirst);
-  } catch (e) {
-    if (!mounted) return;
-
-    ScaffoldMessenger.of(context).showSnackBar(
-      SnackBar(
-        content: Text('Failed to place order: $e'),
-        backgroundColor: Colors.red,
-      ),
-    );
+return orderId;
   }
-}
 
   @override
   Widget build(BuildContext context) {
     final items = ref.watch(customerCartProvider);
 
-    final subtotal = items.fold<double>(
+    final double subtotal = items.fold<double>(
       0,
       (sum, item) => sum + item.subtotal,
     );
 
-    final tax = subtotal * 0.08;
-    final shipping = subtotal >= 150 ? 0.0 : 10.0;
-    final total = subtotal + tax + shipping;
+    final double tax      = subtotal * 0.08;
+    final double shipping = subtotal >= 150 ? 0.0 : 10.0;
+    final double total    = subtotal + tax + shipping;
+
 
     if (items.isEmpty) {
       return Scaffold(
         appBar: const AppTopBar(activeRoute: 'shop'),
         drawer: const AppDrawer(),
         body: const Center(
-          child: Text(
-            'Your cart is empty.',
-          ),
+          child: Text('Your cart is empty.'),
         ),
       );
     }
@@ -163,8 +179,8 @@ Future<void> _onPlaceOrder() async {
         },
       ),
       body: LayoutBuilder(
-        builder: (context, constraints) {
-          final isDesktop = constraints.maxWidth >= 1024;
+        builder: (BuildContext context, BoxConstraints constraints) {
+          final bool isDesktop = constraints.maxWidth >= 1024;
 
           return SingleChildScrollView(
             child: Column(
@@ -180,58 +196,63 @@ Future<void> _onPlaceOrder() async {
                     child: Column(
                       crossAxisAlignment: CrossAxisAlignment.start,
                       children: [
-                        // ── Progress bar ───────────────────────────
+
+                        // ── Progress bar ─────────────────────────
                         CheckoutProgressBar(currentStep: _currentStep),
                         const SizedBox(height: 48),
 
-                        // ── Active step ────────────────────────────
+                        // ── Step 1 ───────────────────────────────
                         if (_currentStep == 1)
                           CheckoutStep1Shipping(
-                            initialFirstName: firstName,
-                            initialLastName: lastName,
-                            initialStreet: street,
-                            initialCity: city,
-                            initialPostal: postal,
-                            initialPhone: phone,
-                            initialCountry: country,
-                            items: items,
-                            subtotal: subtotal,
-                            shipping: shipping,
-                            tax: tax,
-                            total: total,
-                            onContinue: _onShippingContinue,
+                            initialStreet:   street,
+                            initialBarangay: barangay,
+                            initialCity:     city,
+                            initialProvince: province,
+                            initialRegion:   region,
+                            initialZipCode:  zipCode,
+                            initialLandmark: landmark,
+                            items:           items,
+                            subtotal:        subtotal,
+                            shipping:        shipping,
+                            tax:             tax,
+                            total:           total,
+                            onContinue:      _onShippingContinue,
                           ),
 
+                        // ── Step 2 ───────────────────────────────
                         if (_currentStep == 2)
                           CheckoutStep2Review(
-                            firstName: firstName,
-                            lastName: lastName,
-                            street: street,
-                            city: city,
-                            postal: postal,
-                            phone: phone,
-                            country: country,
-                            items: items,
-                            subtotal: subtotal,
-                            shipping: shipping,
-                            tax: tax,
-                            total: total,
-                            onContinue: _onReviewContinue,
-                            onEditShipping: () => _goToStep(1),
+                            firstName: '',
+                            lastName:  '',
+                            street:    street,
+                            city:      city,
+                            postal:    zipCode,
+                            phone:     '',
+                            country:   region,
+                            items:     items,
+                            subtotal:  subtotal,
+                            shipping:  shipping,
+                            tax:       tax,
+                            total:     total,
+                            onContinue:      _onReviewContinue,
+                            onEditShipping:  () => _goToStep(1),
                           ),
 
+                        // ── Step 3 ───────────────────────────────
                         if (_currentStep == 3)
                           CheckoutStep3Payment(
-                            selectedMethod: paymentMethod,
+                            selectedMethod:  paymentMethod,
                             onMethodChanged: (v) =>
                                 setState(() => paymentMethod = v),
-                            items: items,
-                            subtotal: subtotal,
-                            shipping: shipping,
-                            tax: tax,
-                            total: total,
-                            onPlaceOrder: _onPlaceOrder,
-                            onBack: () => _goToStep(2),
+                            items:           items,
+                            subtotal:        subtotal,
+                            shipping:        shipping,
+                            tax:             tax,
+                            total:           total,
+                            customerName:    customerName,
+                            customerEmail:   customerEmail,
+                            onPlaceOrder:    _onPlaceOrder,
+                            onBack:          () => _goToStep(2),
                           ),
                       ],
                     ),

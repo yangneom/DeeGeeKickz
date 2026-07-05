@@ -1,9 +1,5 @@
 import 'package:flutter/material.dart';
 
-/// Payment method selector — GCash, Maya, Credit/Debit, Online Banking.
-/// Frontend UI only. 
-/// Supabase-ready: wire selectedMethod to a checkout provider + 
-/// PayMongo SDK integration when ready.
 class CheckoutPaymentSelector extends StatelessWidget {
   final String selectedMethod;
   final ValueChanged<String> onChanged;
@@ -16,30 +12,22 @@ class CheckoutPaymentSelector extends StatelessWidget {
 
   static const List<_PaymentOption> _options = [
     _PaymentOption(
-      id: 'gcash',
-      label: 'GCash',
-      color: Color(0xFF007DFE),
-      initial: 'G',
+      id:      'gcash',
+      label:   'GCash',
+      color:   Color(0xFF007DFE),
+      icon:    Icons.account_balance_wallet_outlined,
     ),
     _PaymentOption(
-      id: 'maya',
-      label: 'Maya',
-      color: Color(0xFF16C60C),
-      initial: 'M',
+      id:      'card',
+      label:   'Credit / Debit Card',
+      color:   Color(0xFF4C4546),
+      icon:    Icons.credit_card,
     ),
     _PaymentOption(
-      id: 'card',
-      label: 'Credit / Debit Card',
-      color: Color(0xFF4C4546),
-      initial: null,
-      icon: Icons.credit_card,
-    ),
-    _PaymentOption(
-      id: 'banking',
-      label: 'Online Banking',
-      color: Color(0xFF5F5E5E),
-      initial: null,
-      icon: Icons.account_balance,
+      id:      'cod',
+      label:   'Cash on Delivery',
+      color:   Color(0xFF16A34A),
+      icon:    Icons.payments_outlined,
     ),
   ];
 
@@ -51,11 +39,11 @@ class CheckoutPaymentSelector extends StatelessWidget {
         const Text(
           'Payment Method',
           style: TextStyle(
-            fontFamily: 'Archivo Narrow',
-            fontSize: 32,
-            fontWeight: FontWeight.w600,
+            fontFamily:    'Archivo Narrow',
+            fontSize:      32,
+            fontWeight:    FontWeight.w600,
             letterSpacing: -0.5,
-            color: Colors.black,
+            color:         Colors.black,
           ),
         ),
         const SizedBox(height: 8),
@@ -63,118 +51,101 @@ class CheckoutPaymentSelector extends StatelessWidget {
           'Secure payments powered by PayMongo',
           style: TextStyle(
             fontFamily: 'Inter',
-            fontSize: 16,
+            fontSize:   16,
             fontWeight: FontWeight.w400,
-            color: Color(0xFF4C4546),
+            color:      Color(0xFF4C4546),
           ),
         ),
         const SizedBox(height: 24),
-        LayoutBuilder(builder: (context, constraints) {
-          final isWide = constraints.maxWidth >= 500;
-          return isWide
-              ? _WideGrid(
-                  options: _options,
-                  selectedMethod: selectedMethod,
-                  onChanged: onChanged,
-                )
-              : _NarrowList(
-                  options: _options,
-                  selectedMethod: selectedMethod,
-                  onChanged: onChanged,
-                );
-        }),
-      ],
-    );
-  }
-}
-
-class _WideGrid extends StatelessWidget {
-  final List<_PaymentOption> options;
-  final String selectedMethod;
-  final ValueChanged<String> onChanged;
-
-  const _WideGrid({
-    required this.options,
-    required this.selectedMethod,
-    required this.onChanged,
-  });
-
-  @override
-  Widget build(BuildContext context) {
-    return Column(
-      children: [
-        Row(
-          children: options
-              .sublist(0, 2)
-              .map((o) => Expanded(
-                    child: Padding(
-                      padding: EdgeInsets.only(
-                          right: o == options[0] ? 6 : 0,
-                          left: o == options[1] ? 6 : 0),
-                      child: _PaymentTile(
-                        option: o,
-                        isSelected: selectedMethod == o.id,
-                        onTap: () => onChanged(o.id),
-                      ),
+        Column(
+          children: _options
+              .map((o) => Padding(
+                    padding: const EdgeInsets.only(bottom: 12),
+                    child: _PaymentTile(
+                      option:     o,
+                      isSelected: selectedMethod == o.id,
+                      onTap:      () => onChanged(o.id),
                     ),
                   ))
               .toList(),
         ),
-        const SizedBox(height: 12),
-        Row(
-          children: options
-              .sublist(2, 4)
-              .map((o) => Expanded(
-                    child: Padding(
-                      padding: EdgeInsets.only(
-                          right: o == options[2] ? 6 : 0,
-                          left: o == options[3] ? 6 : 0),
-                      child: _PaymentTile(
-                        option: o,
-                        isSelected: selectedMethod == o.id,
-                        onTap: () => onChanged(o.id),
-                      ),
-                    ),
-                  ))
-              .toList(),
-        ),
+
+        // ── Method-specific notes ──
+        if (selectedMethod == 'gcash')
+          _buildNote(
+            color:      const Color(0xFFEFF6FF),
+            border:     const Color(0xFFBFDBFE),
+            iconColor:  const Color(0xFF1D4ED8),
+            textColor:  const Color(0xFF1D4ED8),
+            icon:       Icons.open_in_new,
+            text:       'You will be redirected to the GCash app '
+                        'to complete payment securely.',
+          ),
+
+        if (selectedMethod == 'card')
+          _buildNote(
+            color:      const Color(0xFFF8F9FA),
+            border:     const Color(0xFFE5E7EB),
+            iconColor:  const Color(0xFF6B7280),
+            textColor:  const Color(0xFF6B7280),
+            icon:       Icons.lock_outline,
+            text:       'Your card details are encrypted and '
+                        'never stored. Powered by PayMongo.',
+          ),
+
+        if (selectedMethod == 'cod')
+          _buildNote(
+            color:      const Color(0xFFF0FDF4),
+            border:     const Color(0xFF86EFAC),
+            iconColor:  const Color(0xFF16A34A),
+            textColor:  const Color(0xFF16A34A),
+            icon:       Icons.info_outline,
+            text:       'Pay in cash when your order arrives. '
+                        'Admin will verify your address before confirming.',
+          ),
       ],
     );
   }
-}
 
-class _NarrowList extends StatelessWidget {
-  final List<_PaymentOption> options;
-  final String selectedMethod;
-  final ValueChanged<String> onChanged;
-
-  const _NarrowList({
-    required this.options,
-    required this.selectedMethod,
-    required this.onChanged,
-  });
-
-  @override
-  Widget build(BuildContext context) {
-    return Column(
-      children: options
-          .map((o) => Padding(
-                padding: const EdgeInsets.only(bottom: 12),
-                child: _PaymentTile(
-                  option: o,
-                  isSelected: selectedMethod == o.id,
-                  onTap: () => onChanged(o.id),
-                ),
-              ))
-          .toList(),
+  Widget _buildNote({
+    required Color    color,
+    required Color    border,
+    required Color    iconColor,
+    required Color    textColor,
+    required IconData icon,
+    required String   text,
+  }) {
+    return Container(
+      margin:  const EdgeInsets.only(top: 4),
+      padding: const EdgeInsets.all(12),
+      decoration: BoxDecoration(
+        color:  color,
+        border: Border.all(color: border),
+      ),
+      child: Row(
+        children: [
+          Icon(icon, size: 16, color: iconColor),
+          const SizedBox(width: 8),
+          Expanded(
+            child: Text(
+              text,
+              style: TextStyle(
+                fontFamily: 'Inter',
+                fontSize:   12,
+                color:      textColor,
+              ),
+            ),
+          ),
+        ],
+      ),
     );
   }
 }
 
 class _PaymentTile extends StatelessWidget {
   final _PaymentOption option;
-  final bool isSelected;
-  final VoidCallback onTap;
+  final bool           isSelected;
+  final VoidCallback   onTap;
 
   const _PaymentTile({
     required this.option,
@@ -200,45 +171,34 @@ class _PaymentTile extends StatelessWidget {
         ),
         child: Row(
           children: [
-            // Brand icon
             Container(
-              width: 40,
+              width:  40,
               height: 40,
               decoration: BoxDecoration(
-                color: option.color,
+                color:        option.color,
                 borderRadius: BorderRadius.circular(4),
               ),
               alignment: Alignment.center,
-              child: option.icon != null
-                  ? Icon(option.icon, color: Colors.white, size: 20)
-                  : Text(
-                      option.initial!,
-                      style: const TextStyle(
-                        color: Colors.white,
-                        fontFamily: 'Inter',
-                        fontSize: 14,
-                        fontWeight: FontWeight.w700,
-                      ),
-                    ),
+              child: Icon(option.icon, color: Colors.white, size: 20),
             ),
             const SizedBox(width: 16),
             Expanded(
               child: Text(
                 option.label,
                 style: const TextStyle(
-                  fontFamily: 'Inter',
-                  fontSize: 14,
-                  fontWeight: FontWeight.w600,
+                  fontFamily:    'Inter',
+                  fontSize:      14,
+                  fontWeight:    FontWeight.w600,
                   letterSpacing: 0.7,
-                  color: Colors.black,
+                  color:         Colors.black,
                 ),
               ),
             ),
             AnimatedOpacity(
               duration: const Duration(milliseconds: 150),
-              opacity: isSelected ? 1.0 : 0.0,
-              child: const Icon(Icons.check_circle,
-                  color: Colors.black, size: 20),
+              opacity:  isSelected ? 1.0 : 0.0,
+              child: const Icon(
+                  Icons.check_circle, color: Colors.black, size: 20),
             ),
           ],
         ),
@@ -248,17 +208,15 @@ class _PaymentTile extends StatelessWidget {
 }
 
 class _PaymentOption {
-  final String id;
-  final String label;
-  final Color color;
-  final String? initial;
-  final IconData? icon;
+  final String   id;
+  final String   label;
+  final Color    color;
+  final IconData icon;
 
   const _PaymentOption({
     required this.id,
     required this.label,
     required this.color,
-    this.initial,
-    this.icon,
+    required this.icon,
   });
 }

@@ -34,65 +34,85 @@ class AddressBottomSheet extends StatefulWidget {
 }
 
 class _AddressBottomSheetState extends State<AddressBottomSheet> {
-  late final TextEditingController _firstNameCtrl;
-  late final TextEditingController _lastNameCtrl;
+
   late final TextEditingController _streetCtrl;
+  late final TextEditingController _barangayCtrl;
   late final TextEditingController _cityCtrl;
-  late final TextEditingController _postalCtrl;
-  late final TextEditingController _phoneCtrl;
-  late String _country;
+  late final TextEditingController _provinceCtrl;
+  late final TextEditingController _zipCodeCtrl;
+  late final TextEditingController _landmarkCtrl;
+  late String _region;
   bool _isDefault = false;
 
   bool get _isEditing => widget.existing != null;
 
-  // Countries list — matches checkout form
-  static const List<String> _countries = [
-    'Philippines',
-    'United States',
-    'Japan',
-    'South Korea',
-    'Singapore',
-    'Australia',
-    'United Kingdom',
+  // PH regions dropdown
+  static const List<String> _regions = [
+    'NCR – National Capital Region',
+    'CAR – Cordillera Administrative Region',
+    'Region I – Ilocos Region',
+    'Region II – Cagayan Valley',
+    'Region III – Central Luzon',
+    'Region IV-A – CALABARZON',
+    'Region IV-B – MIMAROPA',
+    'Region V – Bicol Region',
+    'Region VI – Western Visayas',
+    'Region VII – Central Visayas',
+    'Region VIII – Eastern Visayas',
+    'Region IX – Zamboanga Peninsula',
+    'Region X – Northern Mindanao',
+    'Region XI – Davao Region',
+    'Region XII – SOCCSKSARGEN',
+    'Region XIII – Caraga',
+    'BARMM – Bangsamoro',
   ];
 
   @override
   void initState() {
     super.initState();
-    final a = widget.existing;
-    _firstNameCtrl = TextEditingController(text: a?.firstName ?? '');
-    _lastNameCtrl  = TextEditingController(text: a?.lastName ?? '');
-    _streetCtrl    = TextEditingController(text: a?.street ?? '');
-    _cityCtrl      = TextEditingController(text: a?.city ?? '');
-    _postalCtrl    = TextEditingController(text: a?.postal ?? '');
-    _phoneCtrl     = TextEditingController(text: a?.phone ?? '');
-    _country       = a?.country ?? 'Philippines';
-    _isDefault     = a?.isDefault ?? false;
+    final CustomerAddress? a = widget.existing;
+    _streetCtrl   = TextEditingController(text: a?.street   ?? '');
+    _barangayCtrl = TextEditingController(text: a?.barangay ?? '');
+    _cityCtrl     = TextEditingController(text: a?.city     ?? '');
+    _provinceCtrl = TextEditingController(text: a?.province ?? '');
+    _zipCodeCtrl  = TextEditingController(text: a?.zipCode  ?? '');
+    _landmarkCtrl = TextEditingController(text: a?.landmark ?? '');
+    // Match stored region against dropdown items.
+    // Handles short forms like 'NCR' matching 'NCR – National Capital Region'.
+    final String storedRegion = a?.region ?? '';
+    if (storedRegion.isEmpty) {
+      _region = _regions.first;
+    } else {
+      _region = _regions.firstWhere(
+        (r) => r == storedRegion || r.startsWith(storedRegion),
+        orElse: () => _regions.first,
+      );
+    }
+    _isDefault    = a?.isDefault ?? false;
   }
 
   @override
   void dispose() {
-    _firstNameCtrl.dispose();
-    _lastNameCtrl.dispose();
     _streetCtrl.dispose();
+    _barangayCtrl.dispose();
     _cityCtrl.dispose();
-    _postalCtrl.dispose();
-    _phoneCtrl.dispose();
+    _provinceCtrl.dispose();
+    _zipCodeCtrl.dispose();
+    _landmarkCtrl.dispose();
     super.dispose();
   }
 
   void _save() {
-    // Basic validation
-    if (_firstNameCtrl.text.trim().isEmpty ||
-        _lastNameCtrl.text.trim().isEmpty ||
-        _streetCtrl.text.trim().isEmpty ||
+    // Validate required fields
+    if (_streetCtrl.text.trim().isEmpty ||
+        _barangayCtrl.text.trim().isEmpty ||
         _cityCtrl.text.trim().isEmpty ||
-        _postalCtrl.text.trim().isEmpty ||
-        _phoneCtrl.text.trim().isEmpty) {
+        _provinceCtrl.text.trim().isEmpty ||
+        _zipCodeCtrl.text.trim().isEmpty) {
       ScaffoldMessenger.of(context).showSnackBar(
         const SnackBar(
           content: Text(
-            'Please fill in all fields.',
+            'Please fill in all required fields.',
             style: TextStyle(fontFamily: 'Inter'),
           ),
           backgroundColor: Colors.black,
@@ -101,16 +121,16 @@ class _AddressBottomSheetState extends State<AddressBottomSheet> {
       return;
     }
 
-    final result = CustomerAddress(
-      id: widget.existing?.id ??
-          'addr_${DateTime.now().millisecondsSinceEpoch}',
-      firstName: _firstNameCtrl.text.trim(),
-      lastName:  _lastNameCtrl.text.trim(),
+    final CustomerAddress result = CustomerAddress(
+      id:        widget.existing?.id ??
+                 'addr_${DateTime.now().millisecondsSinceEpoch}',
       street:    _streetCtrl.text.trim(),
+      barangay:  _barangayCtrl.text.trim(),
       city:      _cityCtrl.text.trim(),
-      postal:    _postalCtrl.text.trim(),
-      phone:     _phoneCtrl.text.trim(),
-      country:   _country,
+      province:  _provinceCtrl.text.trim(),
+      region:    _region,
+      zipCode:   _zipCodeCtrl.text.trim(),
+      landmark:  _landmarkCtrl.text.trim(),
       isDefault: _isDefault,
     );
 
@@ -119,9 +139,8 @@ class _AddressBottomSheetState extends State<AddressBottomSheet> {
 
   @override
   Widget build(BuildContext context) {
-    // Sheet takes up to 90% of screen height so keyboard doesn't clip it
-    final maxHeight = MediaQuery.of(context).size.height * 0.90;
-    final bottomPad = MediaQuery.of(context).viewInsets.bottom;
+    final double maxHeight = MediaQuery.of(context).size.height * 0.92;
+    final double bottomPad = MediaQuery.of(context).viewInsets.bottom;
 
     return Container(
       constraints: BoxConstraints(maxHeight: maxHeight),
@@ -132,7 +151,8 @@ class _AddressBottomSheetState extends State<AddressBottomSheet> {
       child: Column(
         mainAxisSize: MainAxisSize.min,
         children: [
-          // ── Drag handle ────────────────────────────────────────
+
+          // ── Drag handle ──────────────────────────────────────────
           Container(
             width: 40,
             height: 4,
@@ -143,7 +163,7 @@ class _AddressBottomSheetState extends State<AddressBottomSheet> {
             ),
           ),
 
-          // ── Header ─────────────────────────────────────────────
+          // ── Header ───────────────────────────────────────────────
           Padding(
             padding: const EdgeInsets.fromLTRB(24, 0, 16, 0),
             child: Row(
@@ -169,55 +189,49 @@ class _AddressBottomSheetState extends State<AddressBottomSheet> {
 
           const Divider(height: 1, color: Color(0xFFCFC4C5)),
 
-          // ── Scrollable form ────────────────────────────────────
+          // ── Scrollable form ──────────────────────────────────────
           Flexible(
             child: SingleChildScrollView(
               padding: EdgeInsets.fromLTRB(24, 24, 24, bottomPad + 24),
               child: Column(
                 crossAxisAlignment: CrossAxisAlignment.start,
                 children: [
-                  // First name + Last name row
-                  Row(
-                    children: [
-                      Expanded(
-                        child: _FormField(
-                          label: 'First Name',
-                          controller: _firstNameCtrl,
-                        ),
-                      ),
-                      const SizedBox(width: 12),
-                      Expanded(
-                        child: _FormField(
-                          label: 'Last Name',
-                          controller: _lastNameCtrl,
-                        ),
-                      ),
-                    ],
-                  ),
-                  const SizedBox(height: 16),
 
-                  // Street
+                  // ── Street Address ──────────────────────────────
                   _FormField(
-                    label: 'Street Address',
+                    label: 'Street Address *',
                     controller: _streetCtrl,
-                    hint: 'House no., Street, Barangay',
+                    hint: 'House no., Street name',
                   ),
                   const SizedBox(height: 16),
 
-                  // City + Postal row
+                  // ── Barangay ────────────────────────────────────
+                  _FormField(
+                    label: 'Barangay *',
+                    controller: _barangayCtrl,
+                    hint: 'e.g. Barangay Poblacion',
+                  ),
+                  const SizedBox(height: 16),
+
+                  // ── City + Zip Code row ─────────────────────────
                   Row(
+                    crossAxisAlignment: CrossAxisAlignment.start,
                     children: [
                       Expanded(
+                        flex: 3,
                         child: _FormField(
-                          label: 'City',
+                          label: 'City / Municipality *',
                           controller: _cityCtrl,
+                          hint: 'e.g. Makati',
                         ),
                       ),
                       const SizedBox(width: 12),
                       Expanded(
+                        flex: 2,
                         child: _FormField(
-                          label: 'Postal Code',
-                          controller: _postalCtrl,
+                          label: 'Zip Code *',
+                          controller: _zipCodeCtrl,
+                          hint: 'e.g. 1200',
                           keyboardType: TextInputType.number,
                         ),
                       ),
@@ -225,17 +239,16 @@ class _AddressBottomSheetState extends State<AddressBottomSheet> {
                   ),
                   const SizedBox(height: 16),
 
-                  // Phone
+                  // ── Province ────────────────────────────────────
                   _FormField(
-                    label: 'Phone Number',
-                    controller: _phoneCtrl,
-                    keyboardType: TextInputType.phone,
-                    hint: '+63 9XX XXX XXXX',
+                    label: 'Province *',
+                    controller: _provinceCtrl,
+                    hint: 'e.g. Metro Manila',
                   ),
                   const SizedBox(height: 16),
 
-                  // Country dropdown
-                  _label('Country'),
+                  // ── Region dropdown ─────────────────────────────
+                  _label('Region *'),
                   const SizedBox(height: 6),
                   Container(
                     width: double.infinity,
@@ -246,33 +259,41 @@ class _AddressBottomSheetState extends State<AddressBottomSheet> {
                     ),
                     child: DropdownButtonHideUnderline(
                       child: DropdownButton<String>(
-                        value: _country,
+                        value: _region,
                         isExpanded: true,
                         style: const TextStyle(
                           fontFamily: 'Inter',
-                          fontSize: 15,
+                          fontSize: 14,
                           color: Colors.black,
                         ),
-                        items: _countries
-                            .map((c) => DropdownMenuItem(
-                                  value: c,
-                                  child: Text(c),
-                                ))
-                            .toList(),
-                        onChanged: (v) =>
-                            setState(() => _country = v ?? _country),
+                        items: _regions.map((String r) =>
+                          DropdownMenuItem<String>(
+                            value: r,
+                            child: Text(r),
+                          ),
+                        ).toList(),
+                        onChanged: (String? v) =>
+                            setState(() => _region = v ?? _region),
                       ),
                     ),
                   ),
+                  const SizedBox(height: 16),
+
+                  // ── Landmark (optional) ─────────────────────────
+                  _FormField(
+                    label: 'Landmark (optional)',
+                    controller: _landmarkCtrl,
+                    hint: 'e.g. Near SM Megamall',
+                  ),
                   const SizedBox(height: 20),
 
-                  // Set as default toggle
+                  // ── Set as default toggle ───────────────────────
                   Row(
                     children: [
                       Checkbox(
                         value: _isDefault,
                         activeColor: Colors.black,
-                        onChanged: (v) =>
+                        onChanged: (bool? v) =>
                             setState(() => _isDefault = v ?? false),
                       ),
                       const Text(
@@ -287,7 +308,7 @@ class _AddressBottomSheetState extends State<AddressBottomSheet> {
                   ),
                   const SizedBox(height: 24),
 
-                  // Save button
+                  // ── Save button ─────────────────────────────────
                   GestureDetector(
                     onTap: _save,
                     child: Container(
@@ -309,7 +330,7 @@ class _AddressBottomSheetState extends State<AddressBottomSheet> {
                   ),
                   const SizedBox(height: 12),
 
-                  // Cancel button
+                  // ── Cancel button ───────────────────────────────
                   GestureDetector(
                     onTap: () => Navigator.of(context).pop(),
                     child: Container(
@@ -344,15 +365,15 @@ class _AddressBottomSheetState extends State<AddressBottomSheet> {
 // ─── Helpers ──────────────────────────────────────────────────────────────────
 
 Widget _label(String text) => Text(
-      text.toUpperCase(),
-      style: const TextStyle(
-        fontFamily: 'Inter',
-        fontSize: 11,
-        fontWeight: FontWeight.w600,
-        letterSpacing: 1.0,
-        color: Color(0xFF656464),
-      ),
-    );
+  text.toUpperCase(),
+  style: const TextStyle(
+    fontFamily: 'Inter',
+    fontSize: 11,
+    fontWeight: FontWeight.w600,
+    letterSpacing: 1.0,
+    color: Color(0xFF656464),
+  ),
+);
 
 class _FormField extends StatelessWidget {
   final String label;
@@ -395,13 +416,13 @@ class _FormField extends StatelessWidget {
               horizontal: 12,
               vertical: 14,
             ),
-            enabledBorder: OutlineInputBorder(
+            enabledBorder: const OutlineInputBorder(
               borderRadius: BorderRadius.zero,
-              borderSide: const BorderSide(color: Color(0xFFCFC4C5)),
+              borderSide: BorderSide(color: Color(0xFFCFC4C5)),
             ),
-            focusedBorder: OutlineInputBorder(
+            focusedBorder: const OutlineInputBorder(
               borderRadius: BorderRadius.zero,
-              borderSide: const BorderSide(color: Colors.black, width: 1.5),
+              borderSide: BorderSide(color: Colors.black, width: 1.5),
             ),
           ),
         ),

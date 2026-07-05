@@ -1,6 +1,10 @@
 import 'package:flutter/material.dart';
+import 'package:flutter_riverpod/flutter_riverpod.dart';
 
-import '../../../models/product_model.dart';
+import '../../../models/product.dart';
+import '../../../models/discount_model.dart';
+import '../../../providers/product/product_provider.dart';
+import '../../../services/admin/promotionDiscount/discount_service.dart';
 import '../../../widgets/common/nav/announcement_bar.dart';
 import '../../../widgets/common/nav/app_top_bar.dart';
 import '../../../widgets/common/nav/app_drawer.dart';
@@ -11,24 +15,44 @@ import '../../../widgets/customer/shop/shop_filter_drawer.dart';
 import '../../../widgets/customer/shop/shop_filter_sidebar.dart';
 import '../../../widgets/customer/shop/shop_sort_dropdown.dart';
 
-/// Promo screen — shows only discounted products.
-/// Reuses all shop widgets; the only difference is the data source
-/// (mockPromoProducts) and the header copy.
-class PromoScreen extends StatefulWidget {
+class PromoScreen extends ConsumerStatefulWidget {
   const PromoScreen({super.key});
 
   @override
-  State<PromoScreen> createState() => _PromoScreenState();
+  ConsumerState<PromoScreen> createState() => _PromoScreenState();
 }
 
-class _PromoScreenState extends State<PromoScreen> {
+class _PromoScreenState extends ConsumerState<PromoScreen> {
   static const double _mdBreakpoint = 768;
 
   ShopFilterState _filters = const ShopFilterState();
   ShopSortOption _sort = ShopSortOption.featured;
 
-  List<ProductModel> get _filtered {
-    var list = mockPromoProducts.where((p) {
+  // Fetched once, held across rebuilds — see initState.
+  late final Future<Map<int, Discount>> _discountsFuture;
+
+  @override
+  void initState() {
+    super.initState();
+   _discountsFuture = DiscountService().fetchActiveDiscountsByProduct();
+  }
+
+  // Product.productId is a String in the model (DB column is int8),
+  // so parse before looking it up in the int-keyed discounts map.
+  Discount? _discountFor(Product product, Map<int, Discount> discounts) {
+    final int? pid = int.tryParse(product.productId);
+    if (pid == null) return null;
+    return discounts[pid];
+  }
+
+  List<Product> _applyFilters(
+    List<Product> all,
+    Map<int, Discount> discounts,
+  ) {
+    // Only products with a currently-live discount belong on this page.
+    var list = all.where((p) {
+      if (_discountFor(p, discounts) == null) return false;
+      if (p.totalAvailable == 0) return false;
       if (_filters.brands.isNotEmpty && !_filters.brands.contains(p.brand)) {
         return false;
       }
@@ -36,19 +60,28 @@ class _PromoScreenState extends State<PromoScreen> {
           !_filters.categories.contains(p.category)) {
         return false;
       }
-      if (p.price > _filters.maxPrice) return false;
+      if (_filters.size != null) {
+        final hasSize = p.variants
+            .any((v) => v.sizes.any((s) => s.size == _filters.size));
+        if (!hasSize) return false;
+      }
+      final minPrice = p.variants.isEmpty
+          ? 0.0
+          : p.variants
+              .map((v) => v.retailPrice)
+              .reduce((a, b) => a < b ? a : b);
+      if (minPrice > _filters.maxPrice) return false;
       return true;
     }).toList();
 
     switch (_sort) {
       case ShopSortOption.priceLowHigh:
-        list.sort((a, b) => a.price.compareTo(b.price));
+        list.sort((a, b) => a.averagePrice.compareTo(b.averagePrice));
         break;
       case ShopSortOption.priceHighLow:
-        list.sort((a, b) => b.price.compareTo(a.price));
+        list.sort((a, b) => b.averagePrice.compareTo(a.averagePrice));
         break;
       case ShopSortOption.topRated:
-        list.sort((a, b) => b.rating.compareTo(a.rating));
         break;
       case ShopSortOption.featured:
         break;
@@ -56,13 +89,23 @@ class _PromoScreenState extends State<PromoScreen> {
     return list;
   }
 
-  Future<void> _openFilterDrawer() async {
-    final result = await showShopFilterDrawer(context, _filters);
+  Future<void> _openFilterDrawer(
+      BuildContext context,
+      List<String> brands,
+      List<String> categories) async {
+    final result = await showShopFilterDrawer(
+      context,
+      _filters,
+      availableBrands: brands,
+      availableCategories: categories,
+    );
     if (result != null) setState(() => _filters = result);
   }
 
   @override
   Widget build(BuildContext context) {
+    final productsAsync = ref.watch(productsProvider);
+
     return Scaffold(
       backgroundColor: const Color(0xFFF9F9F9),
       drawer: const AppDrawer(),
@@ -73,47 +116,83 @@ class _PromoScreenState extends State<PromoScreen> {
             const AnnouncementBar(),
             const AppTopBar(activeRoute: 'promo'),
             Expanded(
-              child: SingleChildScrollView(
-                child: Column(
-                  crossAxisAlignment: CrossAxisAlignment.stretch,
-                  children: [
-                    LayoutBuilder(
-                      builder: (context, constraints) {
-                        final isDesktop =
-                            constraints.maxWidth >= _mdBreakpoint;
-                        final hPad = isDesktop ? 48.0 : 16.0;
-                        final products = _filtered;
+              child: productsAsync.when(
+                loading: () =>
+                    const Center(child: CircularProgressIndicator()),
+                error: (e, _) => Center(child: Text('Error: $e')),
+                data: (allProducts) {
+                  return FutureBuilder<Map<int, Discount>>(
+                    future: _discountsFuture,
+                    builder: (context, discountSnapshot) {
+                      if (!discountSnapshot.hasData) {
+                        return const Center(child: CircularProgressIndicator());
+                      }
+                      final Map<int, Discount> discounts = discountSnapshot.data!;
 
-                        return Padding(
-                          padding: EdgeInsets.fromLTRB(hPad, 32, hPad, 80),
-                          child: ConstrainedBox(
-                            constraints:
-                                const BoxConstraints(maxWidth: 1440),
-                            child: isDesktop
-                                ? _DesktopLayout(
-                                    products: products,
-                                    filters: _filters,
-                                    sort: _sort,
-                                    onFilterChanged: (f) =>
-                                        setState(() => _filters = f),
-                                    onSortChanged: (s) =>
-                                        setState(() => _sort = s),
-                                  )
-                                : _MobileLayout(
-                                    products: products,
-                                    sort: _sort,
-                                    filters: _filters,
-                                    onFilterTap: _openFilterDrawer,
-                                    onSortChanged: (s) =>
-                                        setState(() => _sort = s),
+                      final brands = allProducts
+                          .map((p) => p.brand)
+                          .toSet()
+                          .toList()
+                        ..sort();
+                      final categories = allProducts
+                          .map((p) => p.category)
+                          .toSet()
+                          .toList()
+                        ..sort();
+
+                      final products = _applyFilters(allProducts, discounts);
+
+                      return SingleChildScrollView(
+                        child: Column(
+                          crossAxisAlignment: CrossAxisAlignment.stretch,
+                          children: [
+                            LayoutBuilder(
+                              builder: (context, constraints) {
+                                final isDesktop =
+                                    constraints.maxWidth >= _mdBreakpoint;
+                                final hPad = isDesktop ? 48.0 : 16.0;
+
+                                return Padding(
+                                  padding: EdgeInsets.fromLTRB(
+                                      hPad, 32, hPad, 80),
+                                  child: ConstrainedBox(
+                                    constraints: const BoxConstraints(
+                                        maxWidth: 1440),
+                                    child: isDesktop
+                                        ? _DesktopLayout(
+                                            products: products,
+                                            discounts: discounts,
+                                            filters: _filters,
+                                            sort: _sort,
+                                            availableBrands: brands,
+                                            availableCategories: categories,
+                                            onFilterChanged: (f) =>
+                                                setState(() => _filters = f),
+                                            onSortChanged: (s) =>
+                                                setState(() => _sort = s),
+                                          )
+                                        : _MobileLayout(
+                                            products: products,
+                                            discounts: discounts,
+                                            sort: _sort,
+                                            filters: _filters,
+                                            onFilterTap: () =>
+                                                _openFilterDrawer(
+                                                    context, brands, categories),
+                                            onSortChanged: (s) =>
+                                                setState(() => _sort = s),
+                                          ),
                                   ),
-                          ),
-                        );
-                      },
-                    ),
-                    const AppFooter(),
-                  ],
-                ),
+                                );
+                              },
+                            ),
+                            const AppFooter(),
+                          ],
+                        ),
+                      );
+                    },
+                  );
+                },
               ),
             ),
           ],
@@ -130,19 +209,25 @@ class _PromoScreenState extends State<PromoScreen> {
   }
 }
 
-// ── Desktop: sidebar + grid ──────────────────────────────────────
+// ── Desktop ──────────────────────────────────────────────────────
 
 class _DesktopLayout extends StatelessWidget {
-  final List<ProductModel> products;
+  final List<Product> products;
+  final Map<int, Discount> discounts;
   final ShopFilterState filters;
   final ShopSortOption sort;
+  final List<String> availableBrands;
+  final List<String> availableCategories;
   final ValueChanged<ShopFilterState> onFilterChanged;
   final ValueChanged<ShopSortOption> onSortChanged;
 
   const _DesktopLayout({
     required this.products,
+    required this.discounts,
     required this.filters,
     required this.sort,
+    required this.availableBrands,
+    required this.availableCategories,
     required this.onFilterChanged,
     required this.onSortChanged,
   });
@@ -152,7 +237,12 @@ class _DesktopLayout extends StatelessWidget {
     return Row(
       crossAxisAlignment: CrossAxisAlignment.start,
       children: [
-        ShopFilterSidebar(state: filters, onChanged: onFilterChanged),
+        ShopFilterSidebar(
+          state: filters,
+          onChanged: onFilterChanged,
+          availableBrands: availableBrands,
+          availableCategories: availableCategories,
+        ),
         const SizedBox(width: 40),
         Expanded(
           child: Column(
@@ -165,7 +255,7 @@ class _DesktopLayout extends StatelessWidget {
               const SizedBox(height: 32),
               products.isEmpty
                   ? const _EmptyState()
-                  : _ProductGrid(products: products, crossCount: 3),
+                  : _ProductGrid(products: products, discounts: discounts, crossCount: 3),
             ],
           ),
         ),
@@ -174,10 +264,11 @@ class _DesktopLayout extends StatelessWidget {
   }
 }
 
-// ── Mobile: controls + grid ──────────────────────────────────────
+// ── Mobile ───────────────────────────────────────────────────────
 
 class _MobileLayout extends StatelessWidget {
-  final List<ProductModel> products;
+  final List<Product> products;
+  final Map<int, Discount> discounts;
   final ShopSortOption sort;
   final ShopFilterState filters;
   final VoidCallback onFilterTap;
@@ -185,6 +276,7 @@ class _MobileLayout extends StatelessWidget {
 
   const _MobileLayout({
     required this.products,
+    required this.discounts,
     required this.sort,
     required this.filters,
     required this.onFilterTap,
@@ -202,8 +294,6 @@ class _MobileLayout extends StatelessWidget {
             onSortChanged: onSortChanged,
             showSort: false),
         const SizedBox(height: 20),
-
-        // Filter + Sort row
         Row(
           children: [
             Expanded(
@@ -238,7 +328,8 @@ class _MobileLayout extends StatelessWidget {
                           ),
                         )
                       else
-                        const Icon(Icons.tune, size: 20, color: Colors.black),
+                        const Icon(Icons.tune,
+                            size: 20, color: Colors.black),
                     ],
                   ),
                 ),
@@ -247,23 +338,20 @@ class _MobileLayout extends StatelessWidget {
             const SizedBox(width: 8),
             Expanded(
               child: ShopSortDropdown(
-                selected: sort,
-                onChanged: onSortChanged,
-              ),
+                  selected: sort, onChanged: onSortChanged),
             ),
           ],
         ),
         const SizedBox(height: 24),
-
         products.isEmpty
             ? const _EmptyState()
-            : _ProductGrid(products: products, crossCount: 2),
+            : _ProductGrid(products: products, discounts: discounts, crossCount: 2),
       ],
     );
   }
 }
 
-// ── Promo page header ────────────────────────────────────────────
+// ── Promo header ─────────────────────────────────────────────────
 
 class _PromoHeader extends StatelessWidget {
   final int count;
@@ -283,11 +371,11 @@ class _PromoHeader extends StatelessWidget {
     return Column(
       crossAxisAlignment: CrossAxisAlignment.start,
       children: [
-        // Promo banner strip
         Container(
           width: double.infinity,
           color: Colors.black,
-          padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 10),
+          padding:
+              const EdgeInsets.symmetric(horizontal: 16, vertical: 10),
           child: const Text(
             'LIMITED TIME DEALS • UP TO 30% OFF SELECT STYLES',
             style: TextStyle(
@@ -301,7 +389,6 @@ class _PromoHeader extends StatelessWidget {
           ),
         ),
         const SizedBox(height: 24),
-
         Row(
           crossAxisAlignment: CrossAxisAlignment.end,
           mainAxisAlignment: MainAxisAlignment.spaceBetween,
@@ -340,13 +427,24 @@ class _PromoHeader extends StatelessWidget {
   }
 }
 
-// ── Product grid (Column of Rows, no fixed aspect ratio) ─────────
+// ── Product grid ─────────────────────────────────────────────────
 
 class _ProductGrid extends StatelessWidget {
-  final List<ProductModel> products;
+  final List<Product> products;
+  final Map<int, Discount> discounts;
   final int crossCount;
 
-  const _ProductGrid({required this.products, required this.crossCount});
+  const _ProductGrid({
+    required this.products,
+    required this.discounts,
+    required this.crossCount,
+  });
+
+  Discount? _discountFor(Product product) {
+    final int? pid = int.tryParse(product.productId);
+    if (pid == null) return null;
+    return discounts[pid];
+  }
 
   @override
   Widget build(BuildContext context) {
@@ -354,7 +452,9 @@ class _ProductGrid extends StatelessWidget {
     for (int i = 0; i < products.length; i += crossCount) {
       final rowItems = products.sublist(
         i,
-        (i + crossCount) > products.length ? products.length : i + crossCount,
+        (i + crossCount) > products.length
+            ? products.length
+            : i + crossCount,
       );
       rows.add(
         IntrinsicHeight(
@@ -363,7 +463,12 @@ class _ProductGrid extends StatelessWidget {
             children: [
               for (int j = 0; j < rowItems.length; j++) ...[
                 if (j > 0) SizedBox(width: crossCount == 2 ? 8 : 24),
-                Expanded(child: ShopProductCard(product: rowItems[j])),
+                Expanded(
+                  child: ShopProductCard(
+                    product: rowItems[j],
+                    discount: _discountFor(rowItems[j]),
+                  ),
+                ),
               ],
               for (int k = rowItems.length; k < crossCount; k++) ...[
                 SizedBox(width: crossCount == 2 ? 8 : 24),
@@ -377,7 +482,8 @@ class _ProductGrid extends StatelessWidget {
         rows.add(SizedBox(height: crossCount == 2 ? 24 : 32));
       }
     }
-    return Column(crossAxisAlignment: CrossAxisAlignment.start, children: rows);
+    return Column(
+        crossAxisAlignment: CrossAxisAlignment.start, children: rows);
   }
 }
 

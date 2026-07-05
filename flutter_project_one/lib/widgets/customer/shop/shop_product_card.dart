@@ -1,40 +1,59 @@
 import 'package:flutter/material.dart';
 
-import '../../../models/product_model.dart';
-import '../../../models/product_detail_model.dart';
+import '../../../models/product.dart';
+import '../../../models/discount_model.dart';
 import '../../../screens/customer/product_detail/product_detail.dart';
 
-/// Product card — image on top, info below.
-/// Passes discount info to ProductDetailScreen when the product is on promo.
+/// Product card backed by the real [Product] model from Supabase.
+/// Pass [discount] (from DiscountService.fetchActiveDiscountsByProduct())
+/// to show a strikethrough original price + sale price + "SALE" badge.
 class ShopProductCard extends StatelessWidget {
-  final ProductModel product;
+  final Product product;
+  final Discount? discount;
   final VoidCallback? onTap;
 
   const ShopProductCard({
     super.key,
     required this.product,
+    this.discount,
     this.onTap,
   });
 
-  void _navigateToDetail(BuildContext context) {
-    final detail = mockProductDetails[product.id] ?? mockVortexApexV1;
-    Navigator.of(context).push(
-      MaterialPageRoute(
-        builder: (_) => ProductDetailScreen(
-          product: detail,
-          // Pass discount info so the detail screen shows the sale UI
-          discountPercent:
-              product.isDiscounted ? product.discountPercent : null,
-          originalPrice:
-              product.isDiscounted ? product.originalPrice : null,
-        ),
-      ),
-    );
-  }
+void _navigateToDetail(BuildContext context) {
+  Navigator.of(context).push(
+    MaterialPageRoute(
+      builder: (_) => ProductDetailScreen(product: product),
+    ),
+  );
+}
 
   @override
   Widget build(BuildContext context) {
-    final isSoldOut = !product.inStock;
+    final bool isOutOfStock = product.totalAvailable == 0;
+    final String? imageUrl = product.variants.isNotEmpty
+        ? product.variants.first.primaryImageUrl
+        : null;
+
+    // Use lowest retail price across variants
+    final double basePrice = product.variants.isEmpty
+        ? 0
+        : product.variants
+            .map((v) => v.retailPrice)
+            .reduce((a, b) => a < b ? a : b);
+
+    // Apply the discount (if any) against this card's own base price,
+    // rather than the admin-side originalPrice snapshot, so it stays
+    // correct even if variant pricing has changed since the discount
+    // was created.
+    double? salePrice;
+    if (discount != null) {
+      if (discount!.discountType == 'Percentage') {
+        salePrice = basePrice - (basePrice * (discount!.discountValue / 100));
+      } else {
+        salePrice = basePrice - discount!.discountValue;
+      }
+      if (salePrice < 0) salePrice = 0;
+    }
 
     return GestureDetector(
       onTap: onTap ?? () => _navigateToDetail(context),
@@ -42,50 +61,69 @@ class ShopProductCard extends StatelessWidget {
         crossAxisAlignment: CrossAxisAlignment.start,
         mainAxisSize: MainAxisSize.min,
         children: [
-          // ── Image ──────────────────────────────
+          // ── Image ─────────────────────────────────
           AspectRatio(
             aspectRatio: 4 / 5,
             child: Stack(
               fit: StackFit.expand,
               children: [
                 Opacity(
-                  opacity: isSoldOut ? 0.5 : 1.0,
+                  opacity: isOutOfStock ? 0.5 : 1.0,
                   child: Container(
                     color: const Color(0xFFEEEEEE),
-                    child: Image.network(
-                      product.imageUrl,
-                      fit: BoxFit.cover,
-                      errorBuilder: (_, __, ___) => const Center(
-                        child: Icon(
-                          Icons.image_not_supported_outlined,
-                          color: Color(0xFFCFC4C5),
-                          size: 36,
-                        ),
-                      ),
-                    ),
+                    child: imageUrl != null && imageUrl.isNotEmpty
+                        ? Image.network(
+                            imageUrl,
+                            fit: BoxFit.cover,
+                            errorBuilder: (_, __, ___) => const Center(
+                              child: Icon(
+                                Icons.image_not_supported_outlined,
+                                color: Color(0xFFCFC4C5),
+                                size: 36,
+                              ),
+                            ),
+                          )
+                        : const Center(
+                            child: Icon(
+                              Icons.image_not_supported_outlined,
+                              color: Color(0xFFCFC4C5),
+                              size: 36,
+                            ),
+                          ),
                   ),
                 ),
 
-                // Badge: discount % takes priority over regular badge
-                Positioned(
-                  top: 8,
-                  left: 8,
-                  child: product.isDiscounted
-                      ? _DiscountBadge(
-                          percent: product.discountPercent!)
-                      : product.badge != null
-                          ? _Badge(
-                              label: product.badge!,
-                              isSoldOut: isSoldOut)
-                          : const SizedBox.shrink(),
-                ),
+                // Badges
+                if (isOutOfStock)
+                  Positioned(
+                    top: 8,
+                    left: 8,
+                    child: _Badge(label: 'SOLD OUT', color: const Color(0xFFBA1A1A)),
+                  )
+                else if (discount != null)
+                  Positioned(
+                    top: 8,
+                    left: 8,
+                    child: _Badge(
+                      label: discount!.discountType == 'Percentage'
+                          ? '-${discount!.discountValue.toStringAsFixed(0)}%'
+                          : 'SALE',
+                      color: const Color(0xFFBA1A1A),
+                    ),
+                  )
+                else if (product.totalAvailable <= 10)
+                  Positioned(
+                    top: 8,
+                    left: 8,
+                    child: _Badge(label: 'LOW STOCK', color: Colors.black),
+                  ),
               ],
             ),
           ),
 
-          // ── Info ───────────────────────────────
+          // ── Info ──────────────────────────────────
           Opacity(
-            opacity: isSoldOut ? 0.5 : 1.0,
+            opacity: isOutOfStock ? 0.5 : 1.0,
             child: Padding(
               padding: const EdgeInsets.fromLTRB(2, 8, 2, 0),
               child: Column(
@@ -94,8 +132,7 @@ class ShopProductCard extends StatelessWidget {
                 children: [
                   // Brand · Category
                   Text(
-                    '${product.brand} · ${product.category}'
-                        .toUpperCase(),
+                    '${product.brand} · ${product.category}'.toUpperCase(),
                     style: const TextStyle(
                       fontFamily: 'Inter',
                       fontSize: 10,
@@ -110,7 +147,7 @@ class ShopProductCard extends StatelessWidget {
 
                   // Name
                   Text(
-                    product.name.toUpperCase(),
+                    product.productName.toUpperCase(),
                     style: const TextStyle(
                       fontFamily: 'Inter',
                       fontSize: 13,
@@ -123,40 +160,44 @@ class ShopProductCard extends StatelessWidget {
                   ),
                   const SizedBox(height: 2),
 
-                  // Price — discounted shows strikethrough original
-                  if (product.isDiscounted)
+                  // Price
+                  if (isOutOfStock)
+                    const Text(
+                      'Out of Stock',
+                      style: TextStyle(
+                        fontFamily: 'Inter',
+                        fontSize: 13,
+                        fontWeight: FontWeight.w600,
+                        color: Color(0xFFBA1A1A),
+                      ),
+                    )
+                  else if (salePrice != null)
                     Row(
-                      mainAxisSize: MainAxisSize.min,
-                      crossAxisAlignment:
-                          CrossAxisAlignment.baseline,
-                      textBaseline: TextBaseline.alphabetic,
                       children: [
                         Text(
-                          product.formattedPrice,
+                          '₱${salePrice.toStringAsFixed(0)}',
                           style: const TextStyle(
                             fontFamily: 'Inter',
                             fontSize: 13,
                             fontWeight: FontWeight.w700,
-                            color: Colors.black,
+                            color: Color(0xFFBA1A1A),
                           ),
                         ),
                         const SizedBox(width: 6),
                         Text(
-                          product.formattedOriginalPrice,
+                          '₱${basePrice.toStringAsFixed(0)}',
                           style: const TextStyle(
                             fontFamily: 'Inter',
-                            fontSize: 11,
-                            fontWeight: FontWeight.w400,
-                            color: Color(0xFF7E7576),
+                            fontSize: 12,
+                            color: Color(0xFF9CA3AF),
                             decoration: TextDecoration.lineThrough,
-                            decorationColor: Color(0xFF7E7576),
                           ),
                         ),
                       ],
                     )
                   else
                     Text(
-                      product.formattedPrice,
+                      '₱${basePrice.toStringAsFixed(0)}+',
                       style: const TextStyle(
                         fontFamily: 'Inter',
                         fontSize: 13,
@@ -164,27 +205,6 @@ class ShopProductCard extends StatelessWidget {
                         color: Colors.black,
                       ),
                     ),
-
-                  const SizedBox(height: 4),
-
-                  // Rating
-                  Row(
-                    mainAxisSize: MainAxisSize.min,
-                    children: [
-                      const Icon(Icons.star_rounded,
-                          size: 12, color: Colors.black),
-                      const SizedBox(width: 3),
-                      Text(
-                        product.rating.toStringAsFixed(1),
-                        style: const TextStyle(
-                          fontFamily: 'Inter',
-                          fontSize: 11,
-                          fontWeight: FontWeight.w500,
-                          color: Colors.black,
-                        ),
-                      ),
-                    ],
-                  ),
                 ],
               ),
             ),
@@ -195,64 +215,25 @@ class ShopProductCard extends StatelessWidget {
   }
 }
 
-class _DiscountBadge extends StatelessWidget {
-  final int percent;
-  const _DiscountBadge({required this.percent});
-
-  @override
-  Widget build(BuildContext context) {
-    return Container(
-      padding:
-          const EdgeInsets.symmetric(horizontal: 8, vertical: 4),
-      color: const Color(0xFFBA1A1A),
-      child: Text(
-        '-$percent%',
-        style: const TextStyle(
-          fontFamily: 'Inter',
-          fontSize: 11,
-          fontWeight: FontWeight.w700,
-          letterSpacing: 0.3,
-          color: Colors.white,
-        ),
-      ),
-    );
-  }
-}
-
 class _Badge extends StatelessWidget {
   final String label;
-  final bool isSoldOut;
+  final Color color;
 
-  const _Badge({required this.label, required this.isSoldOut});
+  const _Badge({required this.label, required this.color});
 
   @override
   Widget build(BuildContext context) {
-    final isMember = label == 'Member Exclusive';
-    final Color bg = isSoldOut
-        ? const Color(0xFFBA1A1A)
-        : isMember
-            ? Colors.black
-            : Colors.white;
-    final Color fg =
-        (isSoldOut || isMember) ? Colors.white : Colors.black;
-
     return Container(
-      padding:
-          const EdgeInsets.symmetric(horizontal: 8, vertical: 4),
-      decoration: BoxDecoration(
-        color: bg,
-        border: (isSoldOut || isMember)
-            ? null
-            : Border.all(color: const Color(0xFFCFC4C5)),
-      ),
+      padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 4),
+      color: color,
       child: Text(
-        label.toUpperCase(),
-        style: TextStyle(
+        label,
+        style: const TextStyle(
           fontFamily: 'Inter',
           fontSize: 10,
           fontWeight: FontWeight.w700,
           letterSpacing: 0.4,
-          color: fg,
+          color: Colors.white,
         ),
       ),
     );
