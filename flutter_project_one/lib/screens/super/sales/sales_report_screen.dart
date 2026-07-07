@@ -5,14 +5,16 @@ import '../../../widgets/common/buttons/search_bar.dart';
 import '../../../widgets/common/buttons/filter_button.dart';
 import '../../../widgets/common/buttons/filter_panel.dart';
 import '../../../widgets/common/buttons/export_button.dart';
+import '../../../services/super/sales/sales_report_service.dart';
 
 // ================================================
 // SALES REPORT SCREEN
 //
 // Super Admin view of monthly sales performance.
-// Shows a breakdown per month with:
-//   - Total Sales, COGS, Gross Profit
-//   - Best Seller, Growth %
+// Now backed by real Supabase data via SalesReportService:
+//   - Total Sales, COGS, Gross Profit (from cost_price_snapshot)
+//   - Best Seller (highest quantity sold that month)
+//   - Growth % (vs previous month)
 //
 // Has search, filter by growth direction, and export.
 // ================================================
@@ -25,90 +27,24 @@ class SalesReportScreen extends ConsumerStatefulWidget {
 
 class _SalesReportScreenState extends ConsumerState<SalesReportScreen> {
 
-  // ================================================
-  // CONTROLLERS AND STATE
-  // ================================================
-
-  // controls the search text field
+  final SalesReportService _reportService = SalesReportService();
   final TextEditingController _searchController = TextEditingController();
 
-  // controls if filter panel is visible
   bool _showFilterPanel = false;
-
-  // currently selected filter value
   String? _selectedFilter;
 
-  // ================================================
-  // FAKE DATA — replace with Firebase later
-  // ================================================
-  final List<Map<String, dynamic>> _allReports = [
-    {
-      'month': 'Jan 2025',
-      'totalSales': '\$5,000',
-      'cogs': '\$4,000',
-      'grossProfit': '\$5,000',
-      'bestSeller': 'Nike Jordan',
-      'growth': 7.0,
-    },
-    {
-      'month': 'Feb 2025',
-      'totalSales': '\$3,000',
-      'cogs': '\$4,000',
-      'grossProfit': '\$5,000',
-      'bestSeller': 'Nike Jordan',
-      'growth': -7.0,
-    },
-    {
-      'month': 'Mar 2025',
-      'totalSales': '\$6,200',
-      'cogs': '\$3,800',
-      'grossProfit': '\$2,400',
-      'bestSeller': 'Adidas Ultraboost',
-      'growth': 12.0,
-    },
-    {
-      'month': 'Apr 2025',
-      'totalSales': '\$4,800',
-      'cogs': '\$3,500',
-      'grossProfit': '\$1,300',
-      'bestSeller': 'Puma RS-X',
-      'growth': -3.0,
-    },
-    {
-      'month': 'May 2025',
-      'totalSales': '\$7,100',
-      'cogs': '\$4,200',
-      'grossProfit': '\$2,900',
-      'bestSeller': 'Nike Air Max',
-      'growth': 18.0,
-    },
-    {
-      'month': 'Jun 2025',
-      'totalSales': '\$5,500',
-      'cogs': '\$3,600',
-      'grossProfit': '\$1,900',
-      'bestSeller': 'New Balance 574',
-      'growth': 5.0,
-    },
-  ];
+  List<MonthlyReport> _allReports = [];
+  List<MonthlyReport> _filteredReports = [];
 
-  // filtered list shown in the table
-  List<Map<String, dynamic>> _filteredReports = [];
+  bool _isLoading = true;
+  String? _errorMessage;
 
-  // ================================================
-  // INIT STATE
-  // ================================================
   @override
   void initState() {
     super.initState();
-
-    // show all reports at the start
-    _filteredReports = _allReports;
+    _loadReports();
   }
 
-  // ================================================
-  // DISPOSE
-  // ================================================
   @override
   void dispose() {
     _searchController.dispose();
@@ -116,62 +52,67 @@ class _SalesReportScreenState extends ConsumerState<SalesReportScreen> {
   }
 
   // ================================================
+  // LOAD REAL DATA
+  // ================================================
+  Future<void> _loadReports() async {
+    setState(() {
+      _isLoading = true;
+      _errorMessage = null;
+    });
+
+    try {
+      final List<MonthlyReport> reports =
+          await _reportService.getMonthlyReports();
+
+      setState(() {
+        _allReports = reports;
+        _isLoading = false;
+      });
+      _applyFilters();
+    } catch (e) {
+      setState(() {
+        _errorMessage = 'Failed to load sales report. Please try again.';
+        _isLoading = false;
+      });
+      print('SalesReportScreen._loadReports error: $e');
+    }
+  }
+
+  // ================================================
   // APPLY FILTERS
   // filters by search text and growth direction
   // ================================================
   void _applyFilters() {
+    final String searchQuery = _searchController.text.toLowerCase();
+    final List<MonthlyReport> results = [];
 
-    String searchQuery = _searchController.text.toLowerCase();
-
-    List<Map<String, dynamic>> results = [];
-
-    for (int i = 0; i < _allReports.length; i = i + 1) {
-
-      Map<String, dynamic> item = _allReports[i];
-
-      // check search — matches month or best seller
+    for (final report in _allReports) {
       bool matchesSearch = true;
 
       if (searchQuery.isNotEmpty) {
-
-        bool monthMatch = item['month']
-            .toString()
-            .toLowerCase()
-            .contains(searchQuery);
-
-        bool sellerMatch = item['bestSeller']
-            .toString()
-            .toLowerCase()
-            .contains(searchQuery);
-
+        final bool monthMatch =
+            report.month.toLowerCase().contains(searchQuery);
+        final bool sellerMatch =
+            report.bestSeller.toLowerCase().contains(searchQuery);
         matchesSearch = monthMatch || sellerMatch;
       }
 
-      if (matchesSearch == false) {
-        continue;
-      }
+      if (!matchesSearch) continue;
 
-      // check growth filter
       bool matchesFilter = true;
-
       if (_selectedFilter == 'Positive') {
-        matchesFilter = (item['growth'] as double) >= 0;
+        matchesFilter = report.growthPercent >= 0;
       }
-
       if (_selectedFilter == 'Negative') {
-        matchesFilter = (item['growth'] as double) < 0;
+        matchesFilter = report.growthPercent < 0;
       }
 
-      if (matchesFilter == false) {
-        continue;
-      }
+      if (!matchesFilter) continue;
 
-      results.add(item);
+      results.add(report);
     }
 
-    setState(() {
-      _filteredReports = results;
-    });
+    setState(() => _filteredReports = results);
   }
 
   // ================================================
@@ -187,32 +128,39 @@ class _SalesReportScreenState extends ConsumerState<SalesReportScreen> {
   }
 
   // ================================================
+  // FORMAT CURRENCY
+  // ================================================
+  String _formatCurrency(double amount) {
+    final int rounded = amount.round();
+    final String digits = rounded.toString();
+    String result = '';
+    int count = 0;
+    for (int i = digits.length - 1; i >= 0; i--) {
+      if (count > 0 && count % 3 == 0) result = ',$result';
+      result = digits[i] + result;
+      count++;
+    }
+    return '₱$result';
+  }
+
+  // ================================================
   // BUILD GROWTH BADGE
-  // green if positive, red if negative
   // ================================================
   Widget _buildGrowthBadge(double growth) {
+    final bool isPositive = growth >= 0;
 
-    bool isPositive = growth >= 0;
-
-    Color backgroundColor = isPositive
-        ? const Color(0xFFDCFCE7)
-        : const Color(0xFFFEE2E2);
-
-    Color textColor = isPositive
-        ? const Color(0xFF16A34A)
-        : const Color(0xFFDC2626);
-
-    String growthText = isPositive
+    final Color backgroundColor =
+        isPositive ? const Color(0xFFDCFCE7) : const Color(0xFFFEE2E2);
+    final Color textColor =
+        isPositive ? const Color(0xFF16A34A) : const Color(0xFFDC2626);
+    final String growthText = isPositive
         ? '+${growth.toStringAsFixed(0)} %'
         : '${growth.toStringAsFixed(0)} %';
 
     return Align(
       alignment: Alignment.centerLeft,
       child: Container(
-        padding: const EdgeInsets.symmetric(
-          horizontal: 10,
-          vertical: 4,
-        ),
+        padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 4),
         decoration: BoxDecoration(
           color: backgroundColor,
           borderRadius: BorderRadius.circular(20),
@@ -229,72 +177,40 @@ class _SalesReportScreenState extends ConsumerState<SalesReportScreen> {
     );
   }
 
-  // ================================================
-  // BUILD COLORED AMOUNT TEXT
-  // COGS = red, Gross Profit = green, others = dark
-  // ================================================
   Widget _buildAmountText(String amount, {Color? color}) {
     return Text(
       amount,
-      style: TextStyle(
-        fontSize: 13,
-        color: color ?? const Color(0xFF111827),
-      ),
+      style: TextStyle(fontSize: 13, color: color ?? const Color(0xFF111827)),
     );
   }
 
   // ================================================
   // BUILD TABLE ROWS
-  // converts report data into CommonTable rows
   // ================================================
   List<List<Widget>> _buildRows() {
+    final List<List<Widget>> tableRows = [];
 
-    List<List<Widget>> tableRows = [];
-
-    for (int i = 0; i < _filteredReports.length; i = i + 1) {
-
-      Map<String, dynamic> item = _filteredReports[i];
-
-      List<Widget> oneRow = [
-
-        // column 1 — month
+    for (final report in _filteredReports) {
+      tableRows.add([
         Text(
-          item['month'],
-          style: const TextStyle(
-            fontSize: 13,
-            color: Color(0xFF111827),
-          ),
+          report.month,
+          style: const TextStyle(fontSize: 13, color: Color(0xFF111827)),
         ),
-
-        // column 2 — total sales
-        _buildAmountText(item['totalSales']),
-
-        // column 3 — COGS in red
+        _buildAmountText(_formatCurrency(report.totalSales)),
         _buildAmountText(
-          item['cogs'],
+          _formatCurrency(report.cogs),
           color: const Color(0xFFDC2626),
         ),
-
-        // column 4 — gross profit in green
         _buildAmountText(
-          item['grossProfit'],
+          _formatCurrency(report.grossProfit),
           color: const Color(0xFF16A34A),
         ),
-
-        // column 5 — best seller
         Text(
-          item['bestSeller'],
-          style: const TextStyle(
-            fontSize: 13,
-            color: Color(0xFF111827),
-          ),
+          report.bestSeller,
+          style: const TextStyle(fontSize: 13, color: Color(0xFF111827)),
         ),
-
-        // column 6 — growth % badge
-        _buildGrowthBadge(item['growth']),
-      ];
-
-      tableRows.add(oneRow);
+        _buildGrowthBadge(report.growthPercent),
+      ]);
     }
 
     return tableRows;
@@ -308,142 +224,115 @@ class _SalesReportScreenState extends ConsumerState<SalesReportScreen> {
     return Scaffold(
       backgroundColor: const Color(0xFFF8F9FA),
       body: GestureDetector(
-
-        // close filter panel when tapping outside
         onTap: () {
-          if (_showFilterPanel == true) {
-            setState(() {
-              _showFilterPanel = false;
-            });
-          }
+          if (_showFilterPanel) setState(() => _showFilterPanel = false);
         },
-
         child: Padding(
           padding: const EdgeInsets.all(32),
           child: Column(
             crossAxisAlignment: CrossAxisAlignment.start,
             children: [
 
-              // ================================================
-              // TITLE
-              // ================================================
-              const Column(
-                crossAxisAlignment: CrossAxisAlignment.start,
-                children: [
-
-                  Text(
-                    'Sales Report',
-                    style: TextStyle(
-                      fontSize: 24,
-                      fontWeight: FontWeight.bold,
-                      color: Color(0xFF111827),
-                    ),
-                  ),
-
-                  SizedBox(height: 4),
-
-                  Text(
-                    'Financial overview and detailed monthly performance.',
-                    style: TextStyle(
-                      fontSize: 13,
-                      color: Color(0xFF9CA3AF),
-                    ),
-                  ),
-                ],
+              const Text(
+                'Sales Report',
+                style: TextStyle(
+                  fontSize: 24,
+                  fontWeight: FontWeight.bold,
+                  color: Color(0xFF111827),
+                ),
+              ),
+              const SizedBox(height: 4),
+              const Text(
+                'Financial overview and detailed monthly performance.',
+                style: TextStyle(fontSize: 13, color: Color(0xFF9CA3AF)),
               ),
 
               const SizedBox(height: 24),
 
-              // ================================================
-              // SEARCH + FILTER + EXPORT ROW
-              // ================================================
               Row(
                 crossAxisAlignment: CrossAxisAlignment.center,
                 children: [
-
-                  // search bar
                   CommonSearchBar(
                     controller: _searchController,
                     hintText: 'Search report...',
-                    onChanged: (String value) {
-                      _applyFilters();
-                    },
+                    onChanged: (value) => _applyFilters(),
                   ),
-
                   const SizedBox(width: 8),
-
-                  // filter button
                   FilterButton(
                     isOpen: _showFilterPanel,
-                    onTap: () {
-                      setState(() {
-                        _showFilterPanel = !_showFilterPanel;
-                      });
-                    },
+                    onTap: () =>
+                        setState(() => _showFilterPanel = !_showFilterPanel),
                     selectedValue: _selectedFilter,
-                    onValueChanged: (String? value) {
-                      setState(() {
-                        _selectedFilter = value;
-                      });
-                    },
+                    onValueChanged: (value) =>
+                        setState(() => _selectedFilter = value),
                     onClear: _clearFilters,
                     onApply: () {
                       _applyFilters();
-                      setState(() {
-                        _showFilterPanel = false;
-                      });
+                      setState(() => _showFilterPanel = false);
                     },
                     sections: [
                       FilterSection(
                         title: 'Growth',
                         options: [
-                          FilterOption(
-                            label: 'Positive',
-                            value: 'Positive',
-                          ),
-                          FilterOption(
-                            label: 'Negative',
-                            value: 'Negative',
-                          ),
+                          FilterOption(label: 'Positive', value: 'Positive'),
+                          FilterOption(label: 'Negative', value: 'Negative'),
                         ],
                       ),
                     ],
                   ),
-
-                  // spacer pushes export to the right
                   const Spacer(),
-
-                  // export button
-                  ExportButton(
-                    onExport: () {
-                      // TODO: implement export
-                    },
-                    onDropdown: () {
-                      // TODO: implement export options
-                    },
-                  ),
+                  ExportButton(onExport: () {}, onDropdown: () {}),
                 ],
               ),
 
               const SizedBox(height: 16),
 
-              // ================================================
-              // SALES REPORT TABLE
-              // ================================================
               Expanded(
-                child: SingleChildScrollView(
-                  child: CommonTable(
-                    headers: const [
-                      'Month',
-                      'Total Sales',
-                      'COGS',
-                      'Gross Profit',
-                      'Best Seller',
-                      'Growth %',
-                    ],
-                    rows: _buildRows(),
-                  ),
-                ),
+                child: _isLoading
+                    ? const Center(child: CircularProgressIndicator())
+                    : _errorMessage != null
+                        ? Center(
+                            child: Column(
+                              mainAxisSize: MainAxisSize.min,
+                              children: [
+                                Text(
+                                  _errorMessage!,
+                                  style: const TextStyle(
+                                    fontSize: 14,
+                                    color: Color(0xFF6B7280),
+                                  ),
+                                ),
+                                const SizedBox(height: 12),
+                                ElevatedButton(
+                                  onPressed: _loadReports,
+                                  child: const Text('Retry'),
+                                ),
+                              ],
+                            ),
+                          )
+                        : _filteredReports.isEmpty
+                            ? const Center(
+                                child: Text(
+                                  'No sales data available yet.',
+                                  style: TextStyle(
+                                    fontSize: 14,
+                                    color: Color(0xFF6B7280),
+                                  ),
+                                ),
+                              )
+                            : SingleChildScrollView(
+                                child: CommonTable(
+                                  headers: const [
+                                    'Month',
+                                    'Total Sales',
+                                    'COGS',
+                                    'Gross Profit',
+                                    'Best Seller',
+                                    'Growth %',
+                                  ],
+                                  rows: _buildRows(),
+                                ),
+                              ),
               ),
             ],
           ),

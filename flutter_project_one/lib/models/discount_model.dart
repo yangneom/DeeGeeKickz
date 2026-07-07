@@ -3,7 +3,10 @@
 //
 // Maps to the `discount` table, joined with the
 // product's name + a derived original price
-// (min retail_price across non-archived variants).
+// (min retail_price across non-archived variants,
+// UNLESS this discount targets a specific variant —
+// see variantId below — in which case originalPrice
+// is that variant's own retail_price instead).
 // ================================================
 class Discount {
   final int discountId;
@@ -16,6 +19,12 @@ class Discount {
   final DateTime startDate;
   final DateTime endDate;
 
+  // ── Variant targeting (nullable) ──
+  // null  => applies to the WHOLE product (every color/variant).
+  // not null => applies ONLY to this one variant/color.
+  final int? variantId;
+  final String? variantColor; // e.g. "Red" — for display only, null if whole-product.
+
   Discount({
     required this.discountId,
     required this.productId,
@@ -26,7 +35,13 @@ class Discount {
     required this.status,
     required this.startDate,
     required this.endDate,
+    this.variantId,
+    this.variantColor,
   });
+
+  /// True if this discount targets a single color/variant rather than
+  /// the whole product.
+  bool get isVariantSpecific => variantId != null;
 
   // ================================================
   // FROM MAP
@@ -42,6 +57,8 @@ class Discount {
       status: map['status'] as String,
       startDate: DateTime.parse(map['start_date'] as String),
       endDate: DateTime.parse(map['end_date'] as String),
+      variantId: map['variant_id'] as int?,
+      variantColor: map['variant_color'] as String?,
     );
   }
 
@@ -52,6 +69,7 @@ class Discount {
     return {
       'discount_id': discountId,
       'product_id': productId,
+      'variant_id': variantId,
       'discount_type': discountType,
       'discount_value': discountValue,
       'status': status,
@@ -63,8 +81,6 @@ class Discount {
   // ================================================
   // DISCOUNT DISPLAY
   // "20%" for Percentage, "₱1,000" for Fixed
-  // Reuses the same comma-formatting logic that lived
-  // in CreateDiscountDialog._addCommas().
   // ================================================
   String get discountDisplay {
     if (discountType == 'Percentage') {
@@ -74,9 +90,18 @@ class Discount {
   }
 
   // ================================================
+  // PRODUCT + SCOPE DISPLAY
+  // "Nike Panda" for whole-product, "Nike Panda — Red" for variant-specific.
+  // ================================================
+  String get scopedProductDisplay {
+    if (isVariantSpecific && variantColor != null) {
+      return '$productName — $variantColor';
+    }
+    return productName;
+  }
+
+  // ================================================
   // FINAL PRICE
-  // Same calculation logic as
-  // CreateDiscountDialog._calculateFinalPrice()
   // ================================================
   double get finalPrice {
     double result;
@@ -90,16 +115,8 @@ class Discount {
     return result;
   }
 
-  // ================================================
-  // FINAL PRICE DISPLAY
-  // "₱4,400"
-  // ================================================
   String get finalPriceDisplay => '₱${_addCommas(finalPrice.toInt())}';
 
-  // ================================================
-  // ORIGINAL PRICE DISPLAY
-  // "₱5,500"
-  // ================================================
   String get originalPriceDisplay => '₱${_addCommas(originalPrice.toInt())}';
 
   // ── helpers ──
@@ -119,7 +136,6 @@ class Discount {
   }
 
   static String _trimNumber(double value) {
-    // "20.0" -> "20", "12.5" -> "12.5"
     if (value == value.roundToDouble()) {
       return value.toInt().toString();
     }

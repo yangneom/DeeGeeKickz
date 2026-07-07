@@ -15,6 +15,16 @@ import '../../../models/sale.dart';
 //   This dialog is purely for the physical receipt.
 //   Closing without printing does NOT cancel the sale.
 //
+// DISCOUNT DISPLAY:
+//   Each SaleItem carries both retailPrice (charged) and
+//   originalPrice (undiscounted). If they differ, the item row
+//   shows the original price with a strikethrough next to the
+//   charged price, and a "You saved ₱X" summary line appears
+//   near the total — computed from Sale.totalSavings, which
+//   sums each item's own discount. This reflects whatever
+//   discount the ADMIN configured; there is no separate
+//   cashier-entered discount anymore.
+//
 // HOW TO USE:
 //
 //   showReceiptDialog(
@@ -244,6 +254,14 @@ class _ReceiptDialogState extends State<ReceiptDialog> {
                             '${item.color} · Size ${item.size}',
                             style: const pw.TextStyle(fontSize: 9),
                           ),
+                          if (item.hasDiscount)
+                            pw.Text(
+                              'Discount applied',
+                              style: pw.TextStyle(
+                                fontSize: 8,
+                                color: PdfColors.green700,
+                              ),
+                            ),
                         ],
                       ),
                     ),
@@ -257,10 +275,24 @@ class _ReceiptDialogState extends State<ReceiptDialog> {
                     ),
                     pw.Expanded(
                       flex: 2,
-                      child: pw.Text(
-                        _formatPrice(item.retailPrice),
-                        textAlign: pw.TextAlign.right,
-                        style: const pw.TextStyle(fontSize: 10),
+                      child: pw.Column(
+                        crossAxisAlignment: pw.CrossAxisAlignment.end,
+                        children: [
+                          if (item.hasDiscount)
+                            pw.Text(
+                              _formatPrice(item.originalPrice),
+                              style: pw.TextStyle(
+                                fontSize: 8,
+                                color: PdfColors.grey500,
+                                decoration: pw.TextDecoration.lineThrough,
+                              ),
+                            ),
+                          pw.Text(
+                            _formatPrice(item.retailPrice),
+                            textAlign: pw.TextAlign.right,
+                            style: const pw.TextStyle(fontSize: 10),
+                          ),
+                        ],
                       ),
                     ),
                     pw.Expanded(
@@ -280,11 +312,18 @@ class _ReceiptDialogState extends State<ReceiptDialog> {
               pw.SizedBox(height: 6),
 
               // ── SUMMARY ──
+              // Subtotal shown here is the sum of already-discounted
+              // line totals (item.subtotal uses retailPrice). "You
+              // saved" reflects the admin discount baked into those
+              // prices — it's informational, not subtracted again.
               _pdfRow('Subtotal', _formatPrice(sale.subtotal)),
 
-              if (sale.discount > 0) ...[
+              if (sale.hasSavings) ...[
                 pw.SizedBox(height: 4),
-                _pdfRow('Discount', '- ${_formatPrice(sale.discount)}'),
+                _pdfRow(
+                  'You saved',
+                  _formatPrice(sale.totalSavings),
+                ),
               ],
 
               pw.SizedBox(height: 6),
@@ -626,6 +665,18 @@ class _ReceiptDialogState extends State<ReceiptDialog> {
                                     color: Color(0xFF6B7280),
                                   ),
                                 ),
+                                if (item.hasDiscount)
+                                  const Padding(
+                                    padding: EdgeInsets.only(top: 2),
+                                    child: Text(
+                                      'Discount applied',
+                                      style: TextStyle(
+                                        fontSize: 10,
+                                        fontWeight: FontWeight.w500,
+                                        color: Color(0xFF16A34A),
+                                      ),
+                                    ),
+                                  ),
                               ],
                             ),
                           ),
@@ -642,13 +693,27 @@ class _ReceiptDialogState extends State<ReceiptDialog> {
                           ),
                           Expanded(
                             flex: 2,
-                            child: Text(
-                              _formatPrice(item.retailPrice),
-                              textAlign: TextAlign.right,
-                              style: const TextStyle(
-                                fontSize: 12,
-                                color: Color(0xFF374151),
-                              ),
+                            child: Column(
+                              crossAxisAlignment: CrossAxisAlignment.end,
+                              children: [
+                                if (item.hasDiscount)
+                                  Text(
+                                    _formatPrice(item.originalPrice),
+                                    style: const TextStyle(
+                                      fontSize: 10,
+                                      color: Color(0xFF9CA3AF),
+                                      decoration: TextDecoration.lineThrough,
+                                    ),
+                                  ),
+                                Text(
+                                  _formatPrice(item.retailPrice),
+                                  textAlign: TextAlign.right,
+                                  style: const TextStyle(
+                                    fontSize: 12,
+                                    color: Color(0xFF374151),
+                                  ),
+                                ),
+                              ],
                             ),
                           ),
                           Expanded(
@@ -677,11 +742,11 @@ class _ReceiptDialogState extends State<ReceiptDialog> {
                       _formatPrice(sale.subtotal),
                     ),
 
-                    if (sale.discount > 0) ...[
+                    if (sale.hasSavings) ...[
                       const SizedBox(height: 6),
                       _buildReceiptRow(
-                        'Discount',
-                        '- ${_formatPrice(sale.discount)}',
+                        'You saved',
+                        _formatPrice(sale.totalSavings),
                         valueColor: const Color(0xFF16A34A),
                       ),
                     ],

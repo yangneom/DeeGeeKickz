@@ -19,11 +19,26 @@ import '../../customer/payment/paymongo_service.dart';
 // = 'Completed') by the paymongo-webhook edge function once
 // PayMongo confirms payment — see webhook notes.
 // ================================================
-
 class CashierOnlinePaymentService {
   final SupabaseClient _supabase = Supabase.instance.client;
   final PaymentService _paymentService = PaymentService();
   final PaymongoService _paymongoService = PaymongoService();
+
+  Future<double> _getCostPrice(int? sizeId) async {
+    if (sizeId == null) return 0;
+    try {
+      final row = await _supabase
+          .from('product_variant_size')
+          .select('product_variant(cost_price)')
+          .eq('size_id', sizeId)
+          .single();
+      final variant = row['product_variant'];
+      return (variant?['cost_price'] as num?)?.toDouble() ?? 0;
+    } catch (e) {
+      print('_getCostPrice error: $e');
+      return 0;
+    }
+  }
 
   /// Creates the order + order_item rows (Awaiting Payment, In-Store),
   /// reserves stock, then asks PayMongo for a GCash checkout session.
@@ -35,12 +50,6 @@ class CashierOnlinePaymentService {
     required double total,
   }) async {
 
-      // ── TEMP DEBUG ──
-    print('CHECKOUT: user = ${_supabase.auth.currentUser?.id}');
-    print('CHECKOUT: session exists = ${_supabase.auth.currentSession != null}');
-    print('CHECKOUT: access token expiry = ${_supabase.auth.currentSession?.expiresAt}');
-    print('CHECKOUT: role claim = ${_supabase.auth.currentSession?.accessToken.split(".")[1]}');
-    // ── END TEMP DEBUG ──
     // 1. Create the order — mirrors CashierSaleService, but
     //    'Awaiting Payment' instead of 'Completed' since nothing's
 
@@ -67,6 +76,8 @@ class CashierOnlinePaymentService {
 
     // 2. order_item rows — same field mapping _saveSale() already uses.
     for (final item in cartItems) {
+      final double costPrice = await _getCostPrice(item['sizeId'] as int?);
+
       await _supabase.from('order_item').insert({
         'order_id': orderId,
         'product_id': item['productId'],
@@ -74,12 +85,15 @@ class CashierOnlinePaymentService {
         'quantity': item['quantity'],
         'unit_price': item['retailPrice'],
         'subtotal': item['subtotal'],
+        'cost_price_snapshot': costPrice,
         'product_name_snapshot': item['productName'],
         'brand_snapshot': item['brand'],
         'color_snapshot': item['color'],
         'size_snapshot': item['size'],
       });
     }
+
+    
 
     // 3. Reserve stock so the cashier can't double-sell while the QR
     //    is on screen.
@@ -119,16 +133,22 @@ class CashierOnlinePaymentService {
     );
   }
 
-  /// Cashier hit "Cancel Payment", or the QR timed out with nobody
-  /// paying. Releases the stock reservation and cancels the order —
-  /// reuses PaymentService.rejectPayment rather than duplicating that
-  /// logic.
+/// Cashier hit "Cancel Payment", or the QR timed out with nobody
+  /// paying. Since this order never had a real payment attempt from
+  /// the customer's side (no scan, no money moved), there's nothing
+  /// worth auditing — fully delete it instead of leaving a permanent
+  /// 'Cancelled' record cluttering Order Approval / Sales Management.
   Future<void> cancelPendingOrder(int orderId) async {
-    await _paymentService.rejectPayment(
-      orderId: orderId,
-      reason: 'Cashier cancelled — QR payment not completed',
-    );
+    // Release the stock reservation first.
+    await _paymentService.releaseStockForOrder(orderId: orderId);
+
+    // Delete child rows before the parent order (FK constraints).
+    await _supabase.from('payment').delete().eq('order_id', orderId);
+    await _supabase.from('order_item').delete().eq('order_id', orderId);
+    await _supabase.from('order_progress').delete().eq('order_id', orderId);
+    await _supabase.from('orders').delete().eq('order_id', orderId);
   }
+
 }
 
 class CashierCheckoutResult {
@@ -139,4 +159,6 @@ class CashierCheckoutResult {
     required this.orderId,
     required this.checkoutUrl,
   });
+  
 }
+

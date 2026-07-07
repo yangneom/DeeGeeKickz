@@ -56,7 +56,8 @@ class _SelectVariantDialogState extends State<SelectVariantDialog> {
   int _quantity = 1;
 
   // Active discount for this product, if any — fetched once on open.
-  Discount? _discount;
+  ActiveDiscounts? _activeDiscounts;
+
 
   @override
   void initState() {
@@ -65,17 +66,17 @@ class _SelectVariantDialogState extends State<SelectVariantDialog> {
   }
 
   Future<void> _loadDiscount() async {
-    print('DEBUG: raw productId = "${widget.product.productId}"');
-    final int? pid = int.tryParse(widget.product.productId);
-    print('DEBUG: parsed pid = $pid');
-    final Map<int, Discount> discounts =
-        await DiscountService().fetchActiveDiscountsByProduct();
-    print('DEBUG: discounts map = $discounts');
-    if (!mounted) return;
-    setState(() => _discount = discounts[pid]);
-    print('DEBUG: matched discount = $_discount');
-  }
+  final ActiveDiscounts discounts = await DiscountService().fetchActiveDiscounts();
+  if (!mounted) return;
+  setState(() => _activeDiscounts = discounts);
+}
 
+Discount? get _discount {
+  final int? pid = int.tryParse(widget.product.productId);
+  final variant = _selectedVariant;
+  if (pid == null || _activeDiscounts == null) return null;
+  return _activeDiscounts!.resolve(productId: pid, variantId: variant?.variantId);
+}
   // Applies the active discount (if any) to a base price.
   double _applyDiscount(double basePrice) {
     if (_discount == null) return basePrice;
@@ -300,6 +301,10 @@ class _SelectVariantDialogState extends State<SelectVariantDialog> {
               children: [
 
                 // ── IMAGE PREVIEW ──
+                // No more "Item Preview" label or hardcoded grey box —
+                // shows the real product/variant image. The grey icon
+                // now only appears as a genuine fallback if the image
+                // fails to load or doesn't exist.
                 Column(
                   crossAxisAlignment: CrossAxisAlignment.start,
                   children: [
@@ -697,6 +702,7 @@ class _SelectVariantDialogState extends State<SelectVariantDialog> {
                 ),
                 const SizedBox(width: 12),
                 ElevatedButton(
+                  // after:
                   onPressed: (
                     _selectedColor != null &&
                     _selectedSize != null &&
@@ -705,12 +711,12 @@ class _SelectVariantDialogState extends State<SelectVariantDialog> {
                     size.availableQty > 0
                   )
                       ? () {
-                          widget.onAddToCart(
-                            _selectedColor!,
-                            _selectedSize!.size,
-                            _quantity,
-                            variant!.retailPrice,
-                          );
+                         widget.onAddToCart(
+                          _selectedColor!,
+                          _selectedSize!.size,
+                          _quantity,
+                          _applyDiscount(variant!.retailPrice),   // ← same discounted price the cashier just saw
+                        );
                           Navigator.pop(context);
                         }
                       : null,

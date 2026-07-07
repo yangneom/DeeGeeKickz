@@ -36,7 +36,7 @@ class _ProductInfoSectionState
   bool _isFavorited = false;
 
   // Active discount for this product, if any.
-  Discount? _discount;
+  ActiveDiscounts? _activeDiscounts;
  
   @override
   void initState() {
@@ -47,13 +47,19 @@ class _ProductInfoSectionState
   }
 
   Future<void> _loadDiscount() async {
-    final int? pid = int.tryParse(widget.product.productId);
-    if (pid == null) return;
-    final Map<int, Discount> discounts =
-        await DiscountService().fetchActiveDiscountsByProduct();
-    if (!mounted) return;
-    setState(() => _discount = discounts[pid]);
-  }
+  final ActiveDiscounts discounts = await DiscountService().fetchActiveDiscounts();
+  if (!mounted) return;
+  setState(() => _activeDiscounts = discounts);
+}
+
+Discount? get _discount {
+  final int? pid = int.tryParse(widget.product.productId);
+  if (pid == null || _activeDiscounts == null) return null;
+  return _activeDiscounts!.resolve(
+    productId: pid,
+    variantId: _selectedVariant.variantId,
+  );
+}
 
   // Applies the active discount (if any) to a base price.
   double _applyDiscount(double basePrice) {

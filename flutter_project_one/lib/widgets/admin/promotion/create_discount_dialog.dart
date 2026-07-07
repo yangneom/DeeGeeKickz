@@ -9,20 +9,19 @@ import '../../../services/admin/promotionDiscount/discount_service.dart';
 // product, wired to Supabase via DiscountService.
 //
 // Fields:
-//   - Select Product (search-as-you-type, backed by
-//     DiscountService.searchProducts())
+//   - Select Product (search-as-you-type)
+//   - Apply To: Whole Product (default) OR a specific
+//     color/variant — only shown once a product with
+//     more than one variant is selected.
 //   - Discount Type (Percentage OR Fixed Amount)
 //   - Discount Value (number input)
 //   - Start Date + End Date (date pickers)
-//   - Show countdown timer checkbox (UI-only for now —
-//     there's no matching column on `discount` yet,
-//     so this isn't persisted. Flagging in case a
-//     `show_countdown` column gets added later.)
+//   - Show countdown timer checkbox (UI-only, no
+//     matching column yet)
 //
 // How to open:
 //   showCreateDiscountDialog(context);
-// Returns `true` on success — DiscountsTable re-fetches
-// from Supabase rather than receiving a Map back.
+// Returns `true` on success — DiscountsTable re-fetches.
 // ================================================
 
 Future<bool?> showCreateDiscountDialog(BuildContext context) {
@@ -52,11 +51,17 @@ class _CreateDiscountDialogState extends State<CreateDiscountDialog> {
 
   int? _selectedProductId;
   String? _selectedProductName;
-  double _selectedOriginalPrice = 0;
+  double _selectedOriginalPrice = 0; // whole-product min price
+
+  // ── APPLY TO (variant targeting) ──
+  // false = whole product (default), true = specific color.
+  bool _applyToSpecificVariant = false;
+  bool _isLoadingVariants = false;
+  List<Map<String, dynamic>> _productVariants = []; // {variantId, color, retailPrice}
+  int? _selectedVariantId;
+  String? _selectedVariantColor;
 
   // ── DISCOUNT TYPE ──
-  // Must match Discount.fromMap's literal check ('Percentage' vs
-  // anything else treated as fixed) — use these exact strings.
   String _discountType = 'Percentage';
 
   final TextEditingController _valueController = TextEditingController();
@@ -75,15 +80,17 @@ class _CreateDiscountDialogState extends State<CreateDiscountDialog> {
   }
 
   // ================================================
-  // SEARCH PRODUCTS (debounced-free, simple version)
+  // SEARCH PRODUCTS
   // ================================================
   Future<void> _handleSearchChanged(String query) async {
-    // Typing again after a product was selected clears the selection —
-    // admin must re-pick from fresh results.
     setState(() {
       _selectedProductId = null;
       _selectedProductName = null;
       _selectedOriginalPrice = 0;
+      _applyToSpecificVariant = false;
+      _productVariants = [];
+      _selectedVariantId = null;
+      _selectedVariantColor = null;
     });
 
     if (query.trim().isEmpty) {
@@ -101,16 +108,48 @@ class _CreateDiscountDialogState extends State<CreateDiscountDialog> {
     });
   }
 
-  void _selectProduct(Map<String, dynamic> result) {
+  Future<void> _selectProduct(Map<String, dynamic> result) async {
     setState(() {
       _selectedProductId = result['productId'] as int;
       _selectedProductName = result['productName'] as String;
       _selectedOriginalPrice = result['originalPrice'] as double;
       _searchController.text = _selectedProductName!;
       _searchResults = [];
+      _applyToSpecificVariant = false;
+      _selectedVariantId = null;
+      _selectedVariantColor = null;
+      _isLoadingVariants = true;
+    });
+
+    final List<Map<String, dynamic>> variants =
+        await _discountService.fetchVariantsForProduct(_selectedProductId!);
+    if (!mounted) return;
+    setState(() {
+      _productVariants = variants;
+      _isLoadingVariants = false;
     });
   }
 
+  void _selectVariant(Map<String, dynamic> variant) {
+    setState(() {
+      _selectedVariantId = variant['variantId'] as int;
+      _selectedVariantColor = variant['color'] as String;
+    });
+  }
+
+  // The price basis for the live preview — the selected variant's
+  // own price if targeting a specific color, otherwise the
+  // whole-product min price.
+ double get _previewOriginalPrice {
+  if (_applyToSpecificVariant && _selectedVariantId != null) {
+    for (final Map<String, dynamic> v in _productVariants) {
+      if (v['variantId'] == _selectedVariantId) {
+        return (v['retailPrice'] as num).toDouble();
+      }
+    }
+  }
+  return _selectedOriginalPrice;
+}
   // ================================================
   // DATE PICKER
   // ================================================
@@ -141,21 +180,16 @@ class _CreateDiscountDialogState extends State<CreateDiscountDialog> {
     return '${months[date.month - 1]} ${date.day}, ${date.year}';
   }
 
-  // ================================================
-  // CALCULATE FINAL PRICE (live preview)
-  // Same logic as Discount.finalPrice — kept in sync
-  // manually since this dialog runs before the row exists.
-  // ================================================
   double _calculateFinalPrice() {
     if (_selectedProductId == null) return 0;
     final double discountValue = double.tryParse(_valueController.text) ?? 0;
+    final double basis = _previewOriginalPrice;
 
     double finalPrice;
     if (_discountType == 'Percentage') {
-      final double discountAmount = _selectedOriginalPrice * (discountValue / 100);
-      finalPrice = _selectedOriginalPrice - discountAmount;
+      finalPrice = basis - (basis * (discountValue / 100));
     } else {
-      finalPrice = _selectedOriginalPrice - discountValue;
+      finalPrice = basis - discountValue;
     }
     if (finalPrice < 0) finalPrice = 0;
     return finalPrice;
@@ -178,51 +212,76 @@ class _CreateDiscountDialogState extends State<CreateDiscountDialog> {
   // ================================================
   // HANDLE APPLY
   // ================================================
-  Future<void> _handleApply() async {
-    if (_selectedProductId == null) {
-      _showError('Please select a product.');
-      return;
-    }
-    if (_valueController.text.isEmpty) {
-      _showError('Please enter a discount value.');
-      return;
-    }
-    if (_startDate == null || _endDate == null) {
-      _showError('Please pick a start and end date.');
-      return;
-    }
-    if (_endDate!.isBefore(_startDate!)) {
-      _showError('End date must be after start date.');
-      return;
-    }
-
-    final double? discountValue = double.tryParse(_valueController.text);
-    if (discountValue == null) {
-      _showError('Discount value must be a number.');
-      return;
-    }
-
-    setState(() => _isSaving = true);
-
-    final String? error = await _discountService.addDiscount(
-      productId: _selectedProductId!,
-      discountType: _discountType,
-      discountValue: discountValue,
-      startDate: _startDate!,
-      endDate: _endDate!,
-      status: 'Active',
-    );
-
-    if (!mounted) return;
-    setState(() => _isSaving = false);
-
-    if (error != null) {
-      _showError('Failed to create discount: $error');
-      return;
-    }
-
-    Navigator.pop(context, true);
+Future<void> _handleApply() async {
+  if (_selectedProductId == null) {
+    _showError('Please select a product.');
+    return;
   }
+  if (_applyToSpecificVariant && _selectedVariantId == null) {
+    _showError('Please select which color this discount applies to.');
+    return;
+  }
+  if (_valueController.text.isEmpty) {
+    _showError('Please enter a discount value.');
+    return;
+  }
+  if (_startDate == null || _endDate == null) {
+    _showError('Please pick a start and end date.');
+    return;
+  }
+  if (_endDate!.isBefore(_startDate!)) {
+    _showError('End date must be after start date.');
+    return;
+  }
+
+  final double? discountValue = double.tryParse(_valueController.text);
+  if (discountValue == null) {
+    _showError('Discount value must be a number.');
+    return;
+  }
+
+  setState(() => _isSaving = true);
+
+  // NEW: block overlapping discounts for the same scope + date range.
+  final bool overlaps = await _discountService.hasOverlappingDiscount(
+    productId: _selectedProductId!,
+    variantId: _applyToSpecificVariant ? _selectedVariantId : null,
+    startDate: _startDate!,
+    endDate: _endDate!,
+  );
+
+  if (!mounted) return;
+
+  if (overlaps) {
+    setState(() => _isSaving = false);
+    _showError(
+      _applyToSpecificVariant
+          ? 'This color already has an active discount during this period.'
+          : 'This product already has an active whole-product discount during this period.',
+    );
+    return;
+  }
+
+  final String? error = await _discountService.addDiscount(
+    productId: _selectedProductId!,
+    variantId: _applyToSpecificVariant ? _selectedVariantId : null,
+    discountType: _discountType,
+    discountValue: discountValue,
+    startDate: _startDate!,
+    endDate: _endDate!,
+    status: 'Active',
+  );
+
+  if (!mounted) return;
+  setState(() => _isSaving = false);
+
+  if (error != null) {
+    _showError('Failed to create discount: $error');
+    return;
+  }
+
+  Navigator.pop(context, true);
+}
 
   void _showError(String message) {
     ScaffoldMessenger.of(context).showSnackBar(
@@ -275,6 +334,21 @@ class _CreateDiscountDialogState extends State<CreateDiscountDialog> {
               _buildLabel('Select Product'),
               const SizedBox(height: 8),
               _buildProductSearchField(),
+
+              // ── APPLY TO — only shown once a product with 2+
+              // variants is selected. Single-variant products skip
+              // this entirely since "whole product" and "that one
+              // variant" are the same thing.
+              if (_selectedProductId != null && _productVariants.length > 1) ...[
+                const SizedBox(height: 20),
+                _buildLabel('Apply To'),
+                const SizedBox(height: 8),
+                _buildApplyToSelector(),
+                if (_applyToSpecificVariant) ...[
+                  const SizedBox(height: 12),
+                  _buildVariantColorPicker(),
+                ],
+              ],
 
               const SizedBox(height: 20),
 
@@ -386,7 +460,6 @@ class _CreateDiscountDialogState extends State<CreateDiscountDialog> {
 
   // ================================================
   // PRODUCT SEARCH FIELD
-  // Type-ahead against DiscountService.searchProducts().
   // ================================================
   Widget _buildProductSearchField() {
     return Column(
@@ -462,11 +535,131 @@ class _CreateDiscountDialogState extends State<CreateDiscountDialog> {
           Padding(
             padding: const EdgeInsets.only(top: 6),
             child: Text(
-              'Selected: $_selectedProductName (₱${_addCommas(_selectedOriginalPrice.toInt())})',
+              _isLoadingVariants
+                  ? 'Selected: $_selectedProductName (loading colors...)'
+                  : 'Selected: $_selectedProductName (₱${_addCommas(_selectedOriginalPrice.toInt())})',
               style: const TextStyle(fontSize: 11, color: Color(0xFF16A34A), fontWeight: FontWeight.w500),
             ),
           ),
       ],
+    );
+  }
+
+  // ================================================
+  // APPLY TO SELECTOR
+  // Whole Product (default) vs Specific Color
+  // ================================================
+  Widget _buildApplyToSelector() {
+    return Row(
+      children: [
+        Expanded(
+          child: _buildApplyToCard(
+            label: 'Whole Product',
+            subtitle: 'All colors',
+            selected: !_applyToSpecificVariant,
+            onTap: () => setState(() {
+              _applyToSpecificVariant = false;
+              _selectedVariantId = null;
+              _selectedVariantColor = null;
+            }),
+          ),
+        ),
+        const SizedBox(width: 12),
+        Expanded(
+          child: _buildApplyToCard(
+            label: 'Specific Color',
+            subtitle: 'One variant only',
+            selected: _applyToSpecificVariant,
+            onTap: () => setState(() => _applyToSpecificVariant = true),
+          ),
+        ),
+      ],
+    );
+  }
+
+  Widget _buildApplyToCard({
+    required String label,
+    required String subtitle,
+    required bool selected,
+    required VoidCallback onTap,
+  }) {
+    return GestureDetector(
+      onTap: onTap,
+      child: Container(
+        padding: const EdgeInsets.symmetric(vertical: 10, horizontal: 12),
+        decoration: BoxDecoration(
+          color: selected ? const Color(0xFFEFF6FF) : Colors.white,
+          border: Border.all(
+            color: selected ? const Color(0xFF2563EB) : const Color(0xFFD1D5DB),
+            width: selected ? 2 : 1,
+          ),
+          borderRadius: BorderRadius.circular(8),
+        ),
+        child: Column(
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            Text(
+              label,
+              style: TextStyle(
+                fontSize: 13,
+                fontWeight: FontWeight.w600,
+                color: selected ? const Color(0xFF2563EB) : const Color(0xFF374151),
+              ),
+            ),
+            const SizedBox(height: 2),
+            Text(
+              subtitle,
+              style: const TextStyle(fontSize: 11, color: Color(0xFF9CA3AF)),
+            ),
+          ],
+        ),
+      ),
+    );
+  }
+
+  // ================================================
+  // VARIANT COLOR PICKER
+  // Shown only when "Specific Color" is selected.
+  // ================================================
+  Widget _buildVariantColorPicker() {
+    if (_isLoadingVariants) {
+      return const Padding(
+        padding: EdgeInsets.symmetric(vertical: 8),
+        child: SizedBox(
+          width: 16,
+          height: 16,
+          child: CircularProgressIndicator(strokeWidth: 2),
+        ),
+      );
+    }
+
+    return Wrap(
+      spacing: 8,
+      runSpacing: 8,
+      children: _productVariants.map((variant) {
+        final bool isSelected = _selectedVariantId == variant['variantId'];
+        return GestureDetector(
+          onTap: () => _selectVariant(variant),
+          child: Container(
+            padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 8),
+            decoration: BoxDecoration(
+              color: isSelected ? const Color(0xFF2563EB) : Colors.white,
+              border: Border.all(
+                color: isSelected ? const Color(0xFF2563EB) : const Color(0xFFD1D5DB),
+              ),
+              borderRadius: BorderRadius.circular(6),
+            ),
+            child: Text(
+              '${variant['color']} · ₱${_addCommas((variant['retailPrice'] as double).toInt())}',
+              style: TextStyle(
+                fontSize: 12,
+                color: isSelected ? Colors.white : const Color(0xFF374151),
+                fontWeight: isSelected ? FontWeight.w600 : FontWeight.normal,
+              ),
+            ),
+          ),
+        );
+      }).toList(),
     );
   }
 

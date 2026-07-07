@@ -138,7 +138,7 @@ class _DiscountsTableState extends State<DiscountsTable> {
                     ),
                     SizedBox(height: 4),
                     Text(
-                      'Create limited-time discounts for specific shoes.',
+                      'Create limited-time discounts for specific shoes — or just specific colors.',
                       style: TextStyle(fontSize: 13, color: Color(0xFF6B7280)),
                     ),
                   ],
@@ -203,16 +203,41 @@ class _DiscountsTableState extends State<DiscountsTable> {
                     child: Row(
                       children: [
 
-                        // Product Name
+                        // Product Name — shows "— Red" suffix when this
+                        // discount targets only one color/variant.
                         Expanded(
                           flex: 3,
-                          child: Text(
-                            _discounts[i].productName,
-                            style: const TextStyle(
-                              fontSize: 13,
-                              fontWeight: FontWeight.w500,
-                              color: Color(0xFF111827),
-                            ),
+                          child: Column(
+                            crossAxisAlignment: CrossAxisAlignment.start,
+                            children: [
+                              Text(
+                                _discounts[i].productName,
+                                style: const TextStyle(
+                                  fontSize: 13,
+                                  fontWeight: FontWeight.w500,
+                                  color: Color(0xFF111827),
+                                ),
+                              ),
+                              if (_discounts[i].isVariantSpecific)
+                                Padding(
+                                  padding: const EdgeInsets.only(top: 2),
+                                  child: Container(
+                                    padding: const EdgeInsets.symmetric(horizontal: 6, vertical: 1),
+                                    decoration: BoxDecoration(
+                                      color: const Color(0xFFEFF6FF),
+                                      borderRadius: BorderRadius.circular(4),
+                                    ),
+                                    child: Text(
+                                      _discounts[i].variantColor ?? 'Specific color',
+                                      style: const TextStyle(
+                                        fontSize: 10,
+                                        fontWeight: FontWeight.w600,
+                                        color: Color(0xFF2563EB),
+                                      ),
+                                    ),
+                                  ),
+                                ),
+                            ],
                           ),
                         ),
 

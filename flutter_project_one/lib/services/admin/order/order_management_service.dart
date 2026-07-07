@@ -58,6 +58,7 @@ class OrderManagementService {
           )
         ''')
         .neq('order_status', 'Awaiting Payment')
+        .neq('order_type', 'In-Store')
         .order('created_at', ascending: false);
 
         // ── Step 2: cancel reasons from order_progress ──

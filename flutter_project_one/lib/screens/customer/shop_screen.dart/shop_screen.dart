@@ -29,12 +29,12 @@ class _ShopScreenState extends ConsumerState<ShopScreen> {
   ShopSortOption _sort = ShopSortOption.featured;
 
   // Fetched once, held across rebuilds.
-  late final Future<Map<int, Discount>> _discountsFuture;
+  late final Future<ActiveDiscounts> _discountsFuture;
 
   @override
   void initState() {
     super.initState();
-    _discountsFuture = DiscountService().fetchActiveDiscountsByProduct();
+    _discountsFuture = DiscountService().fetchActiveDiscounts();
   }
 
   // ── Derived list ─────────────────────────────────────────────
@@ -106,11 +106,11 @@ class _ShopScreenState extends ConsumerState<ShopScreen> {
                 loading: () => const Center(child: CircularProgressIndicator()),
                 error: (e, _) => Center(child: Text('Error: $e')),
                 data: (allProducts) {
-                  return FutureBuilder<Map<int, Discount>>(
+                  return FutureBuilder<ActiveDiscounts>(
                     future: _discountsFuture,
                     builder: (context, discountSnapshot) {
-                      final Map<int, Discount> discounts =
-                          discountSnapshot.data ?? {};
+                      final ActiveDiscounts discounts = discountSnapshot.data ??
+                          ActiveDiscounts(byProduct: {}, byVariant: {});
 
                       final brands = allProducts
                           .map((p) => p.brand)
@@ -194,7 +194,7 @@ class _ShopScreenState extends ConsumerState<ShopScreen> {
 
 class _DesktopLayout extends StatelessWidget {
   final List<Product> products;
-  final Map<int, Discount> discounts;
+  final ActiveDiscounts discounts;
   final ShopFilterState filters;
   final ShopSortOption sort;
   final List<String> availableBrands;
@@ -249,7 +249,7 @@ class _DesktopLayout extends StatelessWidget {
 
 class _MobileLayout extends StatelessWidget {
   final List<Product> products;
-  final Map<int, Discount> discounts;
+  final ActiveDiscounts discounts;
   final ShopSortOption sort;
   final ShopFilterState filters;
   final VoidCallback onFilterTap;
@@ -385,7 +385,7 @@ class _PageHeader extends StatelessWidget {
 
 class _ProductGrid extends StatelessWidget {
   final List<Product> products;
-  final Map<int, Discount> discounts;
+  final ActiveDiscounts discounts;
   final int crossCount;
 
   const _ProductGrid({
@@ -397,7 +397,7 @@ class _ProductGrid extends StatelessWidget {
   Discount? _discountFor(Product product) {
     final int? pid = int.tryParse(product.productId);
     if (pid == null) return null;
-    return discounts[pid];
+    return discounts.resolve(productId: pid);
   }
 
   @override

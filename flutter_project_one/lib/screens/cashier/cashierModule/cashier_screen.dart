@@ -9,8 +9,9 @@ import '../../../providers/product/product_provider.dart';
 import '../../../providers/cashier_provider/cashier_provider.dart';
 import '../../../models/cart_item.dart';
 import '../../../widgets/common/buttons/search_bar.dart';
-import '../../../widgets/common/dialog/confirm_dialog.dart';
 import '../../../services/admin/cashier/cashier_sale_service.dart';
+import '../../../models/order.dart';
+import '../../../services/customer/receipt/receipt_pdf_service.dart';
 
 import '../../../services/cashier/onlinepayment/cashier_online_payment_service.dart';
 import '../../../widgets/cashier/receipt/qr_payment_dialog.dart';
@@ -46,6 +47,14 @@ import '../../../widgets/cashier/receipt/qr_payment_dialog.dart';
 //     product card goes grey + shows "Product Fully Reserved"
 //     dialog before cashier can even pick a size.
 //
+// PRICING NOTE:
+//   There is no manual/cashier-entered discount in this screen.
+//   The admin-configured discount (from the Discounts table) is
+//   the single source of truth for pricing — it is already baked
+//   into item.retailPrice / item.subtotal at the moment an item
+//   is added to the cart (see select_variant_dialog.dart's
+//   _applyDiscount()). The cashier cannot override or add to it.
+//
 // CART STATE is managed by cashierProvider.
 // Screen handles: checkout, payments, stock validation, totals.
 // ================================================
@@ -71,14 +80,11 @@ class _CashierScreenState extends ConsumerState<CashierScreen> {
   // ── PAYMENT ──
   PaymentMethod _paymentMethod = PaymentMethod.online;
   final TextEditingController _cashPaidController = TextEditingController();
-  double _discountAmount = 0;
-  final TextEditingController _discountController = TextEditingController();
 
   @override
   void dispose() {
     _searchController.dispose();
     _cashPaidController.dispose();
-    _discountController.dispose();
     super.dispose();
   }
 
@@ -101,6 +107,10 @@ class _CashierScreenState extends ConsumerState<CashierScreen> {
 
   // ================================================
   // CART CALCULATIONS
+  //
+  // No manual discount — TOTAL is always equal to Subtotal.
+  // Any discounting already happened per-item when it was added
+  // to the cart (admin discount applied in select_variant_dialog.dart).
   // ================================================
   double get _subtotal {
     double total = 0;
@@ -110,18 +120,7 @@ class _CashierScreenState extends ConsumerState<CashierScreen> {
     return total;
   }
 
-  double get _total =>
-      (_subtotal - _discountAmount).clamp(0, double.infinity);
-
-  double get _discountPercent {
-    if (_subtotal <= 0) return 0;
-    return (_discountAmount / _subtotal) * 100;
-  }
-
-  bool get _isDiscountTooLarge => _discountPercent > 50;
-
-  bool get _requiresDiscountConfirmation =>
-      _discountPercent >= 20 && _discountPercent <= 50;
+  double get _total => _subtotal;
 
   double get _cashPaid =>
       double.tryParse(_cashPaidController.text) ?? 0;
@@ -301,8 +300,6 @@ class _CashierScreenState extends ConsumerState<CashierScreen> {
 
     setState(() {
       _cashPaidController.clear();
-      _discountController.clear();
-      _discountAmount = 0;
       _paymentMethod = PaymentMethod.cash;
       _searchController.clear();
       _searchQuery = '';
@@ -328,6 +325,9 @@ class _CashierScreenState extends ConsumerState<CashierScreen> {
   // Converts cart → Sale model → adds to fakeSales.
   // Called BEFORE showing receipt dialog.
   // Sale is saved regardless of whether cashier prints.
+  //
+  // discount is always 0 here — any admin discount is already
+  // reflected in each item's retailPrice/subtotal.
   // ================================================
     Future<Sale> _saveSale() async {
     final List<SaleItem> saleItems =
@@ -359,7 +359,7 @@ class _CashierScreenState extends ConsumerState<CashierScreen> {
       orderNumber:     'pending',
       items:           saleItems,
       subtotal:        _subtotal,
-      discount:        _discountAmount,
+      discount:        0,
       total:           _total,
       paymentMethod:   _paymentMethod == PaymentMethod.cash ? 'cash' : 'online',
       cashPaid:        _paymentMethod == PaymentMethod.cash ? _cashPaid : 0,
@@ -379,7 +379,7 @@ class _CashierScreenState extends ConsumerState<CashierScreen> {
       orderNumber:     orderNumber,
       items:           saleItems,
       subtotal:        _subtotal,
-      discount:        _discountAmount,
+      discount:        0,
       total:           _total,
       paymentMethod:   sale.paymentMethod,
       cashPaid:        sale.cashPaid,
@@ -395,31 +395,6 @@ class _CashierScreenState extends ConsumerState<CashierScreen> {
   // ================================================
   Future<void> _handleCheckout() async {
     if (_cartItems.isEmpty) return;
-
-    if (_isDiscountTooLarge) {
-      ScaffoldMessenger.of(context).showSnackBar(
-        const SnackBar(
-          content: Text('Discount cannot exceed 50% of subtotal.'),
-          backgroundColor: Colors.red,
-        ),
-      );
-      return;
-    }
-
-    if (_requiresDiscountConfirmation) {
-      final bool? confirmed = await showConfirmDialog(
-        context: context,
-        title: 'Large Discount Applied',
-        message:
-            'A discount of ${_discountPercent.toStringAsFixed(0)}% '
-            'has been applied to this transaction.\n\n'
-            'Are you sure you want to continue?',
-        confirmLabel: 'Continue',
-        confirmColor: const Color(0xFF2563EB),
-      );
-
-      if (confirmed != true) return;
-    }
 
    if (_paymentMethod == PaymentMethod.cash) {
       final Sale sale = await _saveSale();
@@ -443,7 +418,7 @@ class _CashierScreenState extends ConsumerState<CashierScreen> {
         }).toList();
 
     final double subtotalSnapshot = _subtotal;
-    final double discountSnapshot = _discountAmount;
+    final double discountSnapshot = 0;
     final double totalSnapshot = _total;
     final List<SaleItem> saleItemsSnapshot = _cartItems.map((CartItem item) {
       return SaleItem(
@@ -487,8 +462,44 @@ class _CashierScreenState extends ConsumerState<CashierScreen> {
         orderId:     checkout.orderId,
         checkoutUrl: checkout.checkoutUrl,
         amount:      totalSnapshot,
-        onPaymentConfirmed: () {
+        onPaymentConfirmed: () async {
           Navigator.of(context).pop();
+
+          // Generate + upload the receipt now that the webhook has
+          // confirmed payment and marked the order Completed.
+          try {
+            final List<OrderItem> orderItems = cartItemsMap.map((item) {
+              final int parsedSize =
+                  int.tryParse(item['size'].toString()) ?? 0;
+              return OrderItem(
+                productName: item['productName'] ?? '',
+                brand:       item['brand'] ?? '',
+                size:        parsedSize,
+                quantity:    (item['quantity'] as num).toInt(),
+                price:       (item['retailPrice'] as num).toDouble(),
+                total:       (item['subtotal'] as num).toDouble(),
+              );
+            }).toList();
+
+            final Order receiptOrder = Order(
+              orderId:       checkout.orderId.toString(),
+              customerName:  'Walk-in Customer',
+              contact:       '',
+              landmark:      '',
+              address:       '',
+              totalAmount:   totalSnapshot,
+              paymentMethod: 'gcash',
+              paymentStatus: 'Paid',
+              orderStatus:   'Completed',
+              dateTime:      DateTime.now().toIso8601String(),
+              items:         orderItems,
+            );
+
+            await ReceiptPdfService().generateAndUpload(receiptOrder);
+          } catch (receiptErr) {
+            print('Cashier QR receipt error: $receiptErr');
+          }
+
           final Sale sale = Sale(
             orderNumber:     'DG-${checkout.orderId}',
             items:           saleItemsSnapshot,
@@ -1106,85 +1117,6 @@ class _CashierScreenState extends ConsumerState<CashierScreen> {
 
           _buildSummaryRow(
               'Subtotal', '₱${_subtotal.toStringAsFixed(0)}'),
-
-          const SizedBox(height: 6),
-
-          // ── Discount row ──
-          Row(
-            mainAxisAlignment: MainAxisAlignment.spaceBetween,
-            children: [
-              const Text(
-                'Discount',
-                style: TextStyle(
-                    fontSize: 12, color: Color(0xFF6B7280)),
-              ),
-              SizedBox(
-                width: 70,
-                height: 28,
-                child: TextField(
-                  controller: _discountController,
-                  keyboardType: TextInputType.number,
-                  inputFormatters: [
-                    FilteringTextInputFormatter.digitsOnly,
-                    LengthLimitingTextInputFormatter(6),
-                  ],
-                  textAlign: TextAlign.right,
-                  style: const TextStyle(
-                      fontSize: 12, color: Color(0xFF111827)),
-                  decoration: InputDecoration(
-                    hintText: '0',
-                    hintStyle: const TextStyle(
-                        fontSize: 12, color: Color(0xFF9CA3AF)),
-                    isDense: true,
-                    contentPadding: const EdgeInsets.symmetric(
-                        horizontal: 8, vertical: 6),
-                    filled: true,
-                    fillColor: const Color(0xFFF9FAFB),
-                    border: OutlineInputBorder(
-                      borderRadius: BorderRadius.circular(6),
-                      borderSide: const BorderSide(
-                          color: Color(0xFFE5E7EB)),
-                    ),
-                    enabledBorder: OutlineInputBorder(
-                      borderRadius: BorderRadius.circular(6),
-                      borderSide: const BorderSide(
-                          color: Color(0xFFE5E7EB)),
-                    ),
-                    focusedBorder: OutlineInputBorder(
-                      borderRadius: BorderRadius.circular(6),
-                      borderSide: const BorderSide(
-                          color: Color(0xFF2563EB)),
-                    ),
-                  ),
-                  onChanged: (String value) {
-                    final double entered =
-                        double.tryParse(value) ?? 0;
-
-                    if (entered > _subtotal) {
-                      ScaffoldMessenger.of(context).showSnackBar(
-                        const SnackBar(
-                          content: Text(
-                              'Discount cannot exceed the subtotal.'),
-                          backgroundColor: Colors.red,
-                        ),
-                      );
-                      _discountController.text =
-                          _subtotal.toStringAsFixed(0);
-                      _discountController.selection =
-                          TextSelection.fromPosition(TextPosition(
-                              offset:
-                                  _discountController.text.length));
-                    }
-
-                    setState(() {
-                      _discountAmount =
-                          entered.clamp(0, _subtotal).toDouble();
-                    });
-                  },
-                ),
-              ),
-            ],
-          ),
 
           const SizedBox(height: 8),
           const Divider(height: 1, color: Color(0xFFE5E7EB)),

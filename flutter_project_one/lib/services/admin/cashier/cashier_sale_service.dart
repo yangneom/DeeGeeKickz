@@ -1,5 +1,7 @@
 import 'package:supabase_flutter/supabase_flutter.dart';
 import '../../../models/sale.dart';
+import '../../../models/order.dart';
+import '../../customer/receipt/receipt_pdf_service.dart';
 
 class CashierSaleService {
   final SupabaseClient _supabase = Supabase.instance.client;
@@ -38,6 +40,8 @@ class CashierSaleService {
 
       // 3. Insert order items
       for (final item in cartItems) {
+        final double costPrice = await _getCostPrice(item['sizeId'] as int?);
+
         await _supabase.from('order_item').insert({
           'order_id':             orderId,
           'product_id':           item['productId'],
@@ -45,12 +49,13 @@ class CashierSaleService {
           'quantity':             item['quantity'],
           'unit_price':           item['retailPrice'],
           'subtotal':             item['subtotal'],
+          'cost_price_snapshot':  costPrice,
           'product_name_snapshot': item['productName'],
           'brand_snapshot':       item['brand'],
           'color_snapshot':       item['color'],
           'size_snapshot':        item['size'],
         });
-
+        
         // Deduct stock immediately for in-store sales
         if (item['sizeId'] != null) {
           await _deductStock(
@@ -60,7 +65,7 @@ class CashierSaleService {
         }
       }
 
-      // 4. Insert payment record
+// 4. Insert payment record
       await _supabase.from('payment').insert({
         'order_id':       orderId,
         'payment_method': sale.paymentMethod,
@@ -71,12 +76,53 @@ class CashierSaleService {
         'change_given':   sale.change,
       });
 
+      // 5. Generate + upload PDF receipt, save receipt_url to the
+      // payment row. Reuses the same ReceiptPdfService the online
+      // order flow already uses — just fills in placeholder
+      // customer info since this is a walk-in, in-store sale.
+      try {
+        final List<OrderItem> orderItems = cartItems.map((item) {
+          final int parsedSize =
+              int.tryParse(item['size'].toString()) ?? 0;
+          return OrderItem(
+            productName: item['productName'] ?? '',
+            brand:       item['brand'] ?? '',
+            size:        parsedSize,
+            quantity:    (item['quantity'] as num).toInt(),
+            price:       (item['retailPrice'] as num).toDouble(),
+            total:       (item['subtotal'] as num).toDouble(),
+          );
+        }).toList();
+
+        final Order receiptOrder = Order(
+          orderId:       orderId.toString(),
+          customerName:  'Walk-in Customer',
+          contact:       '',
+          landmark:      '',
+          address:       '',
+          totalAmount:   sale.total,
+          paymentMethod: sale.paymentMethod,
+          paymentStatus: 'Paid',
+          orderStatus:   'Completed',
+          dateTime:      sale.transactionDate.toIso8601String(),
+          items:         orderItems,
+        );
+
+        await ReceiptPdfService().generateAndUpload(receiptOrder);
+      } catch (receiptErr) {
+        // Don't fail the whole sale just because PDF generation or
+        // upload failed — the sale itself is already saved correctly.
+        print('CashierSaleService.saveSale receipt error: $receiptErr');
+      }
+
       return orderNumber;
     } catch (e) {
       print('CashierSaleService.saveSale error: $e');
       rethrow;
     }
   }
+
+
 
   // ================================================
   // DEDUCT STOCK
@@ -116,5 +162,21 @@ class CashierSaleService {
     final int count = (response as List).length + 1;
     final String seq = count.toString().padLeft(4, '0');
     return 'DG-$date-$seq';
+  }
+
+  Future<double> _getCostPrice(int? sizeId) async {
+    if (sizeId == null) return 0;
+    try {
+      final row = await _supabase
+          .from('product_variant_size')
+          .select('product_variant(cost_price)')
+          .eq('size_id', sizeId)
+          .single();
+      final variant = row['product_variant'];
+      return (variant?['cost_price'] as num?)?.toDouble() ?? 0;
+    } catch (e) {
+      print('_getCostPrice error: $e');
+      return 0;
+    }
   }
 }

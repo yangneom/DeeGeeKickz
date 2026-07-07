@@ -29,25 +29,43 @@ class _PromoScreenState extends ConsumerState<PromoScreen> {
   ShopSortOption _sort = ShopSortOption.featured;
 
   // Fetched once, held across rebuilds — see initState.
-  late final Future<Map<int, Discount>> _discountsFuture;
+  late final Future<ActiveDiscounts> _discountsFuture;
 
   @override
   void initState() {
     super.initState();
-   _discountsFuture = DiscountService().fetchActiveDiscountsByProduct();
+    _discountsFuture = DiscountService().fetchActiveDiscounts();
   }
 
   // Product.productId is a String in the model (DB column is int8),
-  // so parse before looking it up in the int-keyed discounts map.
-  Discount? _discountFor(Product product, Map<int, Discount> discounts) {
+  // so parse before looking it up via ActiveDiscounts.resolve().
+  //
+  // Checks whole-product first, then falls back to checking each of the
+  // product's variants individually — so a product with only a
+  // variant-specific discount (e.g. just "Red" is on sale) still
+  // qualifies for the Promo page.
+  Discount? _discountFor(Product product, ActiveDiscounts discounts) {
     final int? pid = int.tryParse(product.productId);
     if (pid == null) return null;
-    return discounts[pid];
+
+    final Discount? wholeProduct = discounts.resolve(productId: pid);
+    if (wholeProduct != null) return wholeProduct;
+
+    for (final ProductVariant v in product.variants) {
+      final int? variantId = v.variantId;
+      if (variantId != null) {
+        final Discount? variantDiscount =
+            discounts.resolve(productId: pid, variantId: variantId);
+        if (variantDiscount != null) return variantDiscount;
+      }
+    }
+
+    return null;
   }
 
   List<Product> _applyFilters(
     List<Product> all,
-    Map<int, Discount> discounts,
+    ActiveDiscounts discounts,
   ) {
     // Only products with a currently-live discount belong on this page.
     var list = all.where((p) {
@@ -121,13 +139,13 @@ class _PromoScreenState extends ConsumerState<PromoScreen> {
                     const Center(child: CircularProgressIndicator()),
                 error: (e, _) => Center(child: Text('Error: $e')),
                 data: (allProducts) {
-                  return FutureBuilder<Map<int, Discount>>(
+                  return FutureBuilder<ActiveDiscounts>(
                     future: _discountsFuture,
                     builder: (context, discountSnapshot) {
                       if (!discountSnapshot.hasData) {
                         return const Center(child: CircularProgressIndicator());
                       }
-                      final Map<int, Discount> discounts = discountSnapshot.data!;
+                      final ActiveDiscounts discounts = discountSnapshot.data!;
 
                       final brands = allProducts
                           .map((p) => p.brand)
@@ -213,7 +231,7 @@ class _PromoScreenState extends ConsumerState<PromoScreen> {
 
 class _DesktopLayout extends StatelessWidget {
   final List<Product> products;
-  final Map<int, Discount> discounts;
+  final ActiveDiscounts discounts;
   final ShopFilterState filters;
   final ShopSortOption sort;
   final List<String> availableBrands;
@@ -268,7 +286,7 @@ class _DesktopLayout extends StatelessWidget {
 
 class _MobileLayout extends StatelessWidget {
   final List<Product> products;
-  final Map<int, Discount> discounts;
+  final ActiveDiscounts discounts;
   final ShopSortOption sort;
   final ShopFilterState filters;
   final VoidCallback onFilterTap;
@@ -431,7 +449,7 @@ class _PromoHeader extends StatelessWidget {
 
 class _ProductGrid extends StatelessWidget {
   final List<Product> products;
-  final Map<int, Discount> discounts;
+  final ActiveDiscounts discounts;
   final int crossCount;
 
   const _ProductGrid({
@@ -440,11 +458,24 @@ class _ProductGrid extends StatelessWidget {
     required this.crossCount,
   });
 
-  Discount? _discountFor(Product product) {
-    final int? pid = int.tryParse(product.productId);
-    if (pid == null) return null;
-    return discounts[pid];
+ Discount? _discountFor(Product product) {
+  final int? pid = int.tryParse(product.productId);
+  if (pid == null) return null;
+
+  final Discount? wholeProduct = discounts.resolve(productId: pid);
+  if (wholeProduct != null) return wholeProduct;
+
+  for (final ProductVariant v in product.variants) {
+    final int? variantId = v.variantId;
+    if (variantId != null) {
+      final Discount? variantDiscount =
+          discounts.resolve(productId: pid, variantId: variantId);
+      if (variantDiscount != null) return variantDiscount;
+    }
   }
+
+  return null;
+}
 
   @override
   Widget build(BuildContext context) {

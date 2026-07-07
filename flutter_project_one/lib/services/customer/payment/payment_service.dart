@@ -247,6 +247,13 @@ class PaymentService {
     }
   }
 
+  /// Public wrapper around _releaseStock, for callers outside this
+  /// service (e.g. CashierOnlinePaymentService) that need to release
+  /// a reservation without going through rejectPayment's full flow.
+  Future<void> releaseStockForOrder({required int orderId}) async {
+    await _releaseStock(orderId: orderId);
+  }
+
   // ================================================
   // CANCEL ORDER (customer)
   //

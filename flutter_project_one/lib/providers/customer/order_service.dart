@@ -67,7 +67,9 @@ class OrderService {
     // 3. Create order items + reserve stock
     // ───────────────────────────────────────────
  
-    for (final item in items) {
+for (final item in items) {
+      final double costPrice = await _getCostPrice(item.sizeId);
+
       await _supabase.from('order_item').insert({
         'order_id': orderId,
  
@@ -80,6 +82,7 @@ class OrderService {
         'quantity': item.quantity,
         'unit_price': item.retailPrice,
         'subtotal': item.subtotal,
+        'cost_price_snapshot': costPrice,
  
         // Snapshots
         'product_name_snapshot': item.productName,
@@ -143,4 +146,21 @@ class OrderService {
         .update({'reserved_quantity': currentReserved + quantity})
         .eq('size_id', sizeId);
   }
+
+  Future<double> _getCostPrice(int? sizeId) async {
+    if (sizeId == null) return 0;
+    try {
+      final row = await _supabase
+          .from('product_variant_size')
+          .select('product_variant(cost_price)')
+          .eq('size_id', sizeId)
+          .single();
+      final variant = row['product_variant'];
+      return (variant?['cost_price'] as num?)?.toDouble() ?? 0;
+    } catch (e) {
+      print('_getCostPrice error: $e');
+      return 0;
+    }
+  }
+
 }

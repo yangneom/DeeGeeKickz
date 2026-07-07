@@ -32,8 +32,13 @@ class SaleItem {
   // quantity sold
   final int quantity;
 
-  // price per unit
+  // price actually charged per unit (after admin discount, if any)
   final double retailPrice;
+
+  // undiscounted price per unit — same as retailPrice when there
+  // was no active discount at time of sale. Lets the receipt show
+  // "was ₱X" and the amount saved.
+  final double originalPrice;
 
   const SaleItem({
     required this.productName,
@@ -41,13 +46,18 @@ class SaleItem {
     required this.size,
     required this.quantity,
     required this.retailPrice,
-  });
+    double? originalPrice,
+  }) : originalPrice = originalPrice ?? retailPrice;
 
   // ================================================
   // SUBTOTAL GETTER
   // price × quantity
   // ================================================
   double get subtotal => retailPrice * quantity;
+
+  bool get hasDiscount => originalPrice > retailPrice;
+
+  double get savings => hasDiscount ? (originalPrice - retailPrice) * quantity : 0;
 }
 
 
@@ -117,6 +127,24 @@ class Sale {
   }
 
   // ================================================
+  // TOTAL SAVINGS GETTER
+  // Sum of per-item savings from admin discounts.
+  // This is the real source of truth for "how much did the
+  // customer save" — computed from each item's own
+  // original vs. discounted price, not the flat `discount` field
+  // (which cashiers can no longer set manually).
+  // ================================================
+  double get totalSavings {
+    double total = 0;
+    for (SaleItem item in items) {
+      total += item.savings;
+    }
+    return total;
+  }
+
+  bool get hasSavings => totalSavings > 0;
+
+  // ================================================
   // PAYMENT METHOD LABEL
   // human-readable payment method
   // ================================================
@@ -158,11 +186,11 @@ final List<Sale> fakeSales = [
       ),
     ],
     subtotal: 13500,
-    discount: 500,
-    total: 13000,
+    discount: 0,
+    total: 13500,
     paymentMethod: 'cash',
     cashPaid: 15000,
-    change: 2000,
+    change: 1500,
     cashierName: 'Cashier DeeGee',
     transactionDate: DateTime(2025, 5, 30, 10, 30),
   ),
