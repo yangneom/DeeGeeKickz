@@ -1,9 +1,11 @@
 import 'package:supabase_flutter/supabase_flutter.dart';
 import '../../../models/product.dart';
 import 'product_mapper.dart';
+import '../../super/activity_log/activity_log_service.dart';
 
 class InventoryService {
   final SupabaseClient _supabase = Supabase.instance.client;
+  final ActivityLogService _activityLog = ActivityLogService();
 
   // ==========================================
   // FETCH PRODUCTS
@@ -164,6 +166,13 @@ class InventoryService {
               });
         }
       }
+
+      await _activityLog.log(
+        action: 'Added new product $productName',
+        affectedModule: AffectedModule.inventory,
+        targetId: productId.toString(),
+        metadata: {'brand': brandName, 'category': categoryName},
+      );
 
       return null;
     } catch (error) {
@@ -357,6 +366,12 @@ class InventoryService {
         }
       }
 
+      await _activityLog.log(
+        action: 'Updated product $productName',
+        affectedModule: AffectedModule.inventory,
+        targetId: productId,
+      );
+
       return null;
     } catch (error) {
       print('updateProduct error: $error');
@@ -371,10 +386,25 @@ class InventoryService {
     required String productId,
   }) async {
     try {
+      // fetch name first so the log entry reads clearly
+      final product = await _supabase
+          .from('product')
+          .select('product_name')
+          .eq('product_id', int.parse(productId))
+          .single();
+
+      final productName = product['product_name'] as String? ?? 'Unknown';
+
       await _supabase.from('product').update({
         'is_archived': true,
         'archived_at': DateTime.now().toIso8601String(),
       }).eq('product_id', int.parse(productId));
+
+      await _activityLog.log(
+        action: 'Archived product $productName',
+        affectedModule: AffectedModule.inventory,
+        targetId: productId,
+      );
 
       return null;
     } catch (error) {

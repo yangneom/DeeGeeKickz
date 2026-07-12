@@ -2,9 +2,11 @@ import 'package:supabase_flutter/supabase_flutter.dart';
 import '../../../models/sale.dart';
 import '../../../models/order.dart';
 import '../../customer/receipt/receipt_pdf_service.dart';
+import '../../super/activity_log/activity_log_service.dart';
 
 class CashierSaleService {
   final SupabaseClient _supabase = Supabase.instance.client;
+  final ActivityLogService _activityLog = ActivityLogService();
 
   // ================================================
   // SAVE IN-STORE SALE
@@ -114,6 +116,24 @@ class CashierSaleService {
         // upload failed — the sale itself is already saved correctly.
         print('CashierSaleService.saveSale receipt error: $receiptErr');
       }
+
+      // 6. Log the completed sale.
+      final String itemSummary = cartItems.length == 1
+          ? (cartItems.first['productName']?.toString() ?? 'item')
+          : '${cartItems.length} items';
+
+      await _activityLog.log(
+        action: 'Completed in-store sale of $itemSummary '
+            '(₱${sale.total.toStringAsFixed(2)})',
+        affectedModule: AffectedModule.sales,
+        targetId: orderId.toString(),
+        metadata: {
+          'order_number': orderNumber,
+          'total': sale.total,
+          'payment_method': sale.paymentMethod,
+          'item_count': cartItems.length,
+        },
+      );
 
       return orderNumber;
     } catch (e) {

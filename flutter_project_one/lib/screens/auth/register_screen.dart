@@ -5,7 +5,7 @@ import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 
 // Import our RegisterForm widget that we just built in Step 1
-import '../../widgets/auth/register_form.dart';
+import '../../services/auth/register_form.dart';
 
 // ================================================
 // REGISTER SCREEN

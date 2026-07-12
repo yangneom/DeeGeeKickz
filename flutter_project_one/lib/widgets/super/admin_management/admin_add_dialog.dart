@@ -66,13 +66,13 @@ class _AdminAddDialogState extends State<AdminAddDialog> {
   Future<void> _handleAdd() async {
     // validate
     if (_firstNameController.text.trim().isEmpty ||
-    _lastNameController.text.trim().isEmpty ||
-    _emailController.text.trim().isEmpty) { {
+        _lastNameController.text.trim().isEmpty ||
+        _emailController.text.trim().isEmpty) {
       setState(() {
         _errorMessage = 'Please fill in all required fields.';
       });
       return;
-    }
+    
 
     }
 

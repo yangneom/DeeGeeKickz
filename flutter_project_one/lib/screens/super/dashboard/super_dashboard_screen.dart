@@ -1,6 +1,8 @@
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import '../../../services/super/groq_service.dart';
+import '../../../services/super/dashboard/dashboard_service.dart';
+import '../../../services/admin/inventory/archive_service.dart';
 import '../../../widgets/super/dashboard/super_stats_card.dart';
 import '../../../widgets/super/dashboard/sales_trend_card.dart';
 import '../../../widgets/super/dashboard/brand_performance_card.dart';
@@ -10,7 +12,9 @@ import '../../../widgets/super/dashboard/product_replacement_card.dart';
 
 // ================================================
 // SUPER ADMIN DASHBOARD SCREEN
-// Analytics Dashboard with AI predictions
+// Analytics Dashboard — real Supabase data +
+// AI predictions (Groq for trend/trending/restock,
+// Gemini+Search for product replacement).
 // ================================================
 class SuperDashboardScreen extends ConsumerStatefulWidget {
   const SuperDashboardScreen({super.key});
@@ -23,130 +27,101 @@ class SuperDashboardScreen extends ConsumerStatefulWidget {
 class _SuperDashboardScreenState
     extends ConsumerState<SuperDashboardScreen> {
 
-  // ── GROQ SERVICE ──
   final GroqService _groqService = GroqService();
+  final DashboardService _dashboardService = DashboardService();
+  final ArchiveService _archiveService = ArchiveService();
 
   // ── LOADING STATES ──
+  bool _isStatsLoading = true;
   bool _isTrendLoading = true;
   bool _isTrendingLoading = true;
   bool _isRestockLoading = true;
   bool _isReplacementLoading = true;
 
-  // ── AI DATA ──
+  // ── STATS ──
+  DashboardStats? _stats;
+  List<BrandData> _brands = [];
+
+  // ── SALES TREND ──
+  List<double> _actualSales = [];
   List<double> _predictedSales = [];
   String _aiInsight = '';
+  List<String> _months = [];
+
+  // ── AI DATA ──
   List<Map<String, dynamic>> _trendingShoes = [];
   List<Map<String, dynamic>> _restockItems = [];
   List<Map<String, dynamic>> _replacements = [];
 
-  // ================================================
-  // FAKE DATA — replace with Supabase later
-  // ================================================
-
-  // stats
-  final String _monthlyRevenue = '₱2,450,000';
-  final String _totalOrders = '1,284';
-  final String _lowStockItems = '24';
-  final String _activeCustomers = '8,542';
-
-  // actual monthly sales for chart
-  final List<double> _actualSales = [
-    2000000,
-    2100000,
-    1900000,
-    2200000,
-    2300000,
-    2450000,
+  // Brand colors — cycled if there are more brands than colors
+  static const List<Color> _brandPalette = [
+    Color(0xFF7C3AED),
+    Color(0xFF06B6D4),
+    Color(0xFFF59E0B),
+    Color(0xFF10B981),
+    Color(0xFFEF4444),
+    Color(0xFF6366F1),
   ];
 
-  // month labels
-  final List<String> _months = [
-    'Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun',
-    'Jul', 'Aug', 'Sep',
-  ];
-
-  // brand performance data
-  final List<BrandData> _brands = [
-    BrandData(
-      name: 'Nike',
-      percentage: 42,
-      color: const Color(0xFF7C3AED),
-    ),
-    BrandData(
-      name: 'Adidas',
-      percentage: 28,
-      color: const Color(0xFF06B6D4),
-    ),
-    BrandData(
-      name: 'Puma',
-      percentage: 18,
-      color: const Color(0xFFF59E0B),
-    ),
-    BrandData(
-      name: 'New Balance',
-      percentage: 12,
-      color: const Color(0xFF10B981),
-    ),
-  ];
-
-  // fake sales data for AI trending
-  final List<Map<String, dynamic>> _fakeSalesData = [
-    {'productName': 'Nike Air Max 270', 'salesCount': 342, 'growthPercent': 28},
-    {'productName': 'Adidas Ultraboost 22', 'salesCount': 289, 'growthPercent': 22},
-    {'productName': 'Puma RS-X', 'salesCount': 216, 'growthPercent': 18},
-    {'productName': 'Nike Dunk Low', 'salesCount': 198, 'growthPercent': 15},
-    {'productName': 'New Balance 574', 'salesCount': 167, 'growthPercent': 12},
-  ];
-
-  // fake inventory data for restock prediction
-  final List<Map<String, dynamic>> _fakeInventoryData = [
-    {
-      'productName': 'New Balance 574',
-      'currentStock': 15,
-      'maxStock': 100,
-      'dailySalesRate': 1.8,
-    },
-    {
-      'productName': 'Nike Dunk Low',
-      'currentStock': 22,
-      'maxStock': 100,
-      'dailySalesRate': 1.7,
-    },
-    {
-      'productName': 'Adidas Samba',
-      'currentStock': 8,
-      'maxStock': 100,
-      'dailySalesRate': 1.6,
-    },
-  ];
-
-  // fake discontinued products for replacement
-  final List<Map<String, dynamic>> _fakeDiscontinued = [
-    {'productName': 'Nike React Infinity Run', 'brand': 'Nike'},
-    {'productName': 'Adidas NMD R1', 'brand': 'Adidas'},
-    {'productName': 'Puma Ignite', 'brand': 'Puma'},
-  ];
-
-  // available brands
-  final List<String> _availableBrands = [
-    'Nike', 'Adidas', 'Puma', 'New Balance',
-  ];
-
-  // ================================================
-  // INIT STATE — load all AI data
-  // ================================================
   @override
   void initState() {
     super.initState();
+    _loadStats();
     _loadAllAiData();
   }
 
   // ================================================
+  // LOAD REAL STATS + BRAND PERFORMANCE (no AI)
+  // ================================================
+  Future<void> _loadStats() async {
+    try {
+      setState(() => _isStatsLoading = true);
+
+      final results = await Future.wait([
+        _dashboardService.getStats(),
+        _dashboardService.getBrandPerformance(),
+        _dashboardService.getMonthlySalesHistory(months: 6),
+      ]);
+
+      final stats = results[0] as DashboardStats;
+      final brandSales = results[1] as List<BrandSales>;
+      final history = results[2] as List<double>;
+
+      final now = DateTime.now();
+      final monthLabels = List.generate(6, (i) {
+        final date = DateTime(now.year, now.month - (5 - i), 1);
+        const names = [
+          'Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun',
+          'Jul', 'Aug', 'Sep', 'Oct', 'Nov', 'Dec',
+        ];
+        return names[date.month - 1];
+      });
+
+      if (mounted) {
+        setState(() {
+          _stats = stats;
+          _brands = brandSales.asMap().entries.map((entry) {
+            return BrandData(
+              name: entry.value.brand,
+              percentage: entry.value.percentage,
+              color: _brandPalette[entry.key % _brandPalette.length],
+            );
+          }).toList();
+          _actualSales = history;
+          _months = monthLabels;
+          _isStatsLoading = false;
+        });
+      }
+    } catch (error) {
+      print('_loadStats error: $error');
+      if (mounted) setState(() => _isStatsLoading = false);
+    }
+  }
+
+  // ================================================
   // LOAD ALL AI DATA
-  // calls all Groq predictions at once
   // ================================================
   Future<void> _loadAllAiData() async {
-    // run all AI calls in parallel
     await Future.wait([
       _loadSalesTrend(),
       _loadTrendingShoes(),
@@ -156,24 +131,31 @@ class _SuperDashboardScreenState
   }
 
   // ================================================
-  // LOAD SALES TREND PREDICTION
+  // SALES TREND PREDICTION (Groq)
   // ================================================
   Future<void> _loadSalesTrend() async {
     try {
       setState(() => _isTrendLoading = true);
 
+      // wait for real sales history to be ready first
+      while (_actualSales.isEmpty && _isStatsLoading) {
+        await Future.delayed(const Duration(milliseconds: 200));
+      }
+      if (_actualSales.isEmpty) {
+        _actualSales = await _dashboardService.getMonthlySalesHistory(months: 6);
+      }
+
       final predicted = await _groqService.getSalesTrendPrediction(
+        monthlySales: _actualSales,
+      );
+      final insight = await _groqService.getSalesTrendInsight(
         monthlySales: _actualSales,
       );
 
       if (mounted) {
         setState(() {
-          _predictedSales = predicted.isNotEmpty
-              ? predicted
-              : [2600000, 2750000, 2900000];
-          _aiInsight =
-              'Sales are projected to increase by 18% over the next two months. '
-              'Consider increasing inventory for high-demand brands.';
+          _predictedSales = predicted;
+          _aiInsight = insight;
           _isTrendLoading = false;
         });
       }
@@ -181,8 +163,8 @@ class _SuperDashboardScreenState
       print('_loadSalesTrend error: $error');
       if (mounted) {
         setState(() {
-          _predictedSales = [2600000, 2750000, 2900000];
-          _aiInsight = 'Unable to load AI prediction. Showing estimated data.';
+          _predictedSales = [];
+          _aiInsight = 'Unable to load AI prediction right now.';
           _isTrendLoading = false;
         });
       }
@@ -190,126 +172,105 @@ class _SuperDashboardScreenState
   }
 
   // ================================================
-  // LOAD TRENDING SHOES
+  // TRENDING SHOES (real growth data + Groq ranking)
   // ================================================
   Future<void> _loadTrendingShoes() async {
     try {
       setState(() => _isTrendingLoading = true);
 
+      final realSalesData = await _dashboardService.getProductSalesGrowth();
+
       final trending = await _groqService.getTrendingShoes(
-        salesData: _fakeSalesData,
+        salesData: realSalesData,
       );
 
       if (mounted) {
         setState(() {
-          _trendingShoes = trending.isNotEmpty
-              ? trending
-              : _fakeSalesData.take(3).toList();
+          _trendingShoes = trending.isNotEmpty ? trending : realSalesData.take(5).toList();
           _isTrendingLoading = false;
         });
       }
     } catch (error) {
       print('_loadTrendingShoes error: $error');
-      if (mounted) {
-        setState(() {
-          _trendingShoes = _fakeSalesData.take(3).toList();
-          _isTrendingLoading = false;
-        });
-      }
+      if (mounted) setState(() => _isTrendingLoading = false);
     }
   }
 
   // ================================================
-  // LOAD RESTOCK PREDICTION
+  // RESTOCK PREDICTION (real inventory + deterministic math)
   // ================================================
   Future<void> _loadRestockPrediction() async {
     try {
       setState(() => _isRestockLoading = true);
 
+      final realInventory = await _dashboardService.getInventoryForRestock();
+
       final restock = await _groqService.getRestockPrediction(
-        inventoryData: _fakeInventoryData,
+        inventoryData: realInventory,
       );
 
       if (mounted) {
         setState(() {
-          _restockItems = restock.isNotEmpty
-              ? restock
-              : _fakeInventoryData;
+          _restockItems = restock;
           _isRestockLoading = false;
         });
       }
     } catch (error) {
       print('_loadRestockPrediction error: $error');
-      if (mounted) {
-        setState(() {
-          _restockItems = _fakeInventoryData;
-          _isRestockLoading = false;
-        });
-      }
+      if (mounted) setState(() => _isRestockLoading = false);
     }
   }
 
   // ================================================
-  // LOAD PRODUCT REPLACEMENTS
+  // PRODUCT REPLACEMENT (Gemini + Search, real archived products)
   // ================================================
   Future<void> _loadProductReplacements() async {
     try {
       setState(() => _isReplacementLoading = true);
 
-      final replacements = await _groqService.getProductReplacements(
-        discontinuedProducts: _fakeDiscontinued,
-        availableBrands: _availableBrands,
-      );
+      final archivedProducts = await _archiveService.fetchArchivedProducts();
+
+      // Only the most recently archived, to keep API calls bounded
+      final targets = archivedProducts.take(5).map((p) => {
+            'productName': p.productName,
+            'brand': p.brand,
+          }).toList();
+
+      final availableBrands = archivedProducts.map((p) => p.brand).toSet().toList();
+
+      final replacements = targets.isEmpty
+          ? <Map<String, dynamic>>[]
+          : await _groqService.getProductReplacements(
+              discontinuedProducts: targets,
+              availableBrands: availableBrands,
+            );
 
       if (mounted) {
         setState(() {
-          _replacements = replacements.isNotEmpty
-              ? replacements
-              : [
-                  {
-                    'discontinuedProduct': 'Nike React Infinity Run',
-                    'recommendedReplacement': 'Nike Vomero 17',
-                    'brand': 'Nike',
-                  },
-                  {
-                    'discontinuedProduct': 'Adidas NMD R1',
-                    'recommendedReplacement': 'Adidas Gazelle',
-                    'brand': 'Adidas',
-                  },
-                  {
-                    'discontinuedProduct': 'Puma Ignite',
-                    'recommendedReplacement': 'Puma Velocity Nitro 2',
-                    'brand': 'Puma',
-                  },
-                ];
+          _replacements = replacements.map((r) => {
+                'discontinuedProduct': r['discontinuedProduct'],
+                'recommendedReplacement': r['recommendedReplacement'],
+                'brand': r['brand'],
+              }).toList();
           _isReplacementLoading = false;
         });
       }
     } catch (error) {
       print('_loadProductReplacements error: $error');
-      if (mounted) {
-        setState(() {
-          _replacements = [
-            {
-              'discontinuedProduct': 'Nike React Infinity Run',
-              'recommendedReplacement': 'Nike Vomero 17',
-              'brand': 'Nike',
-            },
-            {
-              'discontinuedProduct': 'Adidas NMD R1',
-              'recommendedReplacement': 'Adidas Gazelle',
-              'brand': 'Adidas',
-            },
-            {
-              'discontinuedProduct': 'Puma Ignite',
-              'recommendedReplacement': 'Puma Velocity Nitro 2',
-              'brand': 'Puma',
-            },
-          ];
-          _isReplacementLoading = false;
-        });
-      }
+      if (mounted) setState(() => _isReplacementLoading = false);
     }
+  }
+
+  String _formatCurrency(double value) {
+    return '₱${value.toStringAsFixed(0).replaceAllMapped(
+      RegExp(r'(\d)(?=(\d{3})+(?!\d))'),
+      (m) => '${m[1]},',
+    )}';
+  }
+
+  String _formatPercent(double value) {
+    final sign = value >= 0 ? '+' : '';
+    return '$sign${value.toStringAsFixed(1)}%';
   }
 
   // ================================================
@@ -317,6 +278,8 @@ class _SuperDashboardScreenState
   // ================================================
   @override
   Widget build(BuildContext context) {
+    final stats = _stats;
+
     return Scaffold(
       backgroundColor: const Color(0xFFF8F9FA),
       body: SingleChildScrollView(
@@ -325,88 +288,81 @@ class _SuperDashboardScreenState
           crossAxisAlignment: CrossAxisAlignment.start,
           children: [
 
-            // ── TITLE ──
             const Text(
               'Analytics Dashboard',
               style: TextStyle(
-                fontSize: 24,
+                fontSize: 26,
                 fontWeight: FontWeight.bold,
                 color: Color(0xFF111827),
+                letterSpacing: -0.4,
               ),
             ),
-
             const SizedBox(height: 4),
-
             const Text(
               'Sneaker Retail Admin Panel',
-              style: TextStyle(
-                fontSize: 13,
-                color: Color(0xFF6B7280),
-              ),
+              style: TextStyle(fontSize: 13, color: Color(0xFF6B7280)),
             ),
 
-            const SizedBox(height: 24),
+            const SizedBox(height: 28),
 
             // ── 4 STATS CARDS ──
-            Row(
-              children: [
-
-                Expanded(
-                  child: SuperStatsCard(
-                    icon: Icons.attach_money,
-                    iconBackgroundColor: const Color(0xFFF5F3FF),
-                    iconColor: const Color(0xFF7C3AED),
-                    title: 'Monthly Revenue',
-                    value: _monthlyRevenue,
-                    badge: '+12.5%',
-                    badgeColor: const Color(0xFF065F46),
+            _isStatsLoading || stats == null
+                ? const SizedBox(
+                    height: 120,
+                    child: Center(child: CircularProgressIndicator()),
+                  )
+                : Row(
+                    children: [
+                      Expanded(
+                        child: SuperStatsCard(
+                          icon: Icons.attach_money,
+                          iconBackgroundColor: const Color(0xFFF5F3FF),
+                          iconColor: const Color(0xFF7C3AED),
+                          title: 'Monthly Revenue',
+                          value: _formatCurrency(stats.monthlyRevenue),
+                          badge: _formatPercent(stats.revenueChangePercent),
+                          badgeColor: const Color(0xFF065F46),
+                        ),
+                      ),
+                      const SizedBox(width: 16),
+                      Expanded(
+                        child: SuperStatsCard(
+                          icon: Icons.shopping_cart_outlined,
+                          iconBackgroundColor: const Color(0xFFEFF6FF),
+                          iconColor: const Color(0xFF2563EB),
+                          title: 'Total Orders',
+                          value: stats.totalOrders.toString(),
+                          badge: _formatPercent(stats.ordersChangePercent),
+                          badgeColor: const Color(0xFF065F46),
+                        ),
+                      ),
+                      const SizedBox(width: 16),
+                      Expanded(
+                        child: SuperStatsCard(
+                          icon: Icons.warning_amber_outlined,
+                          iconBackgroundColor: const Color(0xFFFFFBEB),
+                          iconColor: const Color(0xFFF59E0B),
+                          title: 'Low Stock Items',
+                          value: stats.lowStockItems.toString(),
+                          badge: stats.lowStockItems > 0 ? 'Needs attention' : 'All good',
+                          badgeColor: const Color(0xFF92400E),
+                          isWarning: stats.lowStockItems > 0,
+                        ),
+                      ),
+                      const SizedBox(width: 16),
+                      Expanded(
+                        child: SuperStatsCard(
+                          icon: Icons.people_outline,
+                          iconBackgroundColor: const Color(0xFFF0FDF4),
+                          iconColor: const Color(0xFF16A34A),
+                          title: 'Active Customers',
+                          value: stats.activeCustomers.toString(),
+                          badge: _formatPercent(stats.customersChangePercent),
+                          badgeColor: const Color(0xFF065F46),
+                        ),
+                      ),
+                    ],
                   ),
-                ),
-
-                const SizedBox(width: 16),
-
-                Expanded(
-                  child: SuperStatsCard(
-                    icon: Icons.shopping_cart_outlined,
-                    iconBackgroundColor: const Color(0xFFEFF6FF),
-                    iconColor: const Color(0xFF2563EB),
-                    title: 'Total Orders',
-                    value: _totalOrders,
-                    badge: '+8.2%',
-                    badgeColor: const Color(0xFF065F46),
-                  ),
-                ),
-
-                const SizedBox(width: 16),
-
-                Expanded(
-                  child: SuperStatsCard(
-                    icon: Icons.warning_amber_outlined,
-                    iconBackgroundColor: const Color(0xFFFFFBEB),
-                    iconColor: const Color(0xFFF59E0B),
-                    title: 'Low Stock Items',
-                    value: _lowStockItems,
-                    badge: 'Needs attention',
-                    badgeColor: const Color(0xFF92400E),
-                    isWarning: true,
-                  ),
-                ),
-
-                const SizedBox(width: 16),
-
-                Expanded(
-                  child: SuperStatsCard(
-                    icon: Icons.people_outline,
-                    iconBackgroundColor: const Color(0xFFF0FDF4),
-                    iconColor: const Color(0xFF16A34A),
-                    title: 'Active Customers',
-                    value: _activeCustomers,
-                    badge: '+5.3%',
-                    badgeColor: const Color(0xFF065F46),
-                  ),
-                ),
-              ],
-            ),
 
             const SizedBox(height: 24),
 
@@ -415,8 +371,6 @@ class _SuperDashboardScreenState
               child: Row(
                 crossAxisAlignment: CrossAxisAlignment.stretch,
                 children: [
-
-                  // sales trend — takes more space
                   Expanded(
                     flex: 3,
                     child: SalesTrendCard(
@@ -424,18 +378,13 @@ class _SuperDashboardScreenState
                       predictedSales: _predictedSales,
                       months: _months,
                       aiInsight: _aiInsight,
-                      isLoading: _isTrendLoading,
+                      isLoading: _isTrendLoading || _isStatsLoading,
                     ),
                   ),
-
                   const SizedBox(width: 16),
-
-                  // brand performance pie chart
                   Expanded(
                     flex: 2,
-                    child: BrandPerformanceCard(
-                      brands: _brands,
-                    ),
+                    child: BrandPerformanceCard(brands: _brands),
                   ),
                 ],
               ),
@@ -448,28 +397,20 @@ class _SuperDashboardScreenState
               child: Row(
                 crossAxisAlignment: CrossAxisAlignment.stretch,
                 children: [
-
-                  // AI trending shoes
                   Expanded(
                     child: AiTrendingCard(
                       trendingShoes: _trendingShoes,
                       isLoading: _isTrendingLoading,
                     ),
                   ),
-
                   const SizedBox(width: 16),
-
-                  // restock prediction
                   Expanded(
                     child: RestockPredictionCard(
                       restockItems: _restockItems,
                       isLoading: _isRestockLoading,
                     ),
                   ),
-
                   const SizedBox(width: 16),
-
-                  // product replacement
                   Expanded(
                     child: ProductReplacementCard(
                       replacements: _replacements,

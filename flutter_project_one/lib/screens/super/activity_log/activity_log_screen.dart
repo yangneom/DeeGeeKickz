@@ -3,13 +3,14 @@ import 'package:flutter_riverpod/flutter_riverpod.dart';
 import '../../../widgets/common/tables/common_table.dart';
 import '../../../widgets/common/buttons/export_button.dart';
 import '../../../widgets/super/activity_log/activity_log_filter_panel.dart';
+import '../../../providers/super/activity_log_provider.dart';
 
 // ================================================
 // ACTIVITY LOG SCREEN
 //
-// Super Admin view of all system activity
-// Follows feedback_screen.dart pattern
-// Filter panel is separated into its own widget
+// Super Admin view of all system activity.
+// Now backed by real Supabase data via
+// activityLogsProvider (see ActivityLogService).
 // ================================================
 class ActivityLogScreen extends ConsumerStatefulWidget {
   const ActivityLogScreen({super.key});
@@ -29,63 +30,12 @@ class _ActivityLogScreenState extends ConsumerState<ActivityLogScreen> {
   DateTime? _selectedStartDate;
   DateTime? _selectedEndDate;
 
-  // ================================================
-  // FAKE DATA — replace with Supabase later
-  // ================================================
-  final List<Map<String, dynamic>> _allLogs = [
-    {
-      'name': 'Angel Tuazon',
-      'role': 'Cashier',
-      'action': 'Updated Inventory count for Nike Air Force One',
-      'module': 'Inventory',
-      'dateTime': DateTime(2026, 3, 3, 9, 30),
-    },
-    {
-      'name': 'Jay Galang',
-      'role': 'Admin',
-      'action': 'Added new product Nike Jordan',
-      'module': 'Inventory',
-      'dateTime': DateTime(2026, 3, 3, 10, 15),
-    },
-    {
-      'name': 'Maria Santos',
-      'role': 'Admin',
-      'action': 'Processed refund for Order #1023',
-      'module': 'Orders',
-      'dateTime': DateTime(2026, 3, 4, 11, 0),
-    },
-    {
-      'name': 'Carlo Reyes',
-      'role': 'Cashier',
-      'action': 'Completed sale of Adidas Ultraboost',
-      'module': 'Sales',
-      'dateTime': DateTime(2026, 3, 4, 13, 45),
-    },
-    {
-      'name': 'Super Admin',
-      'role': 'Super Admin',
-      'action': 'Disabled admin account of Juan dela Cruz',
-      'module': 'Admin Management',
-      'dateTime': DateTime(2026, 3, 5, 14, 30),
-    },
-    {
-      'name': 'Anna Lim',
-      'role': 'Admin',
-      'action': 'Updated promotion for Summer Sale',
-      'module': 'Promotions',
-      'dateTime': DateTime(2026, 3, 5, 15, 10),
-    },
-  ];
-
-  List<Map<String, dynamic>> _filteredLogs = [];
-
-  // ================================================
-  // INIT STATE
-  // ================================================
   @override
   void initState() {
     super.initState();
-    _filteredLogs = _allLogs;
+    Future.microtask(() {
+      ref.read(activityLogsProvider.notifier).loadLogs();
+    });
   }
 
   // ================================================
@@ -100,51 +50,46 @@ class _ActivityLogScreenState extends ConsumerState<ActivityLogScreen> {
     return '$month-$day-$year  $hour:$minute';
   }
 
+  // parse the created_at value (Supabase returns an ISO string)
+  DateTime? _parseDateTime(dynamic value) {
+    if (value == null) return null;
+    if (value is DateTime) return value;
+    return DateTime.tryParse(value.toString());
+  }
+
   // ================================================
-  // APPLY FILTERS
+  // APPLY FILTERS (client-side, over already-loaded logs)
   // ================================================
-  void _applyFilters() {
-    List<Map<String, dynamic>> results = [];
+  List<Map<String, dynamic>> _applyFilters(List<Map<String, dynamic>> allLogs) {
+    return allLogs.where((item) {
+      final itemDate = _parseDateTime(item['created_at']);
 
-    for (int i = 0; i < _allLogs.length; i = i + 1) {
-      Map<String, dynamic> item = _allLogs[i];
-      DateTime itemDate = item['dateTime'] as DateTime;
-
-      bool matchesRole = true;
-      if (_selectedRole != null) {
-        matchesRole = item['role'] == _selectedRole;
+      if (_selectedRole != null && item['role'] != _selectedRole) {
+        return false;
       }
-      if (matchesRole == false) continue;
 
-      bool matchesModule = true;
-      if (_selectedModule != null) {
-        matchesModule = item['module'] == _selectedModule;
+      if (_selectedModule != null && item['affected_module'] != _selectedModule) {
+        return false;
       }
-      if (matchesModule == false) continue;
 
-      bool matchesStartDate = true;
-      if (_selectedStartDate != null) {
-        matchesStartDate = itemDate.isAfter(
+      if (_selectedStartDate != null && itemDate != null) {
+        if (itemDate.isBefore(
           _selectedStartDate!.subtract(const Duration(days: 1)),
-        );
+        )) {
+          return false;
+        }
       }
-      if (matchesStartDate == false) continue;
 
-      bool matchesEndDate = true;
-      if (_selectedEndDate != null) {
-        matchesEndDate = itemDate.isBefore(
+      if (_selectedEndDate != null && itemDate != null) {
+        if (itemDate.isAfter(
           _selectedEndDate!.add(const Duration(days: 1)),
-        );
+        )) {
+          return false;
+        }
       }
-      if (matchesEndDate == false) continue;
 
-      results.add(item);
-    }
-
-    setState(() {
-      _filteredLogs = results;
-      _showFilterPanel = false;
-    });
+      return true;
+    }).toList();
   }
 
   // ================================================
@@ -156,7 +101,6 @@ class _ActivityLogScreenState extends ConsumerState<ActivityLogScreen> {
       _selectedModule = null;
       _selectedStartDate = null;
       _selectedEndDate = null;
-      _filteredLogs = _allLogs;
       _showFilterPanel = false;
     });
   }
@@ -189,64 +133,45 @@ class _ActivityLogScreenState extends ConsumerState<ActivityLogScreen> {
 
   // ================================================
   // BUILD TABLE ROWS
-  // same pattern as feedback_screen _buildRows()
   // ================================================
-  List<List<Widget>> _buildRows() {
+  List<List<Widget>> _buildRows(List<Map<String, dynamic>> logs) {
     List<List<Widget>> tableRows = [];
 
-    for (int i = 0; i < _filteredLogs.length; i = i + 1) {
-      Map<String, dynamic> item = _filteredLogs[i];
+    for (final item in logs) {
+      final dateTime = _parseDateTime(item['created_at']);
 
-      List<Widget> oneRow = [
-
+      tableRows.add([
         // column 1 — name
         Text(
-          item['name'],
-          style: const TextStyle(
-            fontSize: 13,
-            color: Color(0xFF111827),
-          ),
+          item['admin_name']?.toString() ?? '-',
+          style: const TextStyle(fontSize: 13, color: Color(0xFF111827)),
         ),
 
         // column 2 — role
         Text(
-          item['role'],
-          style: const TextStyle(
-            fontSize: 13,
-            color: Color(0xFF111827),
-          ),
+          item['role']?.toString() ?? '-',
+          style: const TextStyle(fontSize: 13, color: Color(0xFF111827)),
         ),
 
         // column 3 — action
         Text(
-          item['action'],
-          style: const TextStyle(
-            fontSize: 13,
-            color: Color(0xFF6B7280),
-          ),
+          item['action']?.toString() ?? '-',
+          style: const TextStyle(fontSize: 13, color: Color(0xFF6B7280)),
           overflow: TextOverflow.ellipsis,
         ),
 
         // column 4 — affected module
         Text(
-          item['module'],
-          style: const TextStyle(
-            fontSize: 13,
-            color: Color(0xFF111827),
-          ),
+          item['affected_module']?.toString() ?? '-',
+          style: const TextStyle(fontSize: 13, color: Color(0xFF111827)),
         ),
 
         // column 5 — date & time
         Text(
-          _formatDateTime(item['dateTime'] as DateTime),
-          style: const TextStyle(
-            fontSize: 13,
-            color: Color(0xFF111827),
-          ),
+          dateTime != null ? _formatDateTime(dateTime) : '-',
+          style: const TextStyle(fontSize: 13, color: Color(0xFF111827)),
         ),
-      ];
-
-      tableRows.add(oneRow);
+      ]);
     }
 
     return tableRows;
@@ -254,10 +179,12 @@ class _ActivityLogScreenState extends ConsumerState<ActivityLogScreen> {
 
   // ================================================
   // BUILD
-  // same pattern as feedback_screen build()
   // ================================================
   @override
   Widget build(BuildContext context) {
+    final allLogs = ref.watch(activityLogsProvider);
+    final filteredLogs = _applyFilters(allLogs);
+
     return Scaffold(
       backgroundColor: const Color(0xFFF8F9FA),
       body: GestureDetector(
@@ -351,7 +278,7 @@ class _ActivityLogScreenState extends ConsumerState<ActivityLogScreen> {
                         ),
                       ),
 
-                      // filter panel — separated widget ✅
+                      // filter panel — separated widget
                       if (_showFilterPanel)
                         ActivityLogFilterPanel(
                           selectedRole: _selectedRole,
@@ -367,7 +294,9 @@ class _ActivityLogScreenState extends ConsumerState<ActivityLogScreen> {
                           onPickStartDate: () => _pickDate(isStart: true),
                           onPickEndDate: () => _pickDate(isStart: false),
                           onClear: _clearFilters,
-                          onApply: _applyFilters,
+                          onApply: () {
+                            setState(() => _showFilterPanel = false);
+                          },
                         ),
                     ],
                   ),
@@ -387,7 +316,7 @@ class _ActivityLogScreenState extends ConsumerState<ActivityLogScreen> {
                       'Affected Module',
                       'Date & Time',
                     ],
-                    rows: _buildRows(),
+                    rows: _buildRows(filteredLogs),
                   ),
                 ),
               ),

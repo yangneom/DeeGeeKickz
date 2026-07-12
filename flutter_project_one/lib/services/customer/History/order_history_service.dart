@@ -49,10 +49,9 @@ class OrderHistoryService {
             )
           ''')
           .eq('user_id', user.id)
-          .neq('order_status', 'Awaiting Payment')   // ← this is the fix
+          .neq('order_status', 'Awaiting Payment')   
           .order('created_at', ascending: false);
 
-      // ── Step 2: fetch payment status + receipt_url ──
       if (ordersResponse.isEmpty) return [];
 
       final List<int> orderIds = ordersResponse

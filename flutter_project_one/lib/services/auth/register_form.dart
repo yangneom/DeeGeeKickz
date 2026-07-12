@@ -6,6 +6,7 @@ import 'package:flutter_riverpod/flutter_riverpod.dart';
 
 // Our providers
 import '../../providers/auth/auth_provider.dart';
+import '../../screens/auth/otp_screen.dart';
 
 class RegisterForm extends ConsumerStatefulWidget {
   const RegisterForm({super.key});
@@ -25,6 +26,8 @@ class _RegisterFormState extends ConsumerState<RegisterForm> {
 
   bool _isPasswordVisible = false;
   bool _isConfirmPasswordVisible = false;
+  bool _isSubmitting = false;
+
 
   final GlobalKey<FormState> _formKey = GlobalKey<FormState>();
 
@@ -38,14 +41,18 @@ class _RegisterFormState extends ConsumerState<RegisterForm> {
     _confirmPasswordController.dispose();
     super.dispose();
   }
+Future<void> _handleRegister() async {
 
-  Future<void> _handleRegister() async {
+    // Guard - don't allow a second submit while one is already running
+    if (_isSubmitting) return;
 
     // Step 1 - Validate form
     bool formIsValid = _formKey.currentState!.validate();
     if (formIsValid == false) {
       return;
     }
+
+    _isSubmitting = true;
 
     // Step 2 - Set loading to true
     ref.read(registerIsLoadingProvider.notifier).setLoading(true);
@@ -64,18 +71,34 @@ class _RegisterFormState extends ConsumerState<RegisterForm> {
       password: _passwordController.text,
     );
 
-    // Step 4 - Set loading back to false
     ref.read(registerIsLoadingProvider.notifier).setLoading(false);
+        _isSubmitting = false;
 
-    if (errorMessage == null) {
-      // SUCCESS
-      // TODO: Navigate to "Check your email" screen next
-      print('Registration successful! Verification email sent.');
-    } else {
-      // FAILED - show error message
+    // Step 4 - If registration failed, show the error and stop
+
+    // Step 4 - If registration failed, show the error and stop
+    if (errorMessage != null) {
       ref.read(registerErrorProvider.notifier).setError(errorMessage);
+      return;
     }
-  }
+
+    // Step 5 - Save form data so the OTP screen can use it later
+    // Step 5 - Save form data so the OTP screen can use it later
+    ref.read(pendingRegistrationProvider.notifier).set(
+      PendingRegistration(
+        firstName: _firstNameController.text,
+        lastName: _lastNameController.text,
+        email: _emailController.text,
+        phone: _phoneController.text,
+      ),
+    );
+    // Step 6 - Navigate to OTP screen
+    if (mounted) {
+      Navigator.of(context).push(
+        MaterialPageRoute(builder: (context) => const OtpVerificationScreen()),
+      );
+    }
+ }
 
   @override
   Widget build(BuildContext context) {

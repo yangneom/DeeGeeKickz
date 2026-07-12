@@ -33,7 +33,6 @@ class AdminAccountNotifier
     required String firstName,
     required String lastName,
     required String email,
-    required String password,
     required String role,
   }) async {
     print('NOTIFIER createAccount()');
@@ -42,27 +41,26 @@ class AdminAccountNotifier
       firstName: firstName,
       lastName: lastName,
       email: email,
-      password: password,
       role: role,
     );
 
     await loadAccounts();
   }
 
-Future<void> archiveAccount(String userId) async {
-  print('NOTIFIER ARCHIVE = $userId');
+Future<void> disableAccount(String userId) async {
+  print('NOTIFIER DISABLE = $userId');
 
-  await _service.archiveAccount(userId);
+  await _service.disableAccount(userId);
 
-  print('NOTIFIER ARCHIVE DONE');
+  print('NOTIFIER DISABLE DONE');
 
   await loadAccounts();
 }
 
-Future<void> restoreAccount(String userId) async {
-  print('RESTORING: $userId');
+Future<void> enableAccount(String userId) async {
+  print('ENABLING: $userId');
 
-  await _service.restoreAccount(userId);
+  await _service.enableAccount(userId);
 
   await loadAccounts();
 }

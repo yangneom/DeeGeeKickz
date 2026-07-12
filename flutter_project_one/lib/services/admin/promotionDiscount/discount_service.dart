@@ -1,5 +1,6 @@
 import 'package:supabase_flutter/supabase_flutter.dart';
 import '../../../models/discount_model.dart';
+import '../../super/activity_log/activity_log_service.dart';
 
 // ==========================================
 // ACTIVE DISCOUNTS
@@ -38,6 +39,7 @@ class ActiveDiscounts {
 // ==========================================
 class DiscountService {
   final SupabaseClient _supabase = Supabase.instance.client;
+  final ActivityLogService _activityLog = ActivityLogService();
 
   static const String _table = 'discount';
 
@@ -324,15 +326,34 @@ Future<bool> hasOverlappingDiscount({
     required String status,
   }) async {
     try {
-      await _supabase.from(_table).insert({
-        'product_id': productId,
-        'variant_id': variantId,
-        'discount_type': discountType,
-        'discount_value': discountValue,
-        'start_date': _dateOnly(startDate),
-        'end_date': _dateOnly(endDate),
-        'status': status,
-      });
+      final inserted = await _supabase
+          .from(_table)
+          .insert({
+            'product_id': productId,
+            'variant_id': variantId,
+            'discount_type': discountType,
+            'discount_value': discountValue,
+            'start_date': _dateOnly(startDate),
+            'end_date': _dateOnly(endDate),
+            'status': status,
+          })
+          .select('discount_id')
+          .single();
+
+      await _activityLog.log(
+        action: 'Added new discount ($discountType $discountValue) '
+            'for product #$productId'
+            '${variantId != null ? ' (variant #$variantId)' : ''}',
+        affectedModule: AffectedModule.promotions,
+        targetId: inserted['discount_id']?.toString(),
+        metadata: {
+          'product_id': productId,
+          'variant_id': variantId,
+          'discount_type': discountType,
+          'discount_value': discountValue,
+          'status': status,
+        },
+      );
 
       return null;
     } catch (error) {
@@ -364,6 +385,17 @@ Future<bool> hasOverlappingDiscount({
         'status': status,
       }).eq('discount_id', discountId);
 
+      await _activityLog.log(
+        action: 'Updated discount #$discountId',
+        affectedModule: AffectedModule.promotions,
+        targetId: discountId.toString(),
+        metadata: {
+          'discount_type': discountType,
+          'discount_value': discountValue,
+          'status': status,
+        },
+      );
+
       return null;
     } catch (error) {
       print('updateDiscount error: $error');
@@ -377,6 +409,13 @@ Future<bool> hasOverlappingDiscount({
   Future<String?> deleteDiscount({required int discountId}) async {
     try {
       await _supabase.from(_table).delete().eq('discount_id', discountId);
+
+      await _activityLog.log(
+        action: 'Deleted discount #$discountId',
+        affectedModule: AffectedModule.promotions,
+        targetId: discountId.toString(),
+      );
+
       return null;
     } catch (error) {
       print('deleteDiscount error: $error');

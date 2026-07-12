@@ -1,9 +1,11 @@
 import 'package:supabase_flutter/supabase_flutter.dart';
 import '../../../models/product.dart';
 import 'product_mapper.dart';
+import '../../super/activity_log/activity_log_service.dart';
 
 class ArchiveService {
   final SupabaseClient _supabase = Supabase.instance.client;
+  final ActivityLogService _activityLog = ActivityLogService();
 
   Future<List<Product>> fetchArchivedProducts() async {
     try {
@@ -47,6 +49,14 @@ class ArchiveService {
 
   Future<String?> restoreProduct({required String productId}) async {
     try {
+      final product = await _supabase
+          .from('product')
+          .select('product_name')
+          .eq('product_id', int.parse(productId))
+          .single();
+
+      final productName = product['product_name'] as String? ?? 'Unknown';
+
       await _supabase
           .from('product')
           .update({
@@ -54,6 +64,13 @@ class ArchiveService {
             'archived_at': null,
           })
           .eq('product_id', int.parse(productId));
+
+      await _activityLog.log(
+        action: 'Restored product $productName',
+        affectedModule: AffectedModule.inventory,
+        targetId: productId,
+      );
+
       return null;
     } catch (error) {
       print('restoreProduct error: $error');

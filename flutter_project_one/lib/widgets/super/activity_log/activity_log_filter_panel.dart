@@ -212,17 +212,21 @@ class ActivityLogFilterPanel extends StatelessWidget {
               const SizedBox(height: 12),
 
               // ── AFFECTED MODULE ──
+              // Matches AffectedModule constants in ActivityLogService —
+              // keep this list in sync if new modules start logging.
               _buildSectionLabel('Affected Module'),
               const SizedBox(height: 8),
               Wrap(
                 spacing: 6,
                 runSpacing: 6,
                 children: [
+                  'Admin Management',
+                  'Customer Management',
                   'Inventory',
                   'Orders',
-                  'Sales',
                   'Promotions',
-                  'Admin Management',
+                  'Sales',
+                  'Feedback Moderation',
                 ].map((module) {
                   return _buildFilterChip(
                     module,

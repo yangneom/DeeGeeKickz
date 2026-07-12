@@ -1,21 +1,7 @@
 import 'package:flutter/material.dart';
+import 'package:supabase_flutter/supabase_flutter.dart';
 import '../../../models/admin_account.dart';
-
-// ================================================
-// ADMIN EDIT DIALOG
-//
-// Shows when super admin clicks "Edit & View"
-// on an admin account
-//
-// Contains:
-//   - First Name + Last Name fields
-//   - Contact Number (read only)
-//   - Email (read only)
-//   - Password and Security section
-// ================================================
-
-late TextEditingController _phoneController;
-late TextEditingController _emailController;
+import '../../common/dialog/confirm_dialog.dart';
 
 void showAdminEditDialog(
   BuildContext context,
@@ -25,17 +11,14 @@ void showAdminEditDialog(
   showDialog(
     context: context,
     builder: (BuildContext dialogContext) {
-      return AdminEditDialog(
-        account: account,
-        onSave: onSave,
-      );
+      return AdminEditDialog(account: account, onSave: onSave);
     },
   );
 }
 
 class AdminEditDialog extends StatefulWidget {
-    final AdminAccount account;
-    final Function(AdminAccount) onSave;
+  final AdminAccount account;
+  final Function(AdminAccount) onSave;
 
   const AdminEditDialog({
     super.key,
@@ -48,89 +31,149 @@ class AdminEditDialog extends StatefulWidget {
 }
 
 class _AdminEditDialogState extends State<AdminEditDialog> {
-
   late TextEditingController _firstNameController;
   late TextEditingController _lastNameController;
+  late TextEditingController _phoneController;
+  late TextEditingController _emailController;
   late TextEditingController _newPasswordController;
   late TextEditingController _confirmPasswordController;
 
   bool _showPasswordFields = false;
-  String? _passwordError;
+  bool _saving = false;
+  String? _formError;
+  String? _formSuccess;
 
- @override
-void initState() {
-  super.initState();
-  _firstNameController = TextEditingController(
-    text: widget.account.firstName,
-  );
-  _lastNameController = TextEditingController(
-    text: widget.account.lastName,
-  );
-  _phoneController = TextEditingController(
-    text: widget.account.phone,        // ← populated here, not inline
-  );
-  _emailController = TextEditingController(
-    text: widget.account.email,        // ← populated here, not inline
-  );
-  _newPasswordController = TextEditingController();
-  _confirmPasswordController = TextEditingController();
+  @override
+  void initState() {
+    super.initState();
+    _firstNameController = TextEditingController(text: widget.account.firstName);
+    _lastNameController = TextEditingController(text: widget.account.lastName);
+    _phoneController = TextEditingController(text: widget.account.phone);
+    _emailController = TextEditingController(text: widget.account.email);
+    _newPasswordController = TextEditingController();
+    _confirmPasswordController = TextEditingController();
 
-  _newPasswordController.addListener(() {
-  final hasText = _newPasswordController.text.isNotEmpty;
-  if (hasText != _showPasswordFields) {
-    setState(() {
-      _showPasswordFields = hasText;
-      if (!hasText) _passwordError = null;
+    _newPasswordController.addListener(() {
+      final hasText = _newPasswordController.text.isNotEmpty;
+      if (hasText != _showPasswordFields) {
+        setState(() {
+          _showPasswordFields = hasText;
+          if (!hasText) {
+            _formError = null;
+            _formSuccess = null;
+          }
+        });
+      }
     });
   }
-});
 
-}
+  @override
+  void dispose() {
+    _firstNameController.dispose();
+    _lastNameController.dispose();
+    _phoneController.dispose();
+    _emailController.dispose();
+    _newPasswordController.dispose();
+    _confirmPasswordController.dispose();
+    super.dispose();
+  }
 
-@override
-void dispose() {
-  _firstNameController.dispose();
-  _lastNameController.dispose();
-  _phoneController.dispose();          // ← dispose here
-  _emailController.dispose();          // ← dispose here
-  _newPasswordController.dispose();
-  _confirmPasswordController.dispose();
-  super.dispose();
-}
+  // ── Validate + confirm + save (name, and password if provided) ──
+  Future<void> _handleSaveAll() async {
+    setState(() {
+      _formError = null;
+      _formSuccess = null;
+    });
 
-  // ================================================
-  // HANDLE SAVE
-  // ================================================
-  void _handleSave() {
-    // validate password if shown
-    if (_showPasswordFields) {
-      if (_newPasswordController.text != _confirmPasswordController.text) {
-        setState(() {
-          _passwordError = 'Passwords do not match.';
-        });
+    final firstName = _firstNameController.text.trim();
+    final lastName = _lastNameController.text.trim();
+    final newPass = _newPasswordController.text.trim();
+    final confirmPass = _confirmPasswordController.text.trim();
+
+    if (firstName.isEmpty || lastName.isEmpty) {
+      setState(() => _formError = 'First and last name are required.');
+      return;
+    }
+
+    final wantsPasswordChange = newPass.isNotEmpty;
+
+    if (wantsPasswordChange) {
+      if (newPass.length < 8) {
+        setState(() => _formError = 'Password must be at least 8 characters.');
         return;
       }
-      if (_newPasswordController.text.length < 6) {
-        setState(() {
-          _passwordError = 'Password must be at least 6 characters.';
-        });
+      if (newPass != confirmPass) {
+        setState(() => _formError = 'Passwords do not match.');
         return;
       }
     }
 
-    widget.onSave(
-    widget.account.copyWith(
-      firstName: _firstNameController.text.trim(),
-      lastName: _lastNameController.text.trim(),
-    ),
-  );
+    // ── Confirmation step ──
+    final confirmed = await showConfirmDialog(
+      context: context,
+      title: 'Save Changes?',
+      message: wantsPasswordChange
+          ? 'This will update this account\'s details and reset their login password. Continue?'
+          : 'This will update this account\'s details. Continue?',
+      confirmLabel: 'Save Changes',
+    );
 
-    Navigator.pop(context);
+    if (confirmed != true) return;
+
+    setState(() => _saving = true);
+
+    try {
+      // 1. Always save name changes
+      widget.onSave(
+        widget.account.copyWith(
+          firstName: firstName,
+          lastName: lastName,
+        ),
+      );
+
+      // 2. Optionally update password
+      if (wantsPasswordChange) {
+        final response = await Supabase.instance.client.functions.invoke(
+          'update-user-password',
+          body: {
+            'user_id': widget.account.id,
+            'new_password': newPass,
+          },
+        );
+
+        print('========== UPDATE PASSWORD RESPONSE ==========');
+        print('Status: ${response.status}');
+        print('Data: ${response.data}');
+        print('================================================');
+
+        final data = response.data;
+        final success = data is Map && data['success'] == true;
+
+        if (!success) {
+          final errorMsg = (data is Map ? data['error'] : null) ??
+              'Password update failed (status ${response.status}).';
+          throw Exception(errorMsg);
+        }
+      }
+
+      if (!mounted) return;
+      setState(() => _formSuccess = 'Saved successfully.');
+
+      // Close after a brief moment so the user sees the success state
+      await Future.delayed(const Duration(milliseconds: 500));
+      if (mounted) Navigator.pop(context);
+    } catch (e) {
+      print('========== SAVE ERROR ==========');
+      print(e);
+      print('=================================');
+      if (mounted) {
+        setState(() => _formError = 'Failed to save: $e');
+      }
+    } finally {
+      if (mounted) setState(() => _saving = false);
+    }
   }
 
-  // ================================================
-  // BUILD TEXT FIELD
-  // ================================================
   Widget _buildTextField({
     required String label,
     required TextEditingController controller,
@@ -155,15 +198,11 @@ void dispose() {
           obscureText: obscureText,
           style: TextStyle(
             fontSize: 13,
-            color: readOnly
-                ? const Color(0xFF9CA3AF)
-                : const Color(0xFF111827),
+            color: readOnly ? const Color(0xFF9CA3AF) : const Color(0xFF111827),
           ),
           decoration: InputDecoration(
             filled: true,
-            fillColor: readOnly
-                ? const Color(0xFFF9FAFB)
-                : Colors.white,
+            fillColor: readOnly ? const Color(0xFFF9FAFB) : Colors.white,
             border: OutlineInputBorder(
               borderRadius: BorderRadius.circular(8),
               borderSide: const BorderSide(color: Color(0xFFE5E7EB)),
@@ -186,20 +225,12 @@ void dispose() {
     );
   }
 
-  // ================================================
-  // BUILD
-  // ================================================
   @override
   Widget build(BuildContext context) {
     return Dialog(
       backgroundColor: Colors.white,
-      shape: RoundedRectangleBorder(
-        borderRadius: BorderRadius.circular(12),
-      ),
-      insetPadding: const EdgeInsets.symmetric(
-        horizontal: 40,
-        vertical: 24,
-      ),
+      shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
+      insetPadding: const EdgeInsets.symmetric(horizontal: 40, vertical: 24),
       child: ConstrainedBox(
         constraints: BoxConstraints(
           maxWidth: 520,
@@ -209,14 +240,12 @@ void dispose() {
           mainAxisSize: MainAxisSize.min,
           children: [
 
-            // ── FIXED HEADER ──
+            // ── HEADER ──
             Container(
               padding: const EdgeInsets.fromLTRB(24, 20, 16, 16),
               decoration: const BoxDecoration(
                 color: Colors.white,
-                border: Border(
-                  bottom: BorderSide(color: Color(0xFFE5E7EB)),
-                ),
+                border: Border(bottom: BorderSide(color: Color(0xFFE5E7EB))),
                 borderRadius: BorderRadius.only(
                   topLeft: Radius.circular(12),
                   topRight: Radius.circular(12),
@@ -239,20 +268,13 @@ void dispose() {
                       SizedBox(height: 2),
                       Text(
                         'Update admin account details',
-                        style: TextStyle(
-                          fontSize: 12,
-                          color: Color(0xFF9CA3AF),
-                        ),
+                        style: TextStyle(fontSize: 12, color: Color(0xFF9CA3AF)),
                       ),
                     ],
                   ),
                   IconButton(
                     onPressed: () => Navigator.pop(context),
-                    icon: const Icon(
-                      Icons.close,
-                      size: 20,
-                      color: Color(0xFF6B7280),
-                    ),
+                    icon: const Icon(Icons.close, size: 20, color: Color(0xFF6B7280)),
                   ),
                 ],
               ),
@@ -266,7 +288,7 @@ void dispose() {
                   crossAxisAlignment: CrossAxisAlignment.start,
                   children: [
 
-                    // first name + last name
+                    // Name row
                     Row(
                       children: [
                         Expanded(
@@ -287,7 +309,6 @@ void dispose() {
 
                     const SizedBox(height: 16),
 
-                    // email — read only
                     _buildTextField(
                       label: 'Email',
                       controller: _emailController,
@@ -305,17 +326,20 @@ void dispose() {
                         color: Color(0xFF111827),
                       ),
                     ),
+                    const SizedBox(height: 4),
+                    const Text(
+                      'Leave blank to keep the current password.',
+                      style: TextStyle(fontSize: 11, color: Color(0xFF9CA3AF)),
+                    ),
 
                     const SizedBox(height: 12),
 
-                    // new password field
                     _buildTextField(
                       label: 'New Password',
                       controller: _newPasswordController,
                       obscureText: true,
                     ),
 
-                    // show confirm field when typing
                     if (_showPasswordFields) ...[
                       const SizedBox(height: 16),
                       _buildTextField(
@@ -325,55 +349,39 @@ void dispose() {
                       ),
                     ],
 
-                    if (_passwordError != null) ...[
-                      const SizedBox(height: 8),
+                    if (_formError != null) ...[
+                      const SizedBox(height: 12),
                       Text(
-                        _passwordError!,
+                        _formError!,
                         style: const TextStyle(
                           fontSize: 12,
                           color: Color(0xFFEF4444),
                         ),
                       ),
-                    ],  
+                    ],
 
-                    const SizedBox(height: 12),
-
-                    // update password button
-                    ElevatedButton(
-                       onPressed: _handleSave,
-                      style: ElevatedButton.styleFrom(
-                        backgroundColor: const Color(0xFF2563EB),
-                        foregroundColor: Colors.white,
-                        elevation: 0,
-                        padding: const EdgeInsets.symmetric(
-                          horizontal: 16,
-                          vertical: 10,
-                        ),
-                        shape: RoundedRectangleBorder(
-                          borderRadius: BorderRadius.circular(8),
+                    if (_formSuccess != null) ...[
+                      const SizedBox(height: 12),
+                      Text(
+                        _formSuccess!,
+                        style: const TextStyle(
+                          fontSize: 12,
+                          color: Color(0xFF16A34A),
                         ),
                       ),
-                      child: const Text(
-                        'Update Password',
-                        style: TextStyle(fontSize: 13),
-                      ),
-                    ),
+                    ],
 
                     const SizedBox(height: 24),
 
-                    // ── FOOTER BUTTONS ──
+                    // ── FOOTER BUTTONS (single save action) ──
                     Row(
                       mainAxisAlignment: MainAxisAlignment.end,
                       children: [
-
-                        // cancel
                         OutlinedButton(
-                          onPressed: () => Navigator.pop(context),
+                          onPressed: _saving ? null : () => Navigator.pop(context),
                           style: OutlinedButton.styleFrom(
                             foregroundColor: const Color(0xFF374151),
-                            side: const BorderSide(
-                              color: Color(0xFFD1D5DB),
-                            ),
+                            side: const BorderSide(color: Color(0xFFD1D5DB)),
                             padding: const EdgeInsets.symmetric(
                               horizontal: 20,
                               vertical: 11,
@@ -382,17 +390,11 @@ void dispose() {
                               borderRadius: BorderRadius.circular(8),
                             ),
                           ),
-                          child: const Text(
-                            'Cancel',
-                            style: TextStyle(fontSize: 13),
-                          ),
+                          child: const Text('Cancel', style: TextStyle(fontSize: 13)),
                         ),
-
                         const SizedBox(width: 10),
-
-                        // update
                         ElevatedButton(
-                          onPressed: _handleSave,
+                          onPressed: _saving ? null : _handleSaveAll,
                           style: ElevatedButton.styleFrom(
                             backgroundColor: const Color(0xFF2563EB),
                             foregroundColor: Colors.white,
@@ -405,10 +407,16 @@ void dispose() {
                               borderRadius: BorderRadius.circular(8),
                             ),
                           ),
-                          child: const Text(
-                            'Update',
-                            style: TextStyle(fontSize: 13),
-                          ),
+                          child: _saving
+                              ? const SizedBox(
+                                  width: 14,
+                                  height: 14,
+                                  child: CircularProgressIndicator(
+                                    color: Colors.white,
+                                    strokeWidth: 2,
+                                  ),
+                                )
+                              : const Text('Save Changes', style: TextStyle(fontSize: 13)),
                         ),
                       ],
                     ),

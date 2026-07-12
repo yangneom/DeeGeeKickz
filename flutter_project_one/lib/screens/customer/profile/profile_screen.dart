@@ -34,17 +34,48 @@ import '../orders/order_tracking_screen.dart';
 ///   2. Saved Addresses     — with add/edit bottom sheet
 ///   3. Order History       — 2-item preview + "View All" → OrderHistoryScreen
 ///   4. Logout button
-class ProfileScreen extends StatelessWidget {
+class ProfileScreen extends StatefulWidget {
   const ProfileScreen({super.key});
 
-  // ── Mock current user ───────────────────────────────────────────────────────
-  static final CustomerAccount _mockUser = fakeCustomerAccounts.first;
+  @override
+  State<ProfileScreen> createState() => _ProfileScreenState();
+}
 
-  // ── Mock addresses ──────────────────────────────────────────────────────────
+class _ProfileScreenState extends State<ProfileScreen> {
+  final SupabaseClient _supabase = Supabase.instance.client;
+
+  late Future<CustomerAccount?> _userFuture;
+
+  // ── Mock addresses — TODO: replace with real Supabase fetch ────────────────
   static final List<CustomerAddress> _mockAddresses = mockSavedAddresses;
 
   // ── Orders — empty until real Supabase load is wired up ────────────────────
   static const List<Order> _allOrders = [];
+
+  @override
+  void initState() {
+    super.initState();
+    _userFuture = _fetchCurrentUser();
+  }
+
+  // ── Fetch the logged-in customer's own row, joined with address ────────────
+  Future<CustomerAccount?> _fetchCurrentUser() async {
+    final authUser = _supabase.auth.currentUser;
+    if (authUser == null) return null;
+
+    try {
+      final response = await _supabase
+          .from('users')
+          .select('*, address(*)')
+          .eq('id', authUser.id)
+          .single();
+
+      return CustomerAccount.fromJson(response);
+    } catch (error) {
+      print('ProfileScreen _fetchCurrentUser error: $error');
+      return null;
+    }
+  }
 
   // Active order = first order that is NOT delivered or cancelled
   static Order? get _activeOrder {
@@ -73,19 +104,46 @@ class ProfileScreen extends StatelessWidget {
           children: [
             const AppTopBar(activeRoute: 'profile'),
             Expanded(
-              child: SingleChildScrollView(
-                child: Column(
-                  crossAxisAlignment: CrossAxisAlignment.stretch,
-                  children: [
-                    _PageContent(
-                      user: _mockUser,
-                      addresses: _mockAddresses,
-                      previewOrders: _previewOrders,
-                      activeOrder: _activeOrder,
+              child: FutureBuilder<CustomerAccount?>(
+                future: _userFuture,
+                builder: (context, snapshot) {
+                  if (snapshot.connectionState == ConnectionState.waiting) {
+                    return const Center(child: CircularProgressIndicator());
+                  }
+
+                  final user = snapshot.data;
+                  if (user == null) {
+                    return const Center(
+                      child: Padding(
+                        padding: EdgeInsets.all(32),
+                        child: Text(
+                          'Could not load your profile. Please try logging in again.',
+                          textAlign: TextAlign.center,
+                          style: TextStyle(
+                            fontFamily: 'Inter',
+                            fontSize: 14,
+                            color: Color(0xFF656464),
+                          ),
+                        ),
+                      ),
+                    );
+                  }
+
+                  return SingleChildScrollView(
+                    child: Column(
+                      crossAxisAlignment: CrossAxisAlignment.stretch,
+                      children: [
+                        _PageContent(
+                          user: user,
+                          addresses: _mockAddresses,
+                          previewOrders: _previewOrders,
+                          activeOrder: _activeOrder,
+                        ),
+                        const AppFooter(),
+                      ],
                     ),
-                    const AppFooter(),
-                  ],
-                ),
+                  );
+                },
               ),
             ),
           ],

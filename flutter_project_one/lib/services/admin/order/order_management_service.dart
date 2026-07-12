@@ -1,5 +1,6 @@
 import 'package:supabase_flutter/supabase_flutter.dart';
 import '../../../models/order.dart';
+import '../../super/activity_log/activity_log_service.dart';
 
 // ================================================
 // ORDER MANAGEMENT SERVICE (Admin)
@@ -19,6 +20,7 @@ import '../../../models/order.dart';
 
 class OrderManagementService {
   final SupabaseClient _supabase = Supabase.instance.client;
+  final ActivityLogService _activityLog = ActivityLogService();
 
   // ================================================
   // LOAD ORDERS
@@ -153,6 +155,29 @@ class OrderManagementService {
       'status':     status,
       'admin_note': adminNote,
     });
+
+    // ── Activity log ──
+    // 'Cancelled' and 'Completed' (which implies refund/payment resolution)
+    // get a slightly more specific action label since those are the
+    // financially/dispute-relevant transitions.
+    String action;
+    if (status == 'Cancelled') {
+      action = 'Cancelled order #$orderId'
+          '${adminNote != null && adminNote.trim().isNotEmpty ? ' (reason: $adminNote)' : ''}';
+    } else {
+      action = 'Updated order #$orderId status to $status';
+    }
+
+    await _activityLog.log(
+      action: action,
+      affectedModule: AffectedModule.orders,
+      targetId: orderId.toString(),
+      metadata: {
+        'status': status,
+        if (adminNote != null) 'admin_note': adminNote,
+        if (trackingUrl != null) 'tracking_url': trackingUrl,
+      },
+    );
   }
 
   // ================================================
@@ -168,5 +193,11 @@ class OrderManagementService {
         .from('orders')
         .update({'tracking_url': trackingUrl.trim()})
         .eq('order_id', orderId);
+
+    await _activityLog.log(
+      action: 'Updated tracking link for order #$orderId',
+      affectedModule: AffectedModule.orders,
+      targetId: orderId.toString(),
+    );
   }
 }

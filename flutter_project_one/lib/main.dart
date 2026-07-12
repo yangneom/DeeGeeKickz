@@ -8,6 +8,8 @@ import 'package:app_links/app_links.dart';
 
 import 'screens/customer/homescreen/home_screen.dart';
 import 'screens/customer/orders/order_history_screen.dart';
+import 'screens/auth/set_password_screen.dart';
+import 'screens/auth/login_screen.dart';
 
 // ================================================
 // MAIN FUNCTION
@@ -17,24 +19,53 @@ void main() async {
 
   await dotenv.load(fileName: '.env');
 
-  print('URL = ${dotenv.env['SUPABASE_URL']}');
-  print('KEY = ${dotenv.env['SUPABASE_ANON_KEY']}');
+  await Supabase.initialize(
+    url: dotenv.env['SUPABASE_URL']!,
+    anonKey: dotenv.env['SUPABASE_ANON_KEY']!,
+    // ↓ THIS is the key fix for Flutter Web invite links.
+    // Tells Supabase to read the access_token from the URL
+    // hash (#access_token=...&type=invite) automatically
+    // during initialization, before runApp() is called.
+    authOptions: const FlutterAuthClientOptions(
+      authFlowType: AuthFlowType.implicit,
+    ),
+  );
 
-  try {
-    await Supabase.initialize(
-      url: dotenv.env['SUPABASE_URL']!,
-      anonKey: dotenv.env['SUPABASE_ANON_KEY']!,
-    );
-    print('Supabase initialized successfully');
-    final user = Supabase.instance.client.auth.currentUser;
-    print('CURRENT USER: ${user?.email}');
-  } catch (error) {
-    print('Supabase initialization failed: $error');
+  print('Supabase initialized');
+
+  Widget startScreen = const HomeScreen();
+
+  final user = Supabase.instance.client.auth.currentUser;
+  print('POST-INIT USER: ${user?.email}');
+
+  if (user != null) {
+    try {
+      final profile = await Supabase.instance.client
+          .from('users')
+          .select('password_set, role')
+          .eq('id', user.id)
+          .maybeSingle();
+
+      print('POST-INIT PROFILE: $profile');
+
+      final passwordSet = profile?['password_set'] as bool? ?? true;
+      final role = profile?['role'] as String? ?? 'Customer';
+
+      print('password_set=$passwordSet | role=$role');
+
+      if (!passwordSet &&
+          (role == 'Admin' || role == 'Cashier' || role == 'Super Admin')) {
+        print('→ Routing to SetPasswordScreen');
+        startScreen = const SetPasswordScreen();
+      }
+    } catch (e) {
+      print('Profile check error: $e');
+    }
   }
 
   runApp(
-    const ProviderScope(
-      child: MyApp(),
+    ProviderScope(
+      child: MyApp(startScreen: startScreen),
     ),
   );
 }
@@ -43,7 +74,8 @@ void main() async {
 // MY APP
 // ================================================
 class MyApp extends StatefulWidget {
-  const MyApp({super.key});
+  final Widget startScreen;
+  const MyApp({super.key, required this.startScreen});
 
   @override
   State<MyApp> createState() => _MyAppState();
@@ -56,10 +88,10 @@ class _MyAppState extends State<MyApp> {
   @override
   void initState() {
     super.initState();
-    // Only set up deep links on mobile — not needed on web
     if (!kIsWeb) {
       _initDeepLinks();
     }
+    _listenForAuthEvents();
   }
 
   void _initDeepLinks() {
@@ -68,19 +100,71 @@ class _MyAppState extends State<MyApp> {
       if (uri.scheme == 'dgeekickz') {
         if (uri.host == 'payment-success') {
           final orderId = uri.queryParameters['order'];
-          print('GCash payment success for order: $orderId');
-          // Navigate to order history
+          print('Payment success for order: $orderId');
           _navigatorKey.currentState?.pushAndRemoveUntil(
-            MaterialPageRoute(
-              builder: (_) => const OrderHistoryScreen(),
-            ),
+            MaterialPageRoute(builder: (_) => const OrderHistoryScreen()),
             (route) => route.isFirst,
           );
         } else if (uri.host == 'payment-cancel') {
-          final orderId = uri.queryParameters['order'];
-          print('GCash payment cancelled for order: $orderId');
-          // Just go back to home
+          print('Payment cancelled');
           _navigatorKey.currentState?.popUntil((route) => route.isFirst);
+        }
+      }
+    });
+  }
+
+  void _listenForAuthEvents() {
+    Supabase.instance.client.auth.onAuthStateChange.listen((data) async {
+      final event = data.event;
+      final session = data.session;
+
+      print('AUTH EVENT: $event');
+
+      if (session == null) {
+        print('NO SESSION');
+        return;
+      }
+
+      final user = session.user;
+      print('USER: ${user.email}');
+
+      if (event == AuthChangeEvent.passwordRecovery) {
+        WidgetsBinding.instance.addPostFrameCallback((_) {
+          _navigatorKey.currentState?.pushAndRemoveUntil(
+            MaterialPageRoute(builder: (_) => const SetPasswordScreen()),
+            (route) => false,
+          );
+        });
+        return;
+      }
+
+      if (event == AuthChangeEvent.signedIn) {
+        try {
+          final profile = await Supabase.instance.client
+              .from('users')
+              .select('password_set, role')
+              .eq('id', user.id)
+              .maybeSingle();
+
+          print('PROFILE: $profile');
+
+          final passwordSet = profile?['password_set'] as bool? ?? true;
+          final role = profile?['role'] as String? ?? 'Customer';
+
+          print('password_set=$passwordSet | role=$role');
+
+          if (!passwordSet &&
+              (role == 'Admin' || role == 'Cashier' || role == 'Super Admin')) {
+            print('→ Navigating to SetPasswordScreen');
+            WidgetsBinding.instance.addPostFrameCallback((_) {
+              _navigatorKey.currentState?.pushAndRemoveUntil(
+                MaterialPageRoute(builder: (_) => const SetPasswordScreen()),
+                (route) => false,
+              );
+            });
+          }
+        } catch (e) {
+          print('Auth event profile check error: $e');
         }
       }
     });
@@ -94,16 +178,18 @@ class _MyAppState extends State<MyApp> {
       splitScreenMode: true,
       builder: (context, child) {
         return MaterialApp(
-          navigatorKey: _navigatorKey, // ← needed for deep link navigation
+          navigatorKey: _navigatorKey,
           title: 'DeeGee Kickz',
           debugShowCheckedModeBanner: false,
           theme: ThemeData(
-            colorScheme: ColorScheme.fromSeed(
-              seedColor: Colors.black,
-            ),
+            colorScheme: ColorScheme.fromSeed(seedColor: Colors.black),
             useMaterial3: true,
           ),
-          home: const HomeScreen(),
+          routes: {
+            '/login': (context) => const LoginScreen(),
+            '/set-password': (context) => const SetPasswordScreen(),
+          },
+          home: widget.startScreen,
         );
       },
     );

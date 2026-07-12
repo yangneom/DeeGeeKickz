@@ -5,7 +5,7 @@ import '../../../widgets/common/buttons/search_bar.dart';
 import '../../../widgets/common/buttons/filter_button.dart';
 import '../../../widgets/common/buttons/filter_panel.dart';
 import '../../../widgets/super/admin_management/admin_edit_dialog.dart';
-import '../../../widgets/super/admin_management/admin_archived_dialog.dart';
+import '../../../widgets/super/admin_management/admin_disabled_dialog.dart';
 import '../../../widgets/super/admin_management/admin_add_dialog.dart';
 import '../../../providers/admin_provider/admin_account_provider.dart';
 import '../../../models/admin_account.dart';
@@ -116,21 +116,21 @@ class _AdminManagementScreenState
   }
 
   // ================================================
-  // HANDLE ARCHIVE
+  // HANDLE DISABLE
   // ================================================
-  Future<void> _handleArchive(
+  Future<void> _handleDisable(
         AdminAccount account,
       ) async {
 
         print('====================');
-        print('ARCHIVE BUTTON CLICKED');
+        print('DISABLE BUTTON CLICKED');
         print('EMAIL = ${account.email}');
         print('USER ID = ${account.id}');
         print('====================');
 
         await ref
             .read(adminAccountsProvider.notifier)
-            .archiveAccount(account.id);
+            .disableAccount(account.id);
 
         if (mounted) {
           await ref
@@ -140,14 +140,14 @@ class _AdminManagementScreenState
       }
 
   // ================================================
-  // HANDLE RESTORE
+  // HANDLE ENABLE
   // ================================================
-  Future<void> _handleRestore(
+  Future<void> _handleEnable(
     AdminAccount account,
   ) async {
     await ref
         .read(adminAccountsProvider.notifier)
-        .restoreAccount(account.id);
+        .enableAccount(account.id);
 
     if (mounted) {
       ref.read(adminAccountsProvider.notifier)
@@ -169,7 +169,7 @@ class _AdminManagementScreenState
           'NAME=${account.firstName} ${account.lastName} | '
           'EMAIL=${account.email} | '
           'ROLE=${account.role} | '
-          'ARCHIVED=${account.isArchived}',
+          'DISABLED=${account.isDisabled}',
         );
       }
 
@@ -220,7 +220,7 @@ class _AdminManagementScreenState
 
         // column 4 — status badge
         _buildStatusBadge(
-          account.isArchived ? 'Inactive' : 'Active',
+          account.isDisabled ? 'Inactive' : 'Active',
         ),
 
         // column 5 — last login (placeholder until field exists)
@@ -272,13 +272,13 @@ class _AdminManagementScreenState
 
             const SizedBox(width: 8),
 
-            // archive button
+            // disable button
             Align(
               alignment: Alignment.centerLeft,
               child: ElevatedButton(
                 onPressed: () async {
                   print('RED BUTTON PRESSED');
-                  await _handleArchive(account);
+                  await _handleDisable(account);
                 },
                 style: ElevatedButton.styleFrom(
                   backgroundColor: const Color(0xFFEF4444),
@@ -293,7 +293,7 @@ class _AdminManagementScreenState
                   ),
                 ),
                 child: const Text(
-                  'Archive',
+                  'Disable',
                   style: TextStyle(fontSize: 12),
                 ),
               ),
@@ -323,7 +323,7 @@ class _AdminManagementScreenState
       print(
         '${account.email} | '
         '${account.role} | '
-        'archived=${account.isArchived}',
+        'disabled=${account.isDisabled}',
       );
     }
 
@@ -373,7 +373,7 @@ class _AdminManagementScreenState
 
               const SizedBox(height: 24),
 
-              // ── SEARCH + FILTER + ADD + ARCHIVED ──
+              // ── SEARCH + FILTER + ADD + DISABLED ──
               Row(
                 crossAxisAlignment: CrossAxisAlignment.center,
                 children: [
@@ -448,7 +448,6 @@ class _AdminManagementScreenState
                           firstName: firstName,
                           lastName: lastName,
                           email: email,
-                          password: 'TempPassword123!',
                           role: role,
                         );
                       },
@@ -477,7 +476,7 @@ class _AdminManagementScreenState
 
                   const SizedBox(width: 8),
 
-                  // archived button
+                  // disabled accounts button
                   ElevatedButton(
                     onPressed: () async {
                       await ref
@@ -487,17 +486,17 @@ class _AdminManagementScreenState
                       if (!mounted) return;
 
                       // Read AFTER the await, so state is fresh
-                      final archivedAccounts = ref
+                      final disabledAccounts = ref
                           .read(adminAccountsProvider)
-                          .where((a) => a.isArchived)
+                          .where((a) => a.isDisabled)
                           .toList();
 
                       showDialog(
                         context: context,
                         builder: (BuildContext dialogContext) {
-                          return AdminArchivedDialog(
-                            archivedAccounts: archivedAccounts,
-                            onRestore: _handleRestore,
+                          return AdminDisabledDialog(
+                            disabledAccounts: disabledAccounts,
+                            onEnable: _handleEnable,
                           );
                         },
                       );
@@ -515,7 +514,7 @@ class _AdminManagementScreenState
                       ),
                     ),
                     child: const Text(
-                      'Archived',
+                      'Disabled Account',
                       style: TextStyle(
                         fontSize: 13,
                         fontWeight: FontWeight.w500,
@@ -542,7 +541,7 @@ class _AdminManagementScreenState
                     rows: _buildRows(
                       accounts
                           .where((a) =>
-                              !a.isArchived &&
+                              !a.isDisabled &&
                               (a.role == 'Admin' ||
                               a.role == 'Cashier' ||
                               a.role == 'Super Admin'))

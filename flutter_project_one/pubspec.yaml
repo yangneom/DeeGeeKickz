@@ -19,7 +19,6 @@ dependencies:
   crop_your_image: ^2.0.0
 
 
-  
   # ── File Picker ───────────────────────────────
   file_picker: ^8.1.2
   

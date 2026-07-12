@@ -7,9 +7,11 @@
 
 import 'package:supabase_flutter/supabase_flutter.dart';
 import '../../../models/feedback_model.dart';
+import '../../super/activity_log/activity_log_service.dart';
 
 class FeedbackService {
   final SupabaseClient _supabase = Supabase.instance.client;
+  final ActivityLogService _activityLog = ActivityLogService();
 
   // ── SELECT helper ─────────────────────────────────────────────
   static const String _selectWithJoins = '''
@@ -81,6 +83,34 @@ class FeedbackService {
   }
 
   // ================================================
+  // Fetch a lightweight label (product name + reviewer)
+  // for the log entry, so Super Admin sees "review of
+  // Nike Air Force One by Angel Tuazon" rather than a
+  // bare feedback ID.
+  // ================================================
+  Future<String> _labelForFeedback(int feedbackId) async {
+    try {
+      final row = await _supabase
+          .from('feedback')
+          .select('product(product_name), users(first_name, last_name)')
+          .eq('feedback_id', feedbackId)
+          .single();
+
+      final productName =
+          row['product']?['product_name']?.toString() ?? 'a product';
+      final firstName = row['users']?['first_name']?.toString() ?? '';
+      final lastName = row['users']?['last_name']?.toString() ?? '';
+      final reviewer = '$firstName $lastName'.trim();
+
+      return reviewer.isNotEmpty
+          ? 'review of $productName by $reviewer'
+          : 'review of $productName';
+    } catch (_) {
+      return 'review #$feedbackId';
+    }
+  }
+
+  // ================================================
   // UPDATE STATUS
   // Admin changes Visible / Flagged / Hidden.
   // Also writes an audit row to feedback_moderation.
@@ -101,13 +131,26 @@ class FeedbackService {
           .update({'status': newStatus})
           .eq('feedback_id', feedbackId);
 
-      // 2. Write audit log
+      // 2. Write audit log (feedback_moderation table)
       await _supabase.from('feedback_moderation').insert({
         'review_id':  feedbackId,
         'admin_id':   adminId,
         'old_status': oldStatus,
         'new_status': newStatus,
       });
+
+      // 3. Write to the global Activity Log too, so Super Admin
+      // sees this alongside every other module.
+      final label = await _labelForFeedback(feedbackId);
+      await _activityLog.log(
+        action: 'Changed status of $label from $oldStatus to $newStatus',
+        affectedModule: AffectedModule.feedback,
+        targetId: feedbackId.toString(),
+        metadata: {
+          'old_status': oldStatus,
+          'new_status': newStatus,
+        },
+      );
 
       return null;
     } catch (error) {
@@ -133,27 +176,61 @@ class FeedbackService {
     try {
       final String? adminId = _supabase.auth.currentUser?.id;
       final String resolvedStatus = newStatus ?? currentStatus;
+      final String trimmedReply = adminReply.trim();
 
       // 1. Update feedback row
       await _supabase
           .from('feedback')
           .update({
-            'admin_reply': adminReply.trim().isEmpty ? null : adminReply.trim(),
+            'admin_reply': trimmedReply.isEmpty ? null : trimmedReply,
             'status':      resolvedStatus,
           })
           .eq('feedback_id', feedbackId);
 
-      // 2. Write audit log
+      // 2. Write audit log (feedback_moderation table)
       await _supabase.from('feedback_moderation').insert({
         'review_id':   feedbackId,
         'admin_id':    adminId,
         'old_status':  currentStatus,
         'new_status':  resolvedStatus,
-        'admin_reply': adminReply.trim().isEmpty ? null : adminReply.trim(),
-        'replied_at':  adminReply.trim().isNotEmpty
+        'admin_reply': trimmedReply.isEmpty ? null : trimmedReply,
+        'replied_at':  trimmedReply.isNotEmpty
                          ? DateTime.now().toIso8601String()
                          : null,
       });
+
+      // 3. Write to the global Activity Log — include the actual
+      // reply text in the action string (truncated) and the full
+      // text in metadata, so Super Admin can see exactly what was
+      // said without opening a separate table.
+      if (trimmedReply.isNotEmpty) {
+        final label = await _labelForFeedback(feedbackId);
+        final preview = trimmedReply.length > 80
+            ? '${trimmedReply.substring(0, 80)}...'
+            : trimmedReply;
+
+        await _activityLog.log(
+          action: 'Replied to $label: "$preview"',
+          affectedModule: AffectedModule.feedback,
+          targetId: feedbackId.toString(),
+          metadata: {
+            'admin_reply': trimmedReply,
+            'status': resolvedStatus,
+          },
+        );
+      } else if (resolvedStatus != currentStatus) {
+        // status changed but reply was cleared/empty — still log the status change
+        final label = await _labelForFeedback(feedbackId);
+        await _activityLog.log(
+          action: 'Changed status of $label from $currentStatus to $resolvedStatus',
+          affectedModule: AffectedModule.feedback,
+          targetId: feedbackId.toString(),
+          metadata: {
+            'old_status': currentStatus,
+            'new_status': resolvedStatus,
+          },
+        );
+      }
 
       return null;
     } catch (error) {

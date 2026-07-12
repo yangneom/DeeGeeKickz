@@ -1,23 +1,23 @@
 import 'package:flutter/material.dart';
 import '../../../models/customer_account.dart';
-import '../../common/dialog/confirm_dialog.dart';
+import 'customer_disable_dialog.dart';
 
 // ================================================
-// CUSTOMER EDIT DIALOG
+// CUSTOMER VIEW DIALOG
 //
 // Shows when super admin clicks Edit & View
-// on a customer account row
+// on a customer account row.
 //
-// Super admin can:
-//   - Edit first name and last name
-//   - View contact info (read-only)
-//   - Update password
+// Customers manage their own name/contact/address/
+// password on their own profile — admin has NO edit
+// access to that data. This dialog is VIEW ONLY,
+// plus the ability to Disable the account.
 // ================================================
 
 void showCustomerEditDialog({
   required BuildContext context,
   required CustomerAccount account,
-  required Function(CustomerAccount updatedAccount) onSave,
+  required Function(String reason) onDisable,
 }) {
   showDialog(
     context: context,
@@ -25,154 +25,21 @@ void showCustomerEditDialog({
     builder: (BuildContext dialogContext) {
       return CustomerEditDialog(
         account: account,
-        onSave: onSave,
+        onDisable: onDisable,
       );
     },
   );
 }
 
-class CustomerEditDialog extends StatefulWidget {
+class CustomerEditDialog extends StatelessWidget {
   final CustomerAccount account;
-  final Function(CustomerAccount updatedAccount) onSave;
+  final Function(String reason) onDisable;
 
   const CustomerEditDialog({
     super.key,
     required this.account,
-    required this.onSave,
+    required this.onDisable,
   });
-
-  @override
-  State<CustomerEditDialog> createState() => _CustomerEditDialogState();
-}
-
-class _CustomerEditDialogState extends State<CustomerEditDialog> {
-
-  // controllers for editable fields
-  final TextEditingController _firstNameController = TextEditingController();
-  final TextEditingController _lastNameController = TextEditingController();
-  final TextEditingController _passwordController = TextEditingController();
-
-  // ================================================
-  // INIT STATE
-  // ================================================
-  @override
-  void initState() {
-    super.initState();
-    _firstNameController.text = widget.account.firstName;
-    _lastNameController.text = widget.account.lastName;
-    _passwordController.text = '********';
-  }
-
-  // ================================================
-  // DISPOSE
-  // ================================================
-  @override
-  void dispose() {
-    _firstNameController.dispose();
-    _lastNameController.dispose();
-    _passwordController.dispose();
-    super.dispose();
-  }
-
-  // ================================================
-  // HANDLE SAVE
-  // uses ConfirmDialog before saving
-  // ================================================
-  Future<void> _handleSave() async {
-    final bool? confirmed = await showConfirmDialog(
-      context: context,
-      title: 'Update this account?',
-      message: 'Changes to the account details will be saved immediately.',
-      confirmLabel: 'Update',
-      confirmColor: const Color(0xFF2563EB),
-    );
-
-    if (confirmed != true) return;
-
-    // build updated account
-    final CustomerAccount updated = CustomerAccount(
-      id: widget.account.id,
-      firstName: _firstNameController.text.trim(),
-      lastName: _lastNameController.text.trim(),
-      email: widget.account.email,
-      phone: widget.account.phone,
-      address: widget.account.address,
-      landmark: widget.account.landmark,
-      status: widget.account.status,
-      lastLogin: widget.account.lastLogin,
-      registeredOn: widget.account.registeredOn,
-      isArchived: widget.account.isArchived,
-      isDisabled: widget.account.isDisabled,
-      archivedDate: widget.account.archivedDate,
-      disabledDate: widget.account.disabledDate,
-      disableReason: widget.account.disableReason,
-    );
-
-    widget.onSave(updated);
-
-    if (mounted) {
-      Navigator.pop(context);
-    }
-  }
-
-  // ================================================
-  // BUILD INPUT FIELD
-  // reusable styled text field
-  // ================================================
-  Widget _buildInputField({
-    required String label,
-    required TextEditingController controller,
-    bool readOnly = false,
-    bool obscureText = false,
-  }) {
-    return Column(
-      crossAxisAlignment: CrossAxisAlignment.start,
-      children: [
-        Text(
-          label,
-          style: const TextStyle(
-            fontSize: 12,
-            fontWeight: FontWeight.w500,
-            color: Color(0xFF374151),
-          ),
-        ),
-        const SizedBox(height: 6),
-        TextField(
-          controller: controller,
-          readOnly: readOnly,
-          obscureText: obscureText,
-          style: TextStyle(
-            fontSize: 13,
-            color: readOnly
-                ? const Color(0xFF6B7280)
-                : const Color(0xFF111827),
-          ),
-          decoration: InputDecoration(
-            filled: true,
-            fillColor: readOnly
-                ? const Color(0xFFF3F4F6)
-                : Colors.white,
-            border: OutlineInputBorder(
-              borderRadius: BorderRadius.circular(8),
-              borderSide: const BorderSide(color: Color(0xFFD1D5DB)),
-            ),
-            enabledBorder: OutlineInputBorder(
-              borderRadius: BorderRadius.circular(8),
-              borderSide: const BorderSide(color: Color(0xFFD1D5DB)),
-            ),
-            focusedBorder: OutlineInputBorder(
-              borderRadius: BorderRadius.circular(8),
-              borderSide: const BorderSide(color: Color(0xFF2563EB)),
-            ),
-            contentPadding: const EdgeInsets.symmetric(
-              horizontal: 12,
-              vertical: 10,
-            ),
-          ),
-        ),
-      ],
-    );
-  }
 
   // ================================================
   // BUILD READ ONLY INFO ROW
@@ -191,7 +58,7 @@ class _CustomerEditDialogState extends State<CustomerEditDialog> {
         ),
         const SizedBox(height: 2),
         Text(
-          value,
+          value.isEmpty ? '-' : value,
           style: const TextStyle(
             fontSize: 13,
             color: Color(0xFF111827),
@@ -203,8 +70,6 @@ class _CustomerEditDialogState extends State<CustomerEditDialog> {
 
   // ================================================
   // BUILD
-  // fixed header + scrollable content + fixed footer
-  // same pattern as feedback_details_dialog.dart
   // ================================================
   @override
   Widget build(BuildContext context) {
@@ -241,7 +106,7 @@ class _CustomerEditDialogState extends State<CustomerEditDialog> {
                     crossAxisAlignment: CrossAxisAlignment.start,
                     children: [
                       Text(
-                        'Edit & View',
+                        'View Account',
                         style: TextStyle(
                           fontSize: 18,
                           fontWeight: FontWeight.bold,
@@ -250,7 +115,7 @@ class _CustomerEditDialogState extends State<CustomerEditDialog> {
                       ),
                       SizedBox(height: 2),
                       Text(
-                        'Update user account details',
+                        'Customer account details (view only)',
                         style: TextStyle(
                           fontSize: 12,
                           color: Color(0xFF9CA3AF),
@@ -278,79 +143,42 @@ class _CustomerEditDialogState extends State<CustomerEditDialog> {
                   crossAxisAlignment: CrossAxisAlignment.start,
                   children: [
 
-                    // first name + last name side by side
+                    // name row
                     Row(
                       children: [
                         Expanded(
-                          child: _buildInputField(
-                            label: 'First Name',
-                            controller: _firstNameController,
-                          ),
+                          child: _buildInfoRow('First Name', account.firstName),
                         ),
                         const SizedBox(width: 16),
                         Expanded(
-                          child: _buildInputField(
-                            label: 'Last Name',
-                            controller: _lastNameController,
-                          ),
+                          child: _buildInfoRow('Last Name', account.lastName),
                         ),
                       ],
                     ),
 
                     const SizedBox(height: 16),
 
-                    // read only info rows
-                    _buildInfoRow('Contact Number', widget.account.phone),
+                    _buildInfoRow('Contact Number', account.phone),
                     const SizedBox(height: 12),
-                    _buildInfoRow('Email', widget.account.email),
+                    _buildInfoRow('Email', account.email),
                     const SizedBox(height: 12),
-                    _buildInfoRow('Address', widget.account.address),
+                    _buildInfoRow('Address', account.address),
                     const SizedBox(height: 12),
-                    _buildInfoRow('Landmark', widget.account.landmark),
+                    _buildInfoRow('Landmark', account.landmark),
+                    const SizedBox(height: 12),
+                    _buildInfoRow('Status', account.status),
+                    const SizedBox(height: 12),
+                    _buildInfoRow('Last Login', account.lastLogin),
+                    const SizedBox(height: 12),
+                    _buildInfoRow('Registered On', account.registeredOn),
 
-                    const SizedBox(height: 24),
-
-                    // ── PASSWORD SECTION ──
-                    const Text(
-                      'Password and Security',
-                      style: TextStyle(
-                        fontSize: 14,
-                        fontWeight: FontWeight.w600,
-                        color: Color(0xFF111827),
+                    if (account.isDisabled) ...[
+                      const SizedBox(height: 12),
+                      _buildInfoRow(
+                        'Disable Reason',
+                        account.disableReason ?? '-',
                       ),
-                    ),
-
-                    const SizedBox(height: 12),
-
-                    _buildInputField(
-                      label: 'Password',
-                      controller: _passwordController,
-                      obscureText: true,
-                    ),
-
-                    const SizedBox(height: 12),
-
-                    ElevatedButton(
-                      onPressed: () {
-                        // TODO: trigger password reset
-                      },
-                      style: ElevatedButton.styleFrom(
-                        backgroundColor: const Color(0xFF2563EB),
-                        foregroundColor: Colors.white,
-                        elevation: 0,
-                        padding: const EdgeInsets.symmetric(
-                          horizontal: 16,
-                          vertical: 10,
-                        ),
-                        shape: RoundedRectangleBorder(
-                          borderRadius: BorderRadius.circular(8),
-                        ),
-                      ),
-                      child: const Text(
-                        'Update Password',
-                        style: TextStyle(fontSize: 13),
-                      ),
-                    ),
+                    ],
 
                     const SizedBox(height: 24),
 
@@ -372,30 +200,39 @@ class _CustomerEditDialogState extends State<CustomerEditDialog> {
                             ),
                           ),
                           child: const Text(
-                            'Cancel',
+                            'Close',
                             style: TextStyle(fontSize: 13),
                           ),
                         ),
-                        const SizedBox(width: 10),
-                        ElevatedButton(
-                          onPressed: _handleSave,
-                          style: ElevatedButton.styleFrom(
-                            backgroundColor: const Color(0xFF2563EB),
-                            foregroundColor: Colors.white,
-                            elevation: 0,
-                            padding: const EdgeInsets.symmetric(
-                              horizontal: 20,
-                              vertical: 11,
+                        if (!account.isDisabled) ...[
+                          const SizedBox(width: 10),
+                          ElevatedButton(
+                            onPressed: () {
+                              Navigator.pop(context); // close view dialog first
+                              showCustomerDisableDialog(
+                                context: context,
+                                account: account,
+                                onDisable: onDisable,
+                              );
+                            },
+                            style: ElevatedButton.styleFrom(
+                              backgroundColor: const Color(0xFFEF4444),
+                              foregroundColor: Colors.white,
+                              elevation: 0,
+                              padding: const EdgeInsets.symmetric(
+                                horizontal: 20,
+                                vertical: 11,
+                              ),
+                              shape: RoundedRectangleBorder(
+                                borderRadius: BorderRadius.circular(8),
+                              ),
                             ),
-                            shape: RoundedRectangleBorder(
-                              borderRadius: BorderRadius.circular(8),
+                            child: const Text(
+                              'Disable Account',
+                              style: TextStyle(fontSize: 13),
                             ),
                           ),
-                          child: const Text(
-                            'Update',
-                            style: TextStyle(fontSize: 13),
-                          ),
-                        ),
+                        ],
                       ],
                     ),
                   ],

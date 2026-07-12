@@ -3,8 +3,8 @@ import 'package:supabase_flutter/supabase_flutter.dart';
 // ================================================
 // SMS SERVICE
 //
-// Sends SMS via the send-sms Supabase Edge Function
-// which calls the Semaphore PH gateway.
+// Sends SMS via the send-order-sms Supabase Edge Function
+// which calls the IPROG SMS gateway (sms_messages endpoint).
 //
 // Usage:
 //   await SmsService().sendOrderRejected(
@@ -50,18 +50,64 @@ class SmsService {
   }
 
   // ================================================
+  // NORMALIZE PHILIPPINE PHONE NUMBER
+  //
+  // iProg expects the format: 639XXXXXXXXX
+  // (country code, no '+', no leading '0')
+  //
+  // Handles common formats customers might enter:
+  //   09XXXXXXXXX      -> 639XXXXXXXXX
+  //   +639XXXXXXXXX    -> 639XXXXXXXXX
+  //   639XXXXXXXXX     -> 639XXXXXXXXX (unchanged)
+  //   9XXXXXXXXX       -> 639XXXXXXXXX (10 digits, no prefix at all)
+  //
+  // Strips spaces, dashes, and parentheses first so formats like
+  // "0917-123-4567" or "(0917) 123 4567" are handled too.
+  // ================================================
+  String _normalizePhone(String raw) {
+    String digits = raw.replaceAll(RegExp(r'[^\d+]'), '');
+
+    // Strip a leading '+' — we only want digits from here on
+    if (digits.startsWith('+')) {
+      digits = digits.substring(1);
+    }
+
+    if (digits.startsWith('0')) {
+      // 09XXXXXXXXX -> drop leading 0, prefix with 63
+      return '63${digits.substring(1)}';
+    }
+
+    if (digits.startsWith('63')) {
+      // Already in the right form
+      return digits;
+    }
+
+    if (digits.length == 10 && digits.startsWith('9')) {
+      // Bare 9XXXXXXXXX, no country code or leading 0 at all
+      return '63$digits';
+    }
+
+    // Fallback: return as-is (already stripped of non-digits) —
+    // better to attempt a send with an unexpected format than to
+    // silently drop the message entirely.
+    return digits;
+  }
+
+  // ================================================
   // INTERNAL — calls edge function
   // ================================================
   Future<void> _send({
     required String phone,
     required String message,
   }) async {
+    final String normalizedPhone = _normalizePhone(phone);
+
     try {
       await _supabase.functions.invoke(
-        'send-sms',
+        'send-order-sms',
         body: {
-          'to':      phone,
-          'message': message,
+          'phone_number': normalizedPhone,
+          'message':      message,
         },
       );
     } catch (e) {

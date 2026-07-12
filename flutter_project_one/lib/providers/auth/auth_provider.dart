@@ -1,6 +1,8 @@
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:supabase_flutter/supabase_flutter.dart';
 import '../../services/auth/auth_service.dart';
+import '../../services/auth/iprog_sms_service.dart';
+
 
 // Creates ONE AuthService for the whole app
 final authServiceProvider = Provider<AuthService>((ref) {
@@ -69,4 +71,38 @@ class RegisterErrorNotifier extends Notifier<String?> {
 final registerErrorProvider =
     NotifierProvider<RegisterErrorNotifier, String?>(() {
   return RegisterErrorNotifier();
+});
+
+
+final iprogSmsServiceProvider = Provider<IprogSmsService>((ref) {
+  return IprogSmsService();
+});
+
+// Holds the signup form data between the register screen and the OTP screen,
+// since we don't insert the profile row until both OTPs are verified.
+class PendingRegistration {
+  final String firstName;
+  final String lastName;
+  final String email;
+  final String phone;
+
+  const PendingRegistration({
+    required this.firstName,
+    required this.lastName,
+    required this.email,
+    required this.phone,
+  });
+}
+
+class PendingRegistrationNotifier extends Notifier<PendingRegistration?> {
+  @override
+  PendingRegistration? build() => null;
+
+  void set(PendingRegistration data) => state = data;
+  void clear() => state = null;
+}
+
+final pendingRegistrationProvider =
+    NotifierProvider<PendingRegistrationNotifier, PendingRegistration?>(() {
+  return PendingRegistrationNotifier();
 });

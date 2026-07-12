@@ -1,6 +1,7 @@
 import 'dart:typed_data';
 import 'package:supabase_flutter/supabase_flutter.dart';
 import '../../../models/promotion_banner_model.dart';
+import '../../super/activity_log/activity_log_service.dart';
 
 // ==========================================
 // BANNER SERVICE
@@ -12,6 +13,7 @@ import '../../../models/promotion_banner_model.dart';
 // ==========================================
 class BannerService {
   final SupabaseClient _supabase = Supabase.instance.client;
+  final ActivityLogService _activityLog = ActivityLogService();
 
   static const String _table = 'promotion_banner';
   static const String _bucket = 'promotion-banners';
@@ -84,10 +86,21 @@ class BannerService {
       final String publicUrl =
           _supabase.storage.from(_bucket).getPublicUrl(fileName);
 
-      await _supabase.from(_table).insert({
-        'banner_image_url': publicUrl,
-        'status': status,
-      });
+      final inserted = await _supabase
+          .from(_table)
+          .insert({
+            'banner_image_url': publicUrl,
+            'status': status,
+          })
+          .select('banner_id')
+          .single();
+
+      await _activityLog.log(
+        action: 'Added new promotion banner',
+        affectedModule: AffectedModule.promotions,
+        targetId: inserted['banner_id']?.toString(),
+        metadata: {'status': status},
+      );
 
       return null;
     } catch (error) {
@@ -134,6 +147,13 @@ class BannerService {
 
       await _supabase.from(_table).update(updateData).eq('banner_id', bannerId);
 
+      await _activityLog.log(
+        action: 'Updated promotion banner #$bannerId',
+        affectedModule: AffectedModule.promotions,
+        targetId: bannerId.toString(),
+        metadata: {'status': status},
+      );
+
       return null;
     } catch (error) {
       print('updateBanner error: $error');
@@ -167,6 +187,12 @@ class BannerService {
       } catch (storageError) {
         print('deleteBanner storage cleanup error: $storageError');
       }
+
+      await _activityLog.log(
+        action: 'Deleted promotion banner #$bannerId',
+        affectedModule: AffectedModule.promotions,
+        targetId: bannerId.toString(),
+      );
 
       return null;
     } catch (error) {

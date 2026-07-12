@@ -23,3 +23,4 @@ git commit -m "did a lot of work "
 git push origin main
 
 cd flutter_project_one
+flutter run -d chrome --web-port=5000

@@ -5,7 +5,7 @@ class AdminAccount {
   final String email;
   final String phone;
   final String role;
-  final bool isArchived;
+  final bool isDisabled;
 
   const AdminAccount({
     required this.id,
@@ -14,7 +14,7 @@ class AdminAccount {
     required this.email,
     required this.phone,
     required this.role,
-    required this.isArchived,
+    required this.isDisabled,
   });
 
   factory AdminAccount.fromJson(
@@ -27,7 +27,7 @@ class AdminAccount {
       email: json['email'] ?? '',
       phone: json['phone'] ?? '',
       role: json['role'] ?? '',
-      isArchived: json['is_archived'] ?? false,
+      isDisabled: json['is_disabled'] ?? false,
     );
   }
 
@@ -38,7 +38,7 @@ class AdminAccount {
     String? email,
     String? phone,
     String? role,
-    bool? isArchived,
+    bool? isDisabled,
   }) {
     return AdminAccount(
       id: id ?? this.id,
@@ -47,7 +47,7 @@ class AdminAccount {
       email: email ?? this.email,
       phone: phone ?? this.phone,
       role: role ?? this.role,
-      isArchived: isArchived ?? this.isArchived,
+      isDisabled: isDisabled ?? this.isDisabled,
     );
   }
 }
