@@ -14,6 +14,7 @@ class CheckoutAddressSelector extends StatelessWidget {
   final String userPhone;
   final ValueChanged<CustomerAddress?> onSelected;
   final ValueChanged<CustomerAddress> onEdit;
+  final ValueChanged<CustomerAddress> onDelete;
   final VoidCallback onAddNew;
 
   const CheckoutAddressSelector({
@@ -24,9 +25,9 @@ class CheckoutAddressSelector extends StatelessWidget {
     required this.userPhone,
     required this.onSelected,
     required this.onEdit,
+    required this.onDelete,
     required this.onAddNew,
   });
-
   @override
   Widget build(BuildContext context) {
     return Column(
@@ -58,6 +59,7 @@ class CheckoutAddressSelector extends StatelessWidget {
               isSelected: isSelected,
               onTap:  () => onSelected(address),
               onEdit: () => onEdit(address),
+              onDelete: () => onDelete(address),
             ),
           );
         }),
@@ -78,7 +80,7 @@ class CheckoutAddressSelector extends StatelessWidget {
               ),
             ),
             child: const Row(
-              mainAxisAlignment: MainAxisAlignment.center,
+              mainAxisAlignment: MainAxisAlignment.start,
               children: [
                 Icon(Icons.add, size: 16, color: Colors.black),
                 SizedBox(width: 8),
@@ -114,6 +116,7 @@ class _AddressCard extends StatelessWidget {
   final bool isSelected;
   final VoidCallback onTap;
   final VoidCallback onEdit;
+  final VoidCallback onDelete;
 
   const _AddressCard({
     required this.address,
@@ -122,6 +125,7 @@ class _AddressCard extends StatelessWidget {
     required this.isSelected,
     required this.onTap,
     required this.onEdit,
+    required this.onDelete,
   });
 
   @override
@@ -280,23 +284,45 @@ class _AddressCard extends StatelessWidget {
               ),
             ),
 
-            // ── Edit button ──────────────────────────
-            GestureDetector(
-              onTap: onEdit,
-              child: const Padding(
-                padding: EdgeInsets.only(left: 8),
-                child: Text(
-                  'EDIT',
-                  style: TextStyle(
-                    fontFamily: 'Inter',
-                    fontSize: 12,
-                    fontWeight: FontWeight.w700,
-                    letterSpacing: 2.0,
-                    color: Colors.black,
-                    decoration: TextDecoration.underline,
+// ── Edit + Delete buttons (side by side) ──
+            Row(
+              children: [
+                GestureDetector(
+                  onTap: onEdit,
+                  child: const Padding(
+                    padding: EdgeInsets.only(left: 8),
+                    child: Text(
+                      'EDIT',
+                      style: TextStyle(
+                        fontFamily: 'Inter',
+                        fontSize: 12,
+                        fontWeight: FontWeight.w700,
+                        letterSpacing: 2.0,
+                        color: Colors.black,
+                        decoration: TextDecoration.underline,
+                      ),
+                    ),
                   ),
                 ),
-              ),
+                const SizedBox(width: 12),
+                GestureDetector(
+                  onTap: onDelete,
+                  child: const Padding(
+                    padding: EdgeInsets.only(left: 8),
+                    child: Text(
+                      'DELETE',
+                      style: TextStyle(
+                        fontFamily: 'Inter',
+                        fontSize: 12,
+                        fontWeight: FontWeight.w700,
+                        letterSpacing: 2.0,
+                        color: Color(0xFFBA1A1A),
+                        decoration: TextDecoration.underline,
+                      ),
+                    ),
+                  ),
+                ),
+              ],
             ),
           ],
         ),

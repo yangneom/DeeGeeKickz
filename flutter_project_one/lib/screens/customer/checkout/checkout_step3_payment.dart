@@ -7,6 +7,8 @@ import '../../../widgets/customer/checkout/checkout_payment_selector.dart';
 import '../../../widgets/customer/checkout/checkout_order_summary.dart';
 import '../../../widgets/customer/checkout/card_payment_dialog.dart';
 import '../../../widgets/common/dialog/confirm_dialog.dart';
+import '../orders/order_history_screen.dart';
+import '../../../main.dart';
 
 class CheckoutStep3Payment extends StatefulWidget {
   final String                 selectedMethod;
@@ -107,8 +109,9 @@ class _CheckoutStep3PaymentState
     // admin approval without needing a webhook.
     await PaymentService().setCodPending(orderId: orderId);
 
-    if (!mounted) return;
-    ScaffoldMessenger.of(context).showSnackBar(
+    print('COD: order $orderId set to pending, navigating to Order History');
+
+    ScaffoldMessenger.of(appNavigatorKey.currentContext!).showSnackBar(
       const SnackBar(
         content: Text(
           'Order placed! Admin will verify your address '
@@ -117,6 +120,8 @@ class _CheckoutStep3PaymentState
         duration: Duration(seconds: 4),
       ),
     );
+
+    _goToOrderHistory();
   }
 
   // ================================================
@@ -135,8 +140,9 @@ class _CheckoutStep3PaymentState
       throw Exception('Could not open GCash');
     }
 
-    if (!mounted) return;
-    ScaffoldMessenger.of(context).showSnackBar(
+    print('GCash: checkout opened for order $orderId, navigating to Order History');
+
+    ScaffoldMessenger.of(appNavigatorKey.currentContext!).showSnackBar(
       const SnackBar(
         content: Text(
           'Complete your GCash payment. Your order will '
@@ -145,6 +151,12 @@ class _CheckoutStep3PaymentState
         duration: Duration(seconds: 5),
       ),
     );
+
+    // Deep links only work on mobile (see main.dart's `if (!kIsWeb)`
+    // guard) — on web there's no automatic return path, so navigate
+    // away from checkout immediately rather than leaving the user on
+    // a now-empty-cart checkout screen after the tab opens GCash.
+    _goToOrderHistory();
   }
 
   // ================================================
@@ -169,8 +181,10 @@ class _CheckoutStep3PaymentState
       },
     );
 
-    if (paid == true && mounted) {
-      ScaffoldMessenger.of(context).showSnackBar(
+    print('Card: dialog closed with paid=$paid for order $orderId');
+
+    if (paid == true) {
+      ScaffoldMessenger.of(appNavigatorKey.currentContext!).showSnackBar(
         const SnackBar(
           content: Text(
             'Payment successful! Your order is being '
@@ -180,7 +194,21 @@ class _CheckoutStep3PaymentState
           duration:        Duration(seconds: 4),
         ),
       );
+
+      _goToOrderHistory();
     }
+  }
+
+  // ── Uses the GLOBAL navigator key, not local context — CheckoutScreen
+  // unmounts this widget the instant the cart clears (its build() has
+  // an `if (items.isEmpty)` guard), so a local Navigator.of(context)
+  // call here would silently no-op. The global key sidesteps that.
+  void _goToOrderHistory() {
+    print('_goToOrderHistory called, navigatorState = ${appNavigatorKey.currentState}');
+    appNavigatorKey.currentState?.pushAndRemoveUntil(
+      MaterialPageRoute(builder: (_) => const OrderHistoryScreen()),
+      (route) => route.isFirst,
+    );
   }
 
   // ================================================

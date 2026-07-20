@@ -3,6 +3,7 @@ import 'package:flutter/material.dart';
 import '../../../screens/customer/cart/cart_screen.dart';
 import '../../../screens/customer/orders/order_history_screen.dart'; // ← replaces chat
 import '../../../screens/customer/profile/profile_screen.dart';
+import '../../../core/utils/auth_gate.dart';
 
 /// Bottom navigation bar shown ONLY on mobile widths (< 768px).
 ///
@@ -75,10 +76,7 @@ class BottomNavBar extends StatelessWidget {
                       );
                       break;
                     case 4: // Profile
-                      Navigator.of(context).push(
-                        MaterialPageRoute(
-                            builder: (_) => const ProfileScreen()),
-                      );
+                      requireAuth(context, const ProfileScreen());
                       break;
                     default:
                       onTap?.call(index);

@@ -3,7 +3,7 @@ import 'package:flutter_riverpod/flutter_riverpod.dart';
 import '../../../providers/customer/order_service.dart';
 import '../../../services/customer/payment/payment_service.dart';
 import 'package:supabase_flutter/supabase_flutter.dart';
-
+import '../../auth/login_screen.dart';
 import '../../../providers/customer/customer_cart_provider.dart';
 import '../../../widgets/common/nav/app_top_bar.dart';
 import '../../../widgets/common/nav/app_drawer.dart';
@@ -146,6 +146,16 @@ return orderId;
 
   @override
   Widget build(BuildContext context) {
+    final user = Supabase.instance.client.auth.currentUser;
+    if (user == null) {
+      WidgetsBinding.instance.addPostFrameCallback((_) {
+        Navigator.of(context).pushReplacement(
+          MaterialPageRoute(builder: (_) => const LoginScreen()),
+        );
+      });
+      return const Scaffold(body: Center(child: CircularProgressIndicator()));
+    }
+
     final items = ref.watch(customerCartProvider);
 
     final double subtotal = items.fold<double>(

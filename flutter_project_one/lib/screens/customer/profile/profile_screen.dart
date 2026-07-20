@@ -1,9 +1,10 @@
 import 'package:flutter/material.dart';
+import 'package:flutter_riverpod/flutter_riverpod.dart';
 
 import 'package:supabase_flutter/supabase_flutter.dart';
 
 import '../../auth/login_screen.dart';
-
+import '../../../providers/customer/customer_cart_provider.dart';
 // ── Common nav widgets ────────────────────────────────────────────────────────
 import '../../../widgets/common/nav/app_top_bar.dart';
 import '../../../widgets/common/nav/app_drawer.dart';
@@ -17,11 +18,14 @@ import '../../../widgets/customer/profile/profile_address_section.dart';
 import '../../../widgets/customer/profile/profile_orders_section.dart';
 import '../../../widgets/customer/profile/profile_active_order_card.dart';
 
-// ── Models / mock data ────────────────────────────────────────────────────────
+// ── Models ───────────────────────────────────────────────────────────────────
 import '../../../models/customer_account.dart';
 import '../../../models/customer_address.dart';
 import '../../../models/order.dart';
 
+// ── Services ─────────────────────────────────────────────────────────────────
+import '../../../services/customer/address/address_service.dart';
+import '../../../services/customer/History/order_history_service.dart';
 // ── Other screens ─────────────────────────────────────────────────────────────
 import '../orders/order_history_screen.dart';
 import '../orders/order_tracking_screen.dart';
@@ -45,17 +49,15 @@ class _ProfileScreenState extends State<ProfileScreen> {
   final SupabaseClient _supabase = Supabase.instance.client;
 
   late Future<CustomerAccount?> _userFuture;
-
-  // ── Mock addresses — TODO: replace with real Supabase fetch ────────────────
-  static final List<CustomerAddress> _mockAddresses = mockSavedAddresses;
-
-  // ── Orders — empty until real Supabase load is wired up ────────────────────
-  static const List<Order> _allOrders = [];
+  late Future<List<CustomerAddress>> _addressesFuture;
+  late Future<List<Order>> _ordersFuture;
 
   @override
   void initState() {
     super.initState();
     _userFuture = _fetchCurrentUser();
+    _addressesFuture = AddressService().getMyAddresses();
+    _ordersFuture = OrderHistoryService().getMyOrders();
   }
 
   // ── Fetch the logged-in customer's own row, joined with address ────────────
@@ -78,9 +80,10 @@ class _ProfileScreenState extends State<ProfileScreen> {
   }
 
   // Active order = first order that is NOT delivered or cancelled
-  static Order? get _activeOrder {
+// Active order = first order that is NOT delivered or cancelled
+  Order? _activeOrderFrom(List<Order> orders) {
     try {
-      return _allOrders.firstWhere(
+      return orders.firstWhere(
         (o) =>
             o.orderStatus.toLowerCase() != 'delivered' &&
             o.orderStatus.toLowerCase() != 'cancelled',
@@ -91,8 +94,7 @@ class _ProfileScreenState extends State<ProfileScreen> {
   }
 
   // Preview = first 2 orders for the mini history card
-  static List<Order> get _previewOrders => _allOrders.take(2).toList();
-
+  List<Order> _previewOrdersFrom(List<Order> orders) => orders.take(2).toList();
   @override
   Widget build(BuildContext context) {
     return Scaffold(
@@ -104,14 +106,17 @@ class _ProfileScreenState extends State<ProfileScreen> {
           children: [
             const AppTopBar(activeRoute: 'profile'),
             Expanded(
-              child: FutureBuilder<CustomerAccount?>(
-                future: _userFuture,
+            child: FutureBuilder<List<dynamic>>(
+                future: Future.wait([_userFuture, _addressesFuture, _ordersFuture]),
                 builder: (context, snapshot) {
                   if (snapshot.connectionState == ConnectionState.waiting) {
                     return const Center(child: CircularProgressIndicator());
                   }
 
-                  final user = snapshot.data;
+                  final user = snapshot.data?[0] as CustomerAccount?;
+                  final addresses = (snapshot.data?[1] as List<CustomerAddress>?) ?? [];
+                  final orders = (snapshot.data?[2] as List<Order>?) ?? [];
+
                   if (user == null) {
                     return const Center(
                       child: Padding(
@@ -135,12 +140,17 @@ class _ProfileScreenState extends State<ProfileScreen> {
                       children: [
                         _PageContent(
                           user: user,
-                          addresses: _mockAddresses,
-                          previewOrders: _previewOrders,
-                          activeOrder: _activeOrder,
+                          addresses: addresses,
+                          previewOrders: _previewOrdersFrom(orders),
+                          activeOrder: _activeOrderFrom(orders),
+                          onAddressesChanged: () {
+                            setState(() {
+                              _addressesFuture = AddressService().getMyAddresses();
+                            });
+                          },
                         ),
                         const AppFooter(),
-                      ],
+                    ],
                     ),
                   );
                 },
@@ -161,11 +171,13 @@ class _PageContent extends StatelessWidget {
   final List<CustomerAddress> addresses;
   final List<Order> previewOrders;
   final Order? activeOrder;
+  final VoidCallback onAddressesChanged;
 
   const _PageContent({
     required this.user,
     required this.addresses,
     required this.previewOrders,
+    required this.onAddressesChanged,
     this.activeOrder,
   });
 
@@ -214,7 +226,11 @@ class _PageContent extends StatelessWidget {
               const SizedBox(height: 24),
 
               // ── 3. Saved Addresses ──────────────────────────────
-              ProfileAddressSection(addresses: addresses),
+              // ── 3. Saved Addresses ──────────────────────────────
+              ProfileAddressSection(
+                addresses: addresses,
+                onChanged: onAddressesChanged,
+              ),
 
               const SizedBox(height: 24),
 
@@ -440,9 +456,9 @@ class _PreviewOrderRow extends StatelessWidget {
 
 // ─── Logout button ────────────────────────────────────────────────────────────
 
-class _LogoutButton extends StatelessWidget {
+class _LogoutButton extends ConsumerWidget {                    // ← 1. StatelessWidget → ConsumerWidget
   @override
-  Widget build(BuildContext context) {
+  Widget build(BuildContext context, WidgetRef ref) {            
     return GestureDetector(
       onTap: () {
         showDialog(
@@ -486,6 +502,8 @@ class _LogoutButton extends StatelessWidget {
                     Navigator.of(context).pop();
 
                     await Supabase.instance.client.auth.signOut();
+                    ref.read(customerCartProvider.notifier).clearLocalOnly();   // ← 3. add this line
+
 
                     if (context.mounted) {
                       Navigator.of(context).pushAndRemoveUntil(

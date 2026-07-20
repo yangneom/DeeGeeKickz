@@ -78,6 +78,11 @@ class NotificationsScreen extends ConsumerWidget {
                                               notifier.markRead(n.id),
                                         );
                                       case NotificationType.promotion:
+                                      default:
+                                        // Staff-only types (lowStock, newFeedback, etc.)
+                                        // shouldn't normally reach a customer's feed,
+                                        // but fall back to the offer tile rather than
+                                        // crashing if they ever do.
                                         return NotificationTileOffer(
                                           notification: n,
                                           onMarkRead: () =>

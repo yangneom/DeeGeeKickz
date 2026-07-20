@@ -1,6 +1,6 @@
 // Basic Flutter import
 import 'package:flutter/material.dart';
-
+import '../../providers/customer/customer_cart_provider.dart';
 // Riverpod import
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 
@@ -98,6 +98,7 @@ class _LoginFormState extends ConsumerState<LoginForm> {
         );
 
      } else if (role == 'Customer') {
+       await ref.read(customerCartProvider.notifier).mergeGuestCartIntoAccount(); // ← add this line
         Navigator.pushReplacement(
           context,
           MaterialPageRoute(

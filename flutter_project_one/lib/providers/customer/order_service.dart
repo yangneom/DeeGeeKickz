@@ -118,8 +118,55 @@ for (final item in items) {
       paymentMethod: paymentMethod,
       amountPaid: total,
     );
+
+    await _notifyStaffNewOrder(
+      orderId: orderId,
+      total: total,
+      paymentMethod: paymentMethod,
+    );
  
     return orderId;
+  }
+
+  // ───────────────────────────────────────────
+  // NOTIFY STAFF — new order placed
+  // Fires for every order (COD, GCash, Card) the moment it's
+  // created, regardless of payment status. Non-critical — a
+  // notification failure must never fail the order itself, which
+  // has already fully succeeded by the time this runs.
+  // ───────────────────────────────────────────
+  Future<void> _notifyStaffNewOrder({
+    required int orderId,
+    required double total,
+    required String paymentMethod,
+  }) async {
+    try {
+      final staff = await _supabase
+          .from('users')
+          .select('id')
+          .inFilter('role', ['Admin', 'Super Admin']);
+
+      if ((staff as List).isEmpty) return;
+
+      final String methodLabel = switch (paymentMethod) {
+        'cod' => 'COD',
+        'gcash' => 'GCash',
+        'card' => 'Card',
+        _ => paymentMethod,
+      };
+
+      final rows = staff.map((u) => {
+            'customer_id': u['id'],
+            'type': 'order',
+            'title': 'New order placed',
+            'body': 'Order #$orderId — ₱${total.toStringAsFixed(2)} via $methodLabel.',
+            'order_id': orderId,
+          }).toList();
+
+      await _supabase.from('notifications').insert(rows);
+    } catch (error) {
+      print('_notifyStaffNewOrder error: $error');
+    }
   }
  
   // ───────────────────────────────────────────

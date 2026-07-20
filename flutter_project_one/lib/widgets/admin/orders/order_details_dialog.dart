@@ -450,37 +450,7 @@ class _OrderDetailsDialogState extends State<OrderDetailsDialog> {
               ),
 
               // Rejection note
-              if (isRejected) ...[
-                const SizedBox(height: 8),
-                Container(
-                  padding: const EdgeInsets.all(10),
-                  decoration: BoxDecoration(
-                    color:        const Color(0xFFFEF3C7),
-                    borderRadius: BorderRadius.circular(6),
-                    border: Border.all(color: const Color(0xFFFCD34D)),
-                  ),
-                  child: const Row(
-                    crossAxisAlignment: CrossAxisAlignment.start,
-                    children: [
-                      Icon(Icons.warning_amber_outlined,
-                          size: 14, color: Color(0xFF92400E)),
-                      SizedBox(width: 6),
-                      Expanded(
-                        child: Text(
-                          'Order cancelled. If the customer already paid, '
-                          'please refund them manually on dashboard.paymongo.com '
-                          '→ Payments → find this order → Refund.',
-                          style: TextStyle(
-                            fontSize: 12,
-                            color:    Color(0xFF92400E),
-                            height:   1.4,
-                          ),
-                        ),
-                      ),
-                    ],
-                  ),
-                ),
-              ],
+              
 
               // Cancel reason
               if (widget.order.cancelReason != null &&

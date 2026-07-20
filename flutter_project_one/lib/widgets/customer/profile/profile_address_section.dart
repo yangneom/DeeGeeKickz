@@ -1,5 +1,6 @@
 import 'package:flutter/material.dart';
 import '../../../models/customer_address.dart';
+import '../../../services/customer/address/address_service.dart';
 import 'address_bottom_sheet.dart';
 
 /// "Saved Addresses" card — lists all [CustomerAddress] entries.
@@ -7,7 +8,15 @@ import 'address_bottom_sheet.dart';
 class ProfileAddressSection extends StatefulWidget {
   final List<CustomerAddress> addresses;
 
-  const ProfileAddressSection({super.key, required this.addresses});
+  /// Called after a successful add/edit/delete, so the parent
+  /// (ProfileScreen) can re-fetch from Supabase and pass fresh data down.
+  final VoidCallback? onChanged;
+
+  const ProfileAddressSection({
+    super.key,
+    required this.addresses,
+    this.onChanged,
+  });
 
   @override
   State<ProfileAddressSection> createState() => _ProfileAddressSectionState();
@@ -15,6 +24,9 @@ class ProfileAddressSection extends StatefulWidget {
 
 class _ProfileAddressSectionState extends State<ProfileAddressSection> {
   late List<CustomerAddress> _addresses;
+  final AddressService _addressService = AddressService();
+  bool _isSaving = false;
+  bool _isDeleting = false;
 
   @override
   void initState() {
@@ -22,43 +34,121 @@ class _ProfileAddressSectionState extends State<ProfileAddressSection> {
     _addresses = List.from(widget.addresses);
   }
 
+  @override
+  void didUpdateWidget(covariant ProfileAddressSection oldWidget) {
+    super.didUpdateWidget(oldWidget);
+    _addresses = List.from(widget.addresses);
+  }
+
   // ── Add new ────────────────────────────────────────────────────────────────
   Future<void> _onAddNew() async {
+    if (_isSaving) return;
+
     final CustomerAddress? result = await showAddressBottomSheet(
       context: context,
       existing: null,
     );
     if (result == null) return;
 
-    setState(() {
-      if (result.isDefault) {
-        _addresses = _addresses
-            .map((a) => a.copyWith(isDefault: false))
-            .toList();
-      }
-      _addresses.add(result);
-    });
+    setState(() => _isSaving = true);
+    final bool success = await _addressService.addAddress(result);
+
+    if (!mounted) return;
+    setState(() => _isSaving = false);
+
+    if (success) {
+      widget.onChanged?.call();
+    } else {
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(
+          content: Text('Could not save address. Please try again.'),
+          backgroundColor: Colors.black,
+        ),
+      );
+    }
   }
 
   // ── Edit existing ──────────────────────────────────────────────────────────
   Future<void> _onEdit(CustomerAddress address) async {
+    if (_isSaving) return;
+
     final CustomerAddress? result = await showAddressBottomSheet(
       context: context,
       existing: address,
     );
     if (result == null) return;
 
-    setState(() {
-      final int idx = _addresses.indexWhere((a) => a.id == result.id);
-      if (idx == -1) return;
+    setState(() => _isSaving = true);
+    final bool success = await _addressService.updateAddress(result);
 
-      if (result.isDefault) {
-        _addresses = _addresses
-            .map((a) => a.copyWith(isDefault: false))
-            .toList();
-      }
-      _addresses[idx] = result;
-    });
+    if (!mounted) return;
+    setState(() => _isSaving = false);
+
+    if (success) {
+      widget.onChanged?.call();
+    } else {
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(
+          content: Text('Could not save changes. Please try again.'),
+          backgroundColor: Colors.black,
+        ),
+      );
+    }
+  }
+
+  // ── Delete ─────────────────────────────────────────────────────────────────
+  Future<void> _onDelete(CustomerAddress address) async {
+    if (_isDeleting) return;
+
+    final bool? confirmed = await showDialog<bool>(
+      context: context,
+      builder: (ctx) => AlertDialog(
+        backgroundColor: const Color(0xFFF9F9F9),
+        shape: const RoundedRectangleBorder(borderRadius: BorderRadius.zero),
+        title: const Text(
+          'DELETE ADDRESS',
+          style: TextStyle(
+            fontFamily: 'Archivo Narrow',
+            fontSize: 18,
+            fontWeight: FontWeight.w700,
+            color: Colors.black,
+          ),
+        ),
+        content: const Text(
+          'Are you sure you want to delete this address?',
+          style: TextStyle(fontFamily: 'Inter', fontSize: 14, color: Color(0xFF4C4546)),
+        ),
+        actions: [
+          TextButton(
+            onPressed: () => Navigator.of(ctx).pop(false),
+            child: const Text('CANCEL', style: TextStyle(fontFamily: 'Inter', color: Color(0xFF656464))),
+          ),
+          TextButton(
+            onPressed: () => Navigator.of(ctx).pop(true),
+            child: const Text('DELETE', style: TextStyle(fontFamily: 'Inter', color: Color(0xFFBA1A1A))),
+          ),
+        ],
+      ),
+    );
+
+    if (confirmed != true) return;
+
+    setState(() => _isDeleting = true);
+    final String? errorMessage = await _addressService.deleteAddress(address);
+
+    if (!mounted) return;
+    setState(() => _isDeleting = false);
+
+    if (errorMessage == null) {
+      widget.onChanged?.call();
+    } else {
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(
+          content: Text(errorMessage),
+          backgroundColor: Colors.black,
+        ),
+      );
+    }
   }
 
   @override
@@ -92,15 +182,15 @@ class _ProfileAddressSectionState extends State<ProfileAddressSection> {
                 ),
               ),
               GestureDetector(
-                onTap: _onAddNew,
-                child: const Text(
+                onTap: _isSaving ? null : _onAddNew,
+                child: Text(
                   'ADD NEW',
                   style: TextStyle(
                     fontFamily: 'Inter',
                     fontSize: 12,
                     fontWeight: FontWeight.w500,
                     decoration: TextDecoration.underline,
-                    color: Colors.black,
+                    color: _isSaving ? const Color(0xFFCFC4C5) : Colors.black,
                   ),
                 ),
               ),
@@ -157,6 +247,7 @@ class _ProfileAddressSectionState extends State<ProfileAddressSection> {
                   .map((CustomerAddress addr) => _AddressTile(
                         address: addr,
                         onEdit: () => _onEdit(addr),
+                        onDelete: () => _onDelete(addr),
                       ))
                   .toList(),
             ),
@@ -171,8 +262,9 @@ class _ProfileAddressSectionState extends State<ProfileAddressSection> {
 class _AddressTile extends StatelessWidget {
   final CustomerAddress address;
   final VoidCallback onEdit;
+  final VoidCallback onDelete;
 
-  const _AddressTile({required this.address, required this.onEdit});
+  const _AddressTile({required this.address, required this.onEdit, required this.onDelete});
 
   @override
   Widget build(BuildContext context) {
@@ -294,17 +386,32 @@ class _AddressTile extends StatelessWidget {
             ),
           ),
 
-          // ── Right: edit icon ────────────────────────────────────
-          GestureDetector(
-            onTap: onEdit,
-            child: const Padding(
-              padding: EdgeInsets.all(4),
-              child: Icon(
-                Icons.edit_outlined,
-                size: 20,
-                color: Color(0xFF656464),
+          // ── Right: edit + delete icons ───────────────────────────
+          Column(
+            children: [
+              GestureDetector(
+                onTap: onEdit,
+                child: const Padding(
+                  padding: EdgeInsets.all(4),
+                  child: Icon(
+                    Icons.edit_outlined,
+                    size: 20,
+                    color: Color(0xFF656464),
+                  ),
+                ),
               ),
-            ),
+              GestureDetector(
+                onTap: onDelete,
+                child: const Padding(
+                  padding: EdgeInsets.all(4),
+                  child: Icon(
+                    Icons.delete_outline,
+                    size: 20,
+                    color: Color(0xFFBA1A1A),
+                  ),
+                ),
+              ),
+            ],
           ),
         ],
       ),

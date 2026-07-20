@@ -17,6 +17,7 @@ dependencies:
   url_launcher: ^6.2.0    # open PayMongo checkout URL + receipt PDF link
   app_links: ^6.0.0
   crop_your_image: ^2.0.0
+  shared_preferences: ^2.2.2
 
 
   # ── File Picker ───────────────────────────────

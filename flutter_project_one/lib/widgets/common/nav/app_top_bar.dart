@@ -3,6 +3,7 @@ import 'package:flutter/material.dart';
 import 'package:supabase_flutter/supabase_flutter.dart';
 
 import '../../../screens/auth/login_screen.dart';
+import '../../../core/utils/auth_gate.dart';
 
 
 import '../../../screens/customer/shop_screen.dart/shop_screen.dart';
@@ -57,27 +58,6 @@ class AppTopBar extends StatelessWidget implements PreferredSizeWidget {
     }
   }
 
-    void _requireLogin(
-      BuildContext context,
-      Widget protectedScreen,
-    ) {
-      final user = Supabase.instance.client.auth.currentUser;
-
-      if (user == null) {
-        Navigator.of(context).push(
-          MaterialPageRoute(
-            builder: (_) => const LoginScreen(),
-          ),
-        );
-        return;
-      }
-
-      Navigator.of(context).push(
-        MaterialPageRoute(
-          builder: (_) => protectedScreen,
-      ),
-      );
-    }
 
   @override
   Widget build(BuildContext context) {
@@ -155,7 +135,7 @@ class AppTopBar extends StatelessWidget implements PreferredSizeWidget {
                               icon: Icons.notifications_outlined,
                               showBadge: true,
                               onTap: onNotificationsTap ??
-                                  () => _requireLogin(
+                                  () => requireAuth(
                                         context,
                                         const NotificationsScreen(),
                                       ),
@@ -195,7 +175,7 @@ class AppTopBar extends StatelessWidget implements PreferredSizeWidget {
                           _IconButton(
                             icon: Icons.person_outline,
                             onTap: onPersonTap ??
-                            () => _requireLogin(
+                            () => requireAuth(
                                   context,
                                   const ProfileScreen(),
                                 ),

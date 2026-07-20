@@ -122,8 +122,7 @@ class _AddressBottomSheetState extends State<AddressBottomSheet> {
     }
 
     final CustomerAddress result = CustomerAddress(
-      id:        widget.existing?.id ??
-                 'addr_${DateTime.now().millisecondsSinceEpoch}',
+      id:        widget.existing?.id ?? '',   // '' = new, not yet in Supabase
       street:    _streetCtrl.text.trim(),
       barangay:  _barangayCtrl.text.trim(),
       city:      _cityCtrl.text.trim(),

@@ -23,19 +23,30 @@ serve(async (req) => {
       });
     }
 
-    const iprogResponse = await fetch(SMS_URL, {
+    const body = {
+      api_token: IPROG_API_TOKEN,
+      phone_number,
+      message,
+    };
+
+    // Send as BOTH query params and JSON body — covers whichever
+    // format this endpoint actually reads, since it's undocumented
+    // whether sms_messages parses the same way as otp/send_otp does.
+    const params = new URLSearchParams(body);
+    const urlWithParams = `${SMS_URL}?${params.toString()}`;
+
+    const iprogResponse = await fetch(urlWithParams, {
       method: "POST",
       headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({
-        api_token: IPROG_API_TOKEN,
-        phone_number,
-        message,
-      }),
+      body: JSON.stringify(body),
     });
 
     const data = await iprogResponse.json();
 
+    console.log("iProg sms_messages response:", JSON.stringify(data));
+
     return new Response(JSON.stringify(data), {
+      status: iprogResponse.ok ? 200 : 502,
       headers: { ...corsHeaders, "Content-Type": "application/json" },
     });
   } catch (error) {

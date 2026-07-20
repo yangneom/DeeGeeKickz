@@ -71,15 +71,29 @@ class _HeroSectionState extends State<HeroSection> {
       _banners = result;
       _isLoading = false;
     });
-    if (_banners.length > 1) {
+if (_banners.length > 1) {
       _startAutoPlay();
+    } else {
+      // Fewer than 2 banners now (e.g. re-fetch shrank the list) —
+      // no PageView is rendered in this case, so any timer left over
+      // from a previous fetch must stop, or it'll keep calling
+      // animateToPage on a controller with nothing attached.
+      _autoPlayTimer?.cancel();
     }
   }
 
   void _startAutoPlay() {
     _autoPlayTimer?.cancel();
     _autoPlayTimer = Timer.periodic(_slideDuration, (_) {
-      if (!mounted || _banners.isEmpty) return;
+      if (!mounted || _banners.length <= 1) {
+        _autoPlayTimer?.cancel();
+        return;
+      }
+      // Guard against firing before the PageView has attached its
+      // controller (or after it's been swapped out), which is what
+      // was throwing "PageController is not attached to a PageView."
+      if (!_pageController.hasClients) return;
+
       final int nextPage = (_currentPage + 1) % _banners.length;
       _pageController.animateToPage(
         nextPage,
@@ -88,7 +102,6 @@ class _HeroSectionState extends State<HeroSection> {
       );
     });
   }
-
   Widget _buildGrayscaleImage(String url) {
     return Opacity(
       opacity: 0.8,

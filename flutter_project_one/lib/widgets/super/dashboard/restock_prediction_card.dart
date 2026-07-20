@@ -7,8 +7,8 @@ class RestockPredictionCard extends StatelessWidget {
 
   const RestockPredictionCard({super.key, required this.restockItems, this.isLoading = false});
 
-  Widget _buildStockBar(int current, int max) {
-    double percentage = max > 0 ? current / max : 0;
+  Widget _buildStockBar(int current, int idealStock) {
+    double percentage = idealStock > 0 ? current / idealStock : 0;
     Color barColor;
     if (percentage <= 0.15) {
       barColor = DashboardTheme.danger;
@@ -24,8 +24,8 @@ class RestockPredictionCard extends StatelessWidget {
         Row(
           mainAxisAlignment: MainAxisAlignment.spaceBetween,
           children: [
-            const Text('Stock Level', style: TextStyle(fontSize: 11, color: Color(0xFF9CA3AF))),
-            Text('$current/$max', style: const TextStyle(fontSize: 11, color: Color(0xFF9CA3AF))),
+            const Text('Stock vs. 30-Day Target', style: TextStyle(fontSize: 11, color: Color(0xFF9CA3AF))),
+            Text('$current/$idealStock', style: const TextStyle(fontSize: 11, color: Color(0xFF9CA3AF))),
           ],
         ),
         const SizedBox(height: 4),
@@ -79,7 +79,7 @@ class RestockPredictionCard extends StatelessWidget {
                       ],
                     ),
                     const SizedBox(height: 8),
-                    _buildStockBar(restockItems[i]['currentStock'] ?? 0, restockItems[i]['maxStock'] ?? 100),
+                    _buildStockBar(restockItems[i]['currentStock'] ?? 0, restockItems[i]['idealStock'] ?? 1),
                     const SizedBox(height: 8),
                     Row(
                       children: [
@@ -88,6 +88,13 @@ class RestockPredictionCard extends StatelessWidget {
                         Text('Restock: ${restockItems[i]['recommendedRestock']} units', style: const TextStyle(fontSize: 11, color: Color(0xFF2563EB), fontWeight: FontWeight.w500)),
                       ],
                     ),
+                    if (restockItems[i]['insight'] != null && (restockItems[i]['insight'] as String).isNotEmpty) ...[
+                      const SizedBox(height: 6),
+                      Text(
+                        restockItems[i]['insight'],
+                        style: const TextStyle(fontSize: 11, color: Color(0xFF6B7280), fontStyle: FontStyle.italic),
+                      ),
+                    ],
                   ],
                 ),
               ),

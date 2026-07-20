@@ -1,8 +1,13 @@
 /// Represents a single item in the CUSTOMER shopping cart.
-/// Mock/fake data only — no Supabase integration yet.
-/// Completely separate from cashier-side cart/order models.
+/// Backed by Supabase `cart_item` table once the user is logged in.
+/// Guests hold this purely in memory (Notifier state) until they log in,
+/// at which point CustomerCartNotifier pushes them up to Supabase.
 class CustomerCartItem {
-  final String productId;
+  /// Supabase row id (cart_item_id). Null until this item has been
+  /// persisted to the database (i.e. still guest-only, in-memory).
+  final int? cartItemId;
+
+  final int productId;
   final String productName;
   final String brand;
   final String color;
@@ -13,6 +18,7 @@ class CustomerCartItem {
   int quantity;
 
   CustomerCartItem({
+    this.cartItemId,
     required this.productId,
     required this.productName,
     required this.brand,
@@ -27,7 +33,8 @@ class CustomerCartItem {
   double get subtotal => retailPrice * quantity;
 
   CustomerCartItem copyWith({
-    String? productId,
+    int? cartItemId,
+    int? productId,
     String? productName,
     String? brand,
     String? color,
@@ -38,6 +45,7 @@ class CustomerCartItem {
     int? quantity,
   }) {
     return CustomerCartItem(
+      cartItemId: cartItemId ?? this.cartItemId,
       productId: productId ?? this.productId,
       productName: productName ?? this.productName,
       brand: brand ?? this.brand,
@@ -49,33 +57,70 @@ class CustomerCartItem {
       quantity: quantity ?? this.quantity,
     );
   }
+
+  /// Builds an item from a Supabase `cart_item` row.
+  factory CustomerCartItem.fromJson(Map<String, dynamic> json) {
+    return CustomerCartItem(
+      cartItemId: json['cart_item_id'] as int?,
+      productId: json['product_id'] as int,
+      productName: json['product_name_snapshot'] as String? ?? '',
+      brand: json['brand_snapshot'] as String? ?? '',
+      color: json['color_snapshot'] as String? ?? '',
+      size: json['size_snapshot'] as String? ?? '',
+      sizeId: json['size_id'] as int?,
+      retailPrice: (json['price_snapshot'] as num?)?.toDouble() ?? 0.0,
+      imageUrl: json['image_url_snapshot'] as String? ?? '',
+      quantity: json['quantity'] as int? ?? 1,
+    );
+  }
+
+  /// Serializes for insert/upsert into `cart_item`. `user_id` is added
+  /// by the provider (this model doesn't know about auth).
+  /// Serializes for insert/upsert into `cart_item`. `user_id` is added
+  /// by the provider (this model doesn't know about auth).
+  Map<String, dynamic> toJson({required String userId}) {
+    return {
+      'user_id': userId,
+      'product_id': productId,
+      'size_id': sizeId,
+      'product_name_snapshot': productName,
+      'brand_snapshot': brand,
+      'color_snapshot': color,
+      'size_snapshot': size,
+      'price_snapshot': retailPrice,
+      'image_url_snapshot': imageUrl,
+      'quantity': quantity,
+    };
+  }
+
+  /// Lightweight serialization for guest carts saved to device storage
+  /// (SharedPreferences). No user_id/cart_item_id involved — guests
+  /// aren't in the database yet.
+  Map<String, dynamic> toLocalJson() {
+    return {
+      'productId': productId,
+      'productName': productName,
+      'brand': brand,
+      'color': color,
+      'size': size,
+      'sizeId': sizeId,
+      'retailPrice': retailPrice,
+      'imageUrl': imageUrl,
+      'quantity': quantity,
+    };
+  }
+
+  factory CustomerCartItem.fromLocalJson(Map<String, dynamic> json) {
+    return CustomerCartItem(
+      productId: json['productId'] as int,
+      productName: json['productName'] as String,
+      brand: json['brand'] as String,
+      color: json['color'] as String,
+      size: json['size'] as String,
+      sizeId: json['sizeId'] as int?,
+      retailPrice: (json['retailPrice'] as num).toDouble(),
+      imageUrl: json['imageUrl'] as String,
+      quantity: json['quantity'] as int,
+    );
+  }
 }
-
-// ─────────────────────────────────────────────
-// MOCK CART DATA
-// ─────────────────────────────────────────────
-
-final List<CustomerCartItem> mockCustomerCartItems = [
-  CustomerCartItem(
-    productId: 'shop_001',
-    productName: 'AeroBlast Elite V4',
-    brand: 'Nike',
-    color: 'Midnight Black',
-    size: 'US 10.5',
-    retailPrice: 245.00,
-    imageUrl:
-        'https://lh3.googleusercontent.com/aida-public/AB6AXuDaSwYq5TDmLniPTXSdmuTBhmnPiKoPNI9BxLxMkYtZwUCy5IRe2wXEQcK0Bh1jq0Wk0Hgo-k67gvB-KXV-IW1waZInXXRYYZs_eGSergXEeO5LS1ovFvYzY_0vZ_Bg1TD0dSsVIzGO5M2qUGT3aypl89Y_DXrA2TYrti6WMHbMhCaJ0rGHG-0-am01I5DnPiIfYxQaKafYdyJKuBLQcK8pVu09vpKqGFdFnISoX0y1LhT4hSsszPNjwhepfsz8-0hlFkYve7gnJ2k',
-    quantity: 1,
-  ),
-  CustomerCartItem(
-    productId: 'shop_007',
-    productName: 'CarbonStrider X',
-    brand: 'Adidas',
-    color: 'Alpine White',
-    size: 'US 9.0',
-    retailPrice: 190.00,
-    imageUrl:
-        'https://lh3.googleusercontent.com/aida-public/AB6AXuCn_GLi6gO5rBCFpzhVwuNVqG9A5PEWUw8TY-H85L3-QqtXuREhjy5ieJlatxAIcMzX2P8AmegwC6tcogcaZkVV5Ja8Thm_BmjZSFCpReXqACS7XXZP2PO9-5s-6ozkaLl76l2zcT2Sez7OeHdh4wdAvheAw2zcMiqF61SX9BKPI1asRSh5cMffVLzwSb_UosoNlcPX92ldiqeViVp0vvcjsd8_UaT2MWZE77qSIoriSsn4eHIO9ZLLtHVwm8A0pTlRKx4o_DVr7z4',
-    quantity: 1,
-  ),
-];

@@ -2,13 +2,12 @@ import 'package:flutter/material.dart';
 import 'package:supabase_flutter/supabase_flutter.dart';
 import '../../../models/customer_cart_item.dart';
 import '../../../models/customer_address.dart';
+import '../../../services/customer/address/address_service.dart';
 import '../../../widgets/customer/checkout/checkout_order_summary.dart';
 import '../../../widgets/customer/checkout/checkout_address_selector.dart';
 import '../../../widgets/customer/profile/address_bottom_sheet.dart';
+import '../../../widgets/common/dialog/confirm_dialog.dart';
 
-/// Step 1 — Shipping Information.
-/// Shows saved addresses, lets user pick / edit / add new.
-/// Auto-fills the delivery summary when a saved address is selected.
 class CheckoutStep1Shipping extends StatefulWidget {
   final String initialStreet;
   final String initialCity;
@@ -51,17 +50,15 @@ class CheckoutStep1Shipping extends StatefulWidget {
 }
 
 class _CheckoutStep1ShippingState extends State<CheckoutStep1Shipping> {
+  final AddressService _addressService = AddressService();
 
-  // ── Saved addresses — swap with Supabase fetch when ready ─────────────
-  final List<CustomerAddress> _savedAddresses = List.from(mockSavedAddresses);
+  List<CustomerAddress> _savedAddresses = [];
+  bool _isLoadingAddresses = true;
+  bool _isSavingAddress = false; // guards against double-tap on Add/Edit
 
-  // ── Selected address id ───────────────────────────────────────────────
   String? _selectedAddressId;
-
-  // ── Currently selected address object ────────────────────────────────
   CustomerAddress? _selectedAddress;
 
-  // ── User name + phone from Supabase auth metadata ────────────────────
   String _userName  = '';
   String _userPhone = '';
 
@@ -69,32 +66,46 @@ class _CheckoutStep1ShippingState extends State<CheckoutStep1Shipping> {
   void initState() {
     super.initState();
     _loadUserInfo();
+    _loadAddresses();
+  }
 
-    // Auto-select default address on load
-    final List<CustomerAddress> defaults =
-        _savedAddresses.where((a) => a.isDefault).toList();
+  Future<void> _loadAddresses() async {
+    final addresses = await _addressService.getMyAddresses();
+    if (!mounted) return;
+
+    setState(() {
+      _savedAddresses = addresses;
+      _isLoadingAddresses = false;
+    });
+
+    final defaults = _savedAddresses.where((a) => a.isDefault).toList();
     if (defaults.isNotEmpty) {
       _selectAddress(defaults.first);
+    } else if (_savedAddresses.isNotEmpty) {
+      _selectAddress(_savedAddresses.first);
     }
   }
 
-  // ── Pull name + phone from the logged-in user's metadata ─────────────
-  void _loadUserInfo() {
+  Future<void> _loadUserInfo() async {
     final user = Supabase.instance.client.auth.currentUser;
     if (user == null) return;
 
-    final Map<String, dynamic> meta = user.userMetadata ?? {};
-    final String firstName = meta['first_name'] ?? '';
-    final String lastName  = meta['last_name']  ?? '';
-    final String phone     = meta['phone']       ?? '';
+    try {
+      final profile = await Supabase.instance.client
+          .from('users')
+          .select('first_name, last_name, phone')
+          .eq('id', user.id)
+          .single();
 
-    setState(() {
-      _userName  = '$firstName $lastName'.trim();
-      _userPhone = phone;
-    });
+      if (!mounted) return;
+      setState(() {
+        _userName = '${profile['first_name'] ?? ''} ${profile['last_name'] ?? ''}'.trim();
+        _userPhone = profile['phone'] ?? '';
+      });
+    } catch (e) {
+      print('CheckoutStep1Shipping._loadUserInfo error: $e');
+    }
   }
-
-  // ── Handlers ──────────────────────────────────────────────────────────
 
   void _selectAddress(CustomerAddress address) {
     setState(() {
@@ -103,48 +114,86 @@ class _CheckoutStep1ShippingState extends State<CheckoutStep1Shipping> {
     });
   }
 
-  Future<void> _editAddress(CustomerAddress address) async {
+Future<void> _editAddress(CustomerAddress address) async {
+    if (_isSavingAddress) return;
+
     final CustomerAddress? result = await showAddressBottomSheet(
       context: context,
       existing: address,
     );
     if (result == null) return;
 
-    setState(() {
-      final int idx = _savedAddresses.indexWhere((a) => a.id == result.id);
-      if (idx == -1) return;
+    setState(() => _isSavingAddress = true);
+    await _loadAddresses();
 
-      if (result.isDefault) {
-        for (int i = 0; i < _savedAddresses.length; i = i + 1) {
-          _savedAddresses[i] = _savedAddresses[i].copyWith(isDefault: false);
-        }
-      }
-      _savedAddresses[idx] = result;
+    if (!mounted) return;
+    setState(() => _isSavingAddress = false);
 
-      // Keep selection in sync
-      if (_selectedAddressId == result.id) {
-        _selectedAddress = result;
-      }
-    });
+    final updated = _savedAddresses.where((a) => a.id == result.id).toList();
+    if (updated.isNotEmpty) _selectAddress(updated.first);
   }
 
-  Future<void> _addNew() async {
+Future<void> _addNew() async {
+    if (_isSavingAddress) return;
+
     final CustomerAddress? result = await showAddressBottomSheet(
       context: context,
       existing: null,
     );
     if (result == null) return;
 
-    setState(() {
-      if (result.isDefault) {
-        for (int i = 0; i < _savedAddresses.length; i = i + 1) {
-          _savedAddresses[i] = _savedAddresses[i].copyWith(isDefault: false);
-        }
-      }
-      _savedAddresses.add(result);
-      _selectedAddressId = result.id;
-      _selectedAddress   = result;
-    });
+    setState(() => _isSavingAddress = true);
+    await _loadAddresses();
+
+    if (!mounted) return;
+    setState(() => _isSavingAddress = false);
+
+    if (_savedAddresses.isNotEmpty) {
+      _selectAddress(_savedAddresses.last);
+    }
+  }
+
+  Future<void> _deleteAddress(CustomerAddress address) async {
+    if (_isSavingAddress) return;
+
+    final bool? confirmed = await showConfirmDialog(
+      context: context,
+      title: 'Delete this address?',
+      message: 'This cannot be undone.',
+      confirmLabel: 'Delete',
+      confirmColor: const Color(0xFFBA1A1A),
+    );
+    if (confirmed != true) return;
+
+setState(() => _isSavingAddress = true);
+    final errorMessage = await _addressService.deleteAddress(address);
+
+    if (!mounted) return;
+    setState(() => _isSavingAddress = false);
+
+    if (errorMessage != null) {
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(
+          content: Text(errorMessage),
+          backgroundColor: Colors.black,
+        ),
+      );
+      return;
+    }
+
+    final wasSelected = _selectedAddressId == address.id;
+    await _loadAddresses();
+
+    // _loadAddresses() already auto-selects default/first — but only
+    // clear the old selection first if it was the one just deleted,
+    // so a stale _selectedAddress object doesn't linger if the list
+    // is now empty.
+    if (wasSelected && _savedAddresses.isEmpty) {
+      setState(() {
+        _selectedAddressId = null;
+        _selectedAddress = null;
+      });
+    }
   }
 
   void _handleContinue() {
@@ -174,6 +223,13 @@ class _CheckoutStep1ShippingState extends State<CheckoutStep1Shipping> {
 
   @override
   Widget build(BuildContext context) {
+    if (_isLoadingAddresses) {
+      return const Padding(
+        padding: EdgeInsets.symmetric(vertical: 64),
+        child: Center(child: CircularProgressIndicator(color: Colors.black)),
+      );
+    }
+
     return LayoutBuilder(
       builder: (BuildContext context, BoxConstraints constraints) {
         final bool isDesktop = constraints.maxWidth >= 1024;
@@ -181,8 +237,6 @@ class _CheckoutStep1ShippingState extends State<CheckoutStep1Shipping> {
         final Widget formContent = Column(
           crossAxisAlignment: CrossAxisAlignment.start,
           children: [
-
-            // ── Saved address selector ───────────────────────────
             CheckoutAddressSelector(
               addresses:         _savedAddresses,
               selectedAddressId: _selectedAddressId,
@@ -192,10 +246,10 @@ class _CheckoutStep1ShippingState extends State<CheckoutStep1Shipping> {
                 if (address != null) _selectAddress(address);
               },
               onEdit:   _editAddress,
+              onDelete: _deleteAddress,
               onAddNew: _addNew,
             ),
 
-            // ── Delivering to summary ────────────────────────────
             if (_selectedAddress != null) ...[
               const Text(
                 'DELIVERING TO',
@@ -215,8 +269,6 @@ class _CheckoutStep1ShippingState extends State<CheckoutStep1Shipping> {
                 child: Column(
                   crossAxisAlignment: CrossAxisAlignment.start,
                   children: [
-
-                    // Name from profile
                     if (_userName.isNotEmpty)
                       Text(
                         _userName,
@@ -227,9 +279,7 @@ class _CheckoutStep1ShippingState extends State<CheckoutStep1Shipping> {
                           color: Colors.black,
                         ),
                       ),
-
                     const SizedBox(height: 4),
-
                     Text(
                       _selectedAddress!.street,
                       style: const TextStyle(
@@ -238,7 +288,6 @@ class _CheckoutStep1ShippingState extends State<CheckoutStep1Shipping> {
                         color: Color(0xFF4C4546),
                       ),
                     ),
-
                     if (_selectedAddress!.barangay.isNotEmpty)
                       Text(
                         _selectedAddress!.barangay,
@@ -248,7 +297,6 @@ class _CheckoutStep1ShippingState extends State<CheckoutStep1Shipping> {
                           color: Color(0xFF4C4546),
                         ),
                       ),
-
                     Text(
                       [
                         _selectedAddress!.city,
@@ -261,7 +309,6 @@ class _CheckoutStep1ShippingState extends State<CheckoutStep1Shipping> {
                         color: Color(0xFF4C4546),
                       ),
                     ),
-
                     if (_selectedAddress!.region.isNotEmpty)
                       Text(
                         _selectedAddress!.region,
@@ -271,7 +318,6 @@ class _CheckoutStep1ShippingState extends State<CheckoutStep1Shipping> {
                           color: Color(0xFF4C4546),
                         ),
                       ),
-
                     if (_selectedAddress!.landmark.isNotEmpty)
                       Text(
                         _selectedAddress!.landmark,
@@ -282,7 +328,6 @@ class _CheckoutStep1ShippingState extends State<CheckoutStep1Shipping> {
                           fontStyle: FontStyle.italic,
                         ),
                       ),
-
                     if (_userPhone.isNotEmpty) ...[
                       const SizedBox(height: 4),
                       Text(
@@ -300,7 +345,6 @@ class _CheckoutStep1ShippingState extends State<CheckoutStep1Shipping> {
               const SizedBox(height: 48),
             ],
 
-            // ── Continue button ──────────────────────────────────
             _ContinueButton(onTap: _handleContinue),
           ],
         );
@@ -337,8 +381,6 @@ class _CheckoutStep1ShippingState extends State<CheckoutStep1Shipping> {
     );
   }
 }
-
-// ─── Continue button ──────────────────────────────────────────────────────────
 
 class _ContinueButton extends StatefulWidget {
   final VoidCallback onTap;

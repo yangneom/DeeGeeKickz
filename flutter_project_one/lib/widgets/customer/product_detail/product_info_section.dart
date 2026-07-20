@@ -1,4 +1,5 @@
 import 'package:flutter/material.dart';
+import '../../../core/utils/auth_gate.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
  
 import '../../../models/product.dart';
@@ -135,7 +136,7 @@ Discount? get _discount {
     final double unitPrice = _applyDiscount(_selectedVariant.retailPrice);
  
     final cartItem = CustomerCartItem(
-      productId: widget.product.productId,
+      productId: int.tryParse(widget.product.productId) ?? 0,  // ← was a raw String
       productName: widget.product.productName,
       brand: widget.product.brand,
       color: _selectedVariant.color,
@@ -488,11 +489,7 @@ Discount? get _discount {
         const SizedBox(height: 8),
  
         TextButton.icon(
-          onPressed: () {
-            Navigator.of(context).push(MaterialPageRoute(
-              builder: (_) => const CustomerChatScreen(),
-            ));
-          },
+          onPressed: () => requireAuth(context, const CustomerChatScreen()),
           icon: const Icon(Icons.chat_bubble_outline,
               size: 18, color: Color(0xFF656464)),
           label: const Text(

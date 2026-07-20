@@ -1,16 +1,4 @@
 // supabase/functions/ai-dashboard/index.ts
-//
-// Handles three Groq-powered predictions for the Super Admin
-// dashboard. All math that matters for business decisions
-// (days-until-stockout, recommended restock qty) is computed
-// deterministically in this function BEFORE calling Groq —
-// Groq is only used to rank/prioritize and produce short
-// natural-language insight text. This avoids letting an LLM
-// hallucinate inventory numbers that could lead to bad
-// purchasing decisions.
-//
-// POST body: { action: 'trend' | 'trending' | 'restock', payload: {...} }
-
 import { serve } from "https://deno.land/std@0.168.0/http/server.ts";
 
 const GROQ_API_KEY = Deno.env.get("GROQ_API_KEY")!;
@@ -51,10 +39,8 @@ async function callGroq(systemPrompt: string, userPrompt: string) {
   return JSON.parse(content);
 }
 
-// ── Sales Trend Prediction ──────────────────────────────────
 async function handleTrend(payload: { monthlySales: number[] }) {
   const { monthlySales } = payload;
-
   const result = await callGroq(
     `You are a retail sales forecaster for a sneaker store. Given a list of ` +
     `monthly revenue figures (in PHP), predict the next 3 months and give a ` +
@@ -62,19 +48,13 @@ async function handleTrend(payload: { monthlySales: number[] }) {
     `{"predictedSales": [number, number, number], "insight": "string"}`,
     `Monthly sales history (oldest to newest): ${JSON.stringify(monthlySales)}`
   );
-
   return result;
 }
 
-// ── AI Trending Shoes ────────────────────────────────────────
-// Growth % is computed deterministically by the client before
-// this call (real math on real order data) — Groq's job here
-// is purely to rank and phrase, not invent numbers.
 async function handleTrending(payload: {
   salesData: { productName: string; salesCount: number; growthPercent: number }[];
 }) {
   const { salesData } = payload;
-
   const result = await callGroq(
     `You are analyzing real sneaker sales data (numbers are already computed, ` +
     `do not change them). Select and rank the top trending products. ` +
@@ -83,40 +63,56 @@ async function handleTrending(payload: {
     `numbers given, just reordered/selected by significance.`,
     `Sales data: ${JSON.stringify(salesData)}`
   );
-
   return result;
 }
 
 // ── Restock Prediction ───────────────────────────────────────
-// daysUntilStockout and recommendedRestock are computed here in
-// TypeScript (deterministic), not by the LLM. Groq only adds a
-// short prioritization/insight note.
+// "target" = ideal stock level for 30 days of runway at current
+// sales pace. This replaces the old fake maxStock:100 placeholder —
+// the progress bar now compares real stock against a real,
+// sales-driven target instead of a made-up ceiling.
 async function handleRestock(payload: {
-  inventoryData: { productName: string; currentStock: number; maxStock: number; dailySalesRate: number }[];
+  inventoryData: { productName: string; currentStock: number; dailySalesRate: number }[];
 }) {
   const { inventoryData } = payload;
 
   const computed = inventoryData.map((item) => {
     const rate = item.dailySalesRate > 0 ? item.dailySalesRate : 0.1;
     const daysUntilStockout = Math.max(0, Math.round(item.currentStock / rate));
-    // Target: enough stock for 30 days at current rate, minus what's on hand
-    const target = Math.ceil(rate * 30);
+    const target = Math.ceil(rate * 30); // ideal 30-day stock level
     const recommendedRestock = Math.max(0, target - item.currentStock);
 
     return {
       productName: item.productName,
       currentStock: item.currentStock,
-      maxStock: item.maxStock,
+      idealStock: target,          // ← new: real number, replaces fake maxStock
       daysUntilStockout,
       recommendedRestock,
     };
   });
 
-  // Sort most urgent first — no AI needed for this, but ask Groq
-  // for a one-line insight per item to keep the "AI Powered" badge honest.
   computed.sort((a, b) => a.daysUntilStockout - b.daysUntilStockout);
 
-  return { restockItems: computed };
+  if (computed.length === 0) {
+    return { restockItems: [] };
+  }
+
+  try {
+    const withInsights = await callGroq(
+      `You are a retail inventory assistant for a sneaker store. You will be ` +
+      `given a list of products with precomputed stockout data (do not change ` +
+      `any numbers). For each item, add a short one-sentence "insight" — a ` +
+      `practical note about urgency or suggested action. Respond ONLY with JSON: ` +
+      `{"restockItems": [{"productName": "string", "currentStock": number, ` +
+      `"idealStock": number, "daysUntilStockout": number, "recommendedRestock": number, ` +
+      `"insight": "string"}]} preserving every item and every number exactly as given.`,
+      `Restock data: ${JSON.stringify(computed)}`
+    );
+    return withInsights;
+  } catch (err) {
+    console.error("Groq insight generation failed, falling back to raw data:", err);
+    return { restockItems: computed };
+  }
 }
 
 serve(async (req) => {

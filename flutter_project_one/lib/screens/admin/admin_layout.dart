@@ -2,6 +2,7 @@ import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import '../../widgets/admin/sidebar/admin_sidebar.dart';
 import '../../widgets/admin/topbar/admin_top_bar.dart';
+import 'notification/admin_notification_screen.dart';
 import 'dashboard/admin_dashboard_screen.dart';
 import 'inventory/inventory_screen.dart';
 import 'sales/sales_screen.dart';
@@ -62,7 +63,16 @@ class _AdminLayoutState extends ConsumerState<AdminLayout> {
 
     // check which index is selected
     if (_currentIndex == 0) {
-      return const AdminDashboardScreen();
+      // AdminDashboardScreen's "View details"/"View all" buttons call
+      // onNavigate(index) to jump to another sidebar section — this
+      // wires that back into the same setState this sidebar uses.
+      return AdminDashboardScreen(
+        onNavigate: (int index) {
+          setState(() {
+            _currentIndex = index;
+          });
+        },
+      );
     }
 
     if (_currentIndex == 1) {
@@ -91,11 +101,17 @@ class _AdminLayoutState extends ConsumerState<AdminLayout> {
     }
 
     if (_currentIndex == 7) {
-      return _buildComingSoon('Notification');
+      return const AdminNotificationsScreen();
     }
 
     // default — show dashboard
-    return const AdminDashboardScreen();
+    return AdminDashboardScreen(
+      onNavigate: (int index) {
+        setState(() {
+          _currentIndex = index;
+        });
+      },
+    );
   }
 
   // ================================================

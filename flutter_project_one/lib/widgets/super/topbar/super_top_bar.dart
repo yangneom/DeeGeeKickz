@@ -2,6 +2,7 @@ import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:supabase_flutter/supabase_flutter.dart';
 import '../../../providers/auth/auth_provider.dart';
+import '../../common/dialog/profile_dialog.dart';
 
 // ================================================
 // SUPER ADMIN TOP BAR
@@ -71,60 +72,85 @@ class SuperTopBar extends ConsumerWidget {
                 return FutureBuilder<Map<String, dynamic>?>(
                   future: Supabase.instance.client
                       .from('users')
-                      .select('first_name, last_name')
+                      .select('first_name, last_name, email, phone, role')
                       .eq('id', user.id)
                       .single()
                       .then((v) => v),
                   builder: (context, snapshot) {
 
+                    String firstName = '';
+                    String lastName = '';
                     String displayName = user.email ?? '';
+                    String email = user.email ?? '';
+                    String phone = '';
+                    String role = '';
 
                     if (snapshot.hasData && snapshot.data != null) {
-                      final first = snapshot.data!['first_name'] ?? '';
-                      final last = snapshot.data!['last_name'] ?? '';
-                      displayName = '$first $last'.trim();
+                      final data = snapshot.data!;
+                      firstName = data['first_name'] ?? '';
+                      lastName = data['last_name'] ?? '';
+                      displayName = '$firstName $lastName'.trim();
                       if (displayName.isEmpty) {
                         displayName = user.email ?? '';
                       }
+                      email = data['email'] ?? email;
+                      phone = data['phone'] ?? '';
+                      role = data['role'] ?? '';
                     }
 
-                    return Row(
-                      children: [
-                        CircleAvatar(
-                          radius: 16,
-                          backgroundColor: Colors.grey.shade200,
-                          child: const Icon(
-                            Icons.person,
-                            size: 16,
-                            color: Color(0xFF6B7280),
+                    return GestureDetector(
+                      onTap: () {
+                        showDialog(
+                          context: context,
+                          builder: (_) => ProfileDialog(
+                            userId: user.id,
+                            firstName: firstName,
+                            lastName: lastName,
+                            email: email,
+                            phone: phone,
+                            role: role,
+                            canEdit: true,
                           ),
-                        ),
-                        const SizedBox(width: 8),
-                        Column(
-                          mainAxisAlignment: MainAxisAlignment.center,
-                          crossAxisAlignment: CrossAxisAlignment.start,
-                          children: [
-                            const Text(
-                              'Hello',
-                              style: TextStyle(
-                                fontSize: 11,
-                                color: Color(0xFF9CA3AF),
-                              ),
+                        );
+                      },
+                      child: Row(
+                        children: [
+                          CircleAvatar(
+                            radius: 16,
+                            backgroundColor: Colors.grey.shade200,
+                            child: const Icon(
+                              Icons.person,
+                              size: 16,
+                              color: Color(0xFF6B7280),
                             ),
-                            const SizedBox(height: 2),
-                            Text(
-                              displayName,
-                              style: const TextStyle(
-                                fontSize: 13,
-                                fontWeight: FontWeight.w600,
-                                color: Color(0xFF374151),
+                          ),
+                          const SizedBox(width: 8),
+                          Column(
+                            mainAxisAlignment: MainAxisAlignment.center,
+                            crossAxisAlignment: CrossAxisAlignment.start,
+                            children: [
+                              const Text(
+                                'Hello',
+                                style: TextStyle(
+                                  fontSize: 11,
+                                  color: Color(0xFF9CA3AF),
+                                ),
                               ),
-                              overflow: TextOverflow.ellipsis,
-                              maxLines: 1,
-                            ),
-                          ],
-                        ),
-                      ],
+                              const SizedBox(height: 2),
+                              Text(
+                                displayName,
+                                style: const TextStyle(
+                                  fontSize: 13,
+                                  fontWeight: FontWeight.w600,
+                                  color: Color(0xFF374151),
+                                ),
+                                overflow: TextOverflow.ellipsis,
+                                maxLines: 1,
+                              ),
+                            ],
+                          ),
+                        ],
+                      ),
                     );
                   },
                 );

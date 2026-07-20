@@ -41,7 +41,7 @@ class CustomerAddress {
     return parts.join(', ');
   }
 
-  CustomerAddress copyWith({
+CustomerAddress copyWith({
     String? id,
     String? street,
     String? barangay,
@@ -63,6 +63,34 @@ class CustomerAddress {
       landmark:  landmark  ?? this.landmark,
       isDefault: isDefault ?? this.isDefault,
     );
+  }
+
+  factory CustomerAddress.fromJson(Map<String, dynamic> json) {
+    return CustomerAddress(
+      id: (json['address_id'] as num).toString(),
+      street: json['street'] as String? ?? '',
+      barangay: json['barangay'] as String? ?? '',
+      city: json['city'] as String? ?? '',
+      province: json['province'] as String? ?? '',
+      region: json['region'] as String? ?? '',
+      zipCode: json['zip_code'] as String? ?? '',
+      landmark: json['landmark'] as String? ?? '',
+      isDefault: json['is_default'] as bool? ?? false,
+    );
+  }
+
+  Map<String, dynamic> toJson({required String userId}) {
+    return {
+      'user_id': userId,
+      'street': street,
+      'barangay': barangay,
+      'city': city,
+      'province': province,
+      'region': region,
+      'zip_code': zipCode,
+      'landmark': landmark,
+      'is_default': isDefault,
+    };
   }
 }
 

@@ -7,6 +7,7 @@ import 'admin_management/admin_management_screen.dart';
 import 'admin_management/customer_management_screen.dart';
 import '../super/sales/sales_report_screen.dart';                  // ← FIXED
 import 'activity_log/activity_log_screen.dart';
+import 'notification/super_admin_notification_screen.dart';
 import '../../screens/admin/feedback/feedback_screen.dart';
 
 
@@ -71,8 +72,8 @@ class _SuperLayoutState extends ConsumerState<SuperLayout> {
       return const FeedbackScreen();    
     }
 
-    if (_currentIndex == 5) {
-      return _buildComingSoon('Notification');
+   if (_currentIndex == 5) {
+      return const SuperNotificationsScreen();
     }
 
     if (_currentIndex == 6) {

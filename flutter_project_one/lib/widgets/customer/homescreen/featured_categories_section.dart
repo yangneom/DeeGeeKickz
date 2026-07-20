@@ -1,5 +1,6 @@
 import 'package:flutter/material.dart';
 import '../../../models/category_model.dart';
+import '../../../screens/customer/shop_screen.dart/shop_screen.dart'; // adjust to your real relative path
 
 /// Featured Categories bento grid.
 ///
@@ -142,7 +143,10 @@ class _CategoryTile extends StatefulWidget {
 }
 
 class _CategoryTileState extends State<_CategoryTile> {
-  bool _hovering = false;
+  bool _hovering = false; // desktop mouse
+  bool _pressed = false;  // touch / Android
+
+  bool get _active => _hovering || _pressed;
 
   static const _grayscaleFilter = ColorFilter.matrix(<double>[
     0.2126, 0.7152, 0.0722, 0, 0,
@@ -157,7 +161,14 @@ class _CategoryTileState extends State<_CategoryTile> {
       onEnter: (_) => setState(() => _hovering = true),
       onExit: (_) => setState(() => _hovering = false),
       child: GestureDetector(
-        onTap: () {},
+        onTapDown: (_) => setState(() => _pressed = true),
+        onTapCancel: () => setState(() => _pressed = false),
+        onTapUp: (_) => setState(() => _pressed = false),
+        onTap: () {
+          Navigator.of(context).push(
+            MaterialPageRoute(builder: (_) => const ShopScreen()),
+          );
+        },
         child: ClipRect(
           child: Stack(
             fit: StackFit.expand,

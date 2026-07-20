@@ -10,6 +10,12 @@ import 'screens/customer/homescreen/home_screen.dart';
 import 'screens/customer/orders/order_history_screen.dart';
 import 'screens/auth/set_password_screen.dart';
 import 'screens/auth/login_screen.dart';
+import 'providers/customer/customer_cart_provider.dart';
+
+// Global navigator key — lets any file navigate without needing a
+// local BuildContext that might get unmounted mid-flow (e.g. checkout
+// screens that disappear the instant the cart clears).
+final GlobalKey<NavigatorState> appNavigatorKey = GlobalKey<NavigatorState>();
 
 // ================================================
 // MAIN FUNCTION
@@ -22,10 +28,6 @@ void main() async {
   await Supabase.initialize(
     url: dotenv.env['SUPABASE_URL']!,
     anonKey: dotenv.env['SUPABASE_ANON_KEY']!,
-    // ↓ THIS is the key fix for Flutter Web invite links.
-    // Tells Supabase to read the access_token from the URL
-    // hash (#access_token=...&type=invite) automatically
-    // during initialization, before runApp() is called.
     authOptions: const FlutterAuthClientOptions(
       authFlowType: AuthFlowType.implicit,
     ),
@@ -73,16 +75,16 @@ void main() async {
 // ================================================
 // MY APP
 // ================================================
-class MyApp extends StatefulWidget {
+class MyApp extends ConsumerStatefulWidget {
   final Widget startScreen;
   const MyApp({super.key, required this.startScreen});
 
   @override
-  State<MyApp> createState() => _MyAppState();
+  ConsumerState<MyApp> createState() => _MyAppState();
 }
 
-class _MyAppState extends State<MyApp> {
-  final GlobalKey<NavigatorState> _navigatorKey = GlobalKey<NavigatorState>();
+class _MyAppState extends ConsumerState<MyApp> {
+  final GlobalKey<NavigatorState> _navigatorKey = appNavigatorKey;
   AppLinks? _appLinks;
 
   @override
@@ -92,6 +94,16 @@ class _MyAppState extends State<MyApp> {
       _initDeepLinks();
     }
     _listenForAuthEvents();
+    WidgetsBinding.instance.addPostFrameCallback((_) => _loadInitialCart());
+  }
+
+  Future<void> _loadInitialCart() async {
+    final user = Supabase.instance.client.auth.currentUser;
+    if (user != null) {
+      await ref.read(customerCartProvider.notifier).loadFromSupabase();
+    } else {
+      await ref.read(customerCartProvider.notifier).loadGuestCartFromLocal();
+    }
   }
 
   void _initDeepLinks() {
@@ -163,6 +175,8 @@ class _MyAppState extends State<MyApp> {
               );
             });
           }
+
+          await ref.read(customerCartProvider.notifier).mergeGuestCartIntoAccount();
         } catch (e) {
           print('Auth event profile check error: $e');
         }
