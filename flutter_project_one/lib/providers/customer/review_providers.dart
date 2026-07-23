@@ -122,6 +122,31 @@ final reviewSubmitProvider =
 });
 
 // ============================================================
+// CUSTOMER — ADD REPLY TO THREAD
+// Refreshes this product's review list on success so the new
+// reply shows up immediately without a manual reload.
+// ============================================================
+typedef ReplySubmitFn = Future<String?> Function({
+  required int feedbackId,
+  required int productId,
+  required String replyText,
+});
+
+final replySubmitProvider = Provider<ReplySubmitFn>((ref) {
+  return ({required feedbackId, required productId, required replyText}) async {
+    final service = ref.read(reviewServiceProvider);
+    final String? error = await service.addReply(
+      feedbackId: feedbackId,
+      replyText: replyText,
+    );
+    if (error == null) {
+      ref.invalidate(productReviewsProvider(productId));
+    }
+    return error;
+  };
+});
+
+// ============================================================
 // ADMIN — ALL FEEDBACK
 // ============================================================
 

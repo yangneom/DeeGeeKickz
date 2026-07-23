@@ -3,11 +3,15 @@ import '../../../models/customer_cart_item.dart';
 
 /// Right-side order summary panel on the checkout screen.
 /// Shows product thumbnails, line totals, and Place Order CTA.
+///
+/// UPDATE: Tax row removed — this business only charges for the
+/// item price + Lalamove shipping fee, no separate tax line.
+/// UPDATE: currency symbol changed from $ to ₱ (Philippine peso)
+/// throughout, since this is a PH-only nationwide store.
 class CheckoutOrderSummary extends StatelessWidget {
   final List<CustomerCartItem> items;
   final double subtotal;
   final double shipping;
-  final double tax;
   final double total;
   final VoidCallback onPlaceOrder;
   final bool showPlaceOrder;
@@ -18,8 +22,7 @@ class CheckoutOrderSummary extends StatelessWidget {
     required this.items,
     required this.subtotal,
     required this.shipping,
-    required this.tax,
-    required this.total,
+  required this.total,
     required this.onPlaceOrder,
     this.showPlaceOrder = true,
     this.isProcessing = false,
@@ -93,7 +96,7 @@ class CheckoutOrderSummary extends StatelessWidget {
                           ),
                           const SizedBox(height: 4),
                           Text(
-                            '\$${item.subtotal.toStringAsFixed(2)}',
+                            '₱${item.subtotal.toStringAsFixed(2)}',
                             style: const TextStyle(
                               fontFamily: 'Inter',
                               fontSize: 14,
@@ -112,16 +115,16 @@ class CheckoutOrderSummary extends StatelessWidget {
           const Divider(color: Color(0xFFCFC4C5), thickness: 1, height: 32),
 
           // ── Totals ───────────────────────────────────
-          _Row(label: 'Subtotal', value: '\$${subtotal.toStringAsFixed(2)}'),
+          // NOTE: Tax row removed on purpose — only item price +
+          // Lalamove shipping fee are charged.
+          _Row(label: 'Subtotal', value: '₱${subtotal.toStringAsFixed(2)}'),
           const SizedBox(height: 8),
           _Row(
             label: 'Shipping',
             value: shipping == 0.0
                 ? 'FREE'
-                : '\$${shipping.toStringAsFixed(2)}',
+                : '₱${shipping.toStringAsFixed(2)}',
           ),
-          const SizedBox(height: 8),
-          _Row(label: 'Tax', value: '\$${tax.toStringAsFixed(2)}'),
 
           const SizedBox(height: 16),
           const Divider(color: Colors.black, thickness: 1, height: 1),
@@ -140,7 +143,7 @@ class CheckoutOrderSummary extends StatelessWidget {
                 ),
               ),
               Text(
-                '\$${total.toStringAsFixed(2)}',
+                '₱${total.toStringAsFixed(2)}',
                 style: const TextStyle(
                   fontFamily: 'Archivo Narrow',
                   fontSize: 32,

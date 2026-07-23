@@ -47,6 +47,7 @@ class ChatService {
   }
 
   // ── Send a message ─────────────────────────────────────────────
+// ── Send a message ─────────────────────────────────────────────
   Future<void> sendMessage({
     required String conversationId,
     required String senderId,
@@ -60,6 +61,65 @@ class ChatService {
       'message_text':    text,
       'is_read':         false,
     });
+
+   // Only notify staff when the CUSTOMER sends a message — not when
+    // an admin replies in their own conversation.
+    if (senderRole.toLowerCase() == 'customer') {
+      await _notifyStaffNewMessage(
+        conversationId: conversationId,
+        customerId: senderId,
+        text: text,
+      );
+    }
+  }
+
+  // ================================================
+  // NOTIFY STAFF — NEW MESSAGE
+  // Recipient: Admin only (Super Admin has no chat screen).
+  // ================================================
+  Future<void> _notifyStaffNewMessage({
+    required String conversationId,
+    required String customerId,
+    required String text,
+  }) async {
+    try {
+      String customerName = 'A customer';
+      try {
+        final row = await _client
+            .from('users')
+            .select('first_name, last_name')
+            .eq('id', customerId)
+            .single();
+        final firstName = row['first_name']?.toString() ?? '';
+        final lastName = row['last_name']?.toString() ?? '';
+        final full = '$firstName $lastName'.trim();
+        if (full.isNotEmpty) customerName = full;
+      } catch (_) {
+        // fall back to the generic label above
+      }
+
+      final preview = text.trim().length > 60
+          ? '${text.trim().substring(0, 60)}...'
+          : text.trim();
+
+      final staff = await _client
+          .from('users')
+          .select('id')
+          .eq('role', 'Admin');
+
+      if ((staff as List).isEmpty) return;
+
+      final rows = staff.map((u) => {
+            'customer_id': u['id'],
+            'type': 'new_message',
+            'title': 'New message from $customerName',
+            'body': preview,
+          }).toList();
+
+      await _client.from('notifications').insert(rows); // NO .select() !
+    } catch (error) {
+      print('_notifyStaffNewMessage error: $error');
+    }
   }
 
   // ── Subscribe to new messages in a conversation (Realtime) ─────

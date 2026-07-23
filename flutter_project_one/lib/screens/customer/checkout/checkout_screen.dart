@@ -30,6 +30,7 @@ class _CheckoutScreenState extends ConsumerState<CheckoutScreen> {
   int _currentStep = 1;
 
   // ── Shared shipping state ─────────────────────────────────────────────
+  String? addressId;
   String street   = '';
   String barangay = '';
   String city     = '';
@@ -37,6 +38,20 @@ class _CheckoutScreenState extends ConsumerState<CheckoutScreen> {
   String region   = '';
   String zipCode  = '';
   String landmark = '';
+
+  // ── Real shipping fee (from Lalamove, via Step 1) ─────────────────────
+  // Starts at the old flat-rate default so totals still render sensibly
+  // before Step 1's first quote comes back; Step 1 overwrites this the
+  // moment an address is selected.
+  double _shippingFee = 10.0;
+  bool   _isLoadingShippingFee = false;
+
+  void _onShippingFeeChanged(double fee, bool isLoading) {
+    setState(() {
+      _shippingFee = fee;
+      _isLoadingShippingFee = isLoading;
+    });
+  }
 
   // ── Customer info ─────────────────────────────────────────────────────
   String customerName  = '';
@@ -87,6 +102,7 @@ class _CheckoutScreenState extends ConsumerState<CheckoutScreen> {
   void _goToStep(int step) => setState(() => _currentStep = step);
 
   void _onShippingContinue({
+    String? addressId,
     required String street,
     required String barangay,
     required String city,
@@ -96,6 +112,7 @@ class _CheckoutScreenState extends ConsumerState<CheckoutScreen> {
     required String landmark,
   }) {
     setState(() {
+      this.addressId = addressId;
       this.street   = street;
       this.barangay = barangay;
       this.city     = city;
@@ -123,11 +140,14 @@ class _CheckoutScreenState extends ConsumerState<CheckoutScreen> {
       (sum, item) => sum + item.subtotal,
     );
 
-    final double shipping = subtotal >= 150 ? 0.0 : 10.0;
+    // Real Lalamove-quoted fee, set by Step 1 — NOT the old
+    // `subtotal >= 150 ? 0 : 10` flat rule.
+    final double shipping = _shippingFee;
     final double total    = subtotal + shipping;
 
-    final int orderId = await OrderService().createOrder(
+  final int orderId = await OrderService().createOrder(
   userId:        user.id,
+  addressId:     addressId,
   street:        street,
   city:          city,
   postal:        zipCode,
@@ -163,9 +183,13 @@ return orderId;
       (sum, item) => sum + item.subtotal,
     );
 
-    final double tax      = subtotal * 0.08;
-    final double shipping = subtotal >= 150 ? 0.0 : 10.0;
-    final double total    = subtotal + tax + shipping;
+    // Tax removed on purpose — only item price + Lalamove shipping
+    // fee are charged. `tax` stays as a param passed to Step 2/3
+    // below (still 0.0) purely so those widgets' constructors don't
+    // need touching, but nothing renders a Tax row anymore.
+    final double tax       = 0.0;
+    final double shipping = _shippingFee; // ← real Lalamove fee, not flat rate
+    final double total    = subtotal + shipping;
 
 
     if (items.isEmpty) {
@@ -226,6 +250,7 @@ return orderId;
                             shipping:        shipping,
                             tax:             tax,
                             total:           total,
+                            onShippingFeeChanged: _onShippingFeeChanged,
                             onContinue:      _onShippingContinue,
                           ),
 

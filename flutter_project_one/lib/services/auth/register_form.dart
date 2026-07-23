@@ -1,12 +1,19 @@
 // Basic Flutter import
 import 'package:flutter/material.dart';
 
+// Needed for TapGestureRecognizer, which lets us make a single word
+// inside a RichText/TextSpan tappable (a plain GestureDetector only
+// works on whole widgets, not on a span of text inside a paragraph).
+import 'package:flutter/gestures.dart';
+
 // Riverpod import
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 
 // Our providers
 import '../../providers/auth/auth_provider.dart';
 import '../../screens/auth/otp_screen.dart';
+import '../../screens/auth/privacy_policy_screen.dart';
+import '../../screens/auth/terms_of_use_screen.dart';
 
 class RegisterForm extends ConsumerStatefulWidget {
   const RegisterForm({super.key});
@@ -28,8 +35,50 @@ class _RegisterFormState extends ConsumerState<RegisterForm> {
   bool _isConfirmPasswordVisible = false;
   bool _isSubmitting = false;
 
-
   final GlobalKey<FormState> _formKey = GlobalKey<FormState>();
+
+  // ================================================
+  // TAP RECOGNIZERS FOR THE FOOTER LINKS
+  //
+  // "late final" means: this variable doesn't have a value yet at
+  // the moment the class is created, but it WILL be given exactly
+  // one value later (in initState below) before it's ever used.
+  //
+  // We need one of these per tappable word. Each recognizer is the
+  // object that actually listens for a tap and runs a function when
+  // it happens -- it's the TextSpan equivalent of an onTap callback
+  // on a button.
+  // ================================================
+  late final TapGestureRecognizer _privacyPolicyTapRecognizer;
+  late final TapGestureRecognizer _termsOfUseTapRecognizer;
+
+  @override
+  void initState() {
+    super.initState();
+
+    // Set up what happens when the user taps "Privacy Policy" in the
+    // footer text. We create the recognizer once here, instead of
+    // inside build(), so we don't create a brand new recognizer every
+    // single time this widget rebuilds.
+    _privacyPolicyTapRecognizer = TapGestureRecognizer()
+      ..onTap = () {
+        Navigator.of(context).push(
+          MaterialPageRoute(
+            builder: (context) => const PrivacyPolicyScreen(),
+          ),
+        );
+      };
+
+    // Same idea, but for "Terms of Use".
+    _termsOfUseTapRecognizer = TapGestureRecognizer()
+      ..onTap = () {
+        Navigator.of(context).push(
+          MaterialPageRoute(
+            builder: (context) => const TermsOfUseScreen(),
+          ),
+        );
+      };
+  }
 
   @override
   void dispose() {
@@ -39,9 +88,18 @@ class _RegisterFormState extends ConsumerState<RegisterForm> {
     _emailController.dispose();
     _passwordController.dispose();
     _confirmPasswordController.dispose();
+
+    // Just like TextEditingControllers, TapGestureRecognizers hold on
+    // to resources behind the scenes. If we don't dispose them here,
+    // Flutter will print a memory-leak warning in the console every
+    // time this screen is closed.
+    _privacyPolicyTapRecognizer.dispose();
+    _termsOfUseTapRecognizer.dispose();
+
     super.dispose();
   }
-Future<void> _handleRegister() async {
+
+  Future<void> _handleRegister() async {
 
     // Guard - don't allow a second submit while one is already running
     if (_isSubmitting) return;
@@ -763,7 +821,14 @@ Future<void> _handleRegister() async {
             const SizedBox(height: 20),
 
             // ================================================
-            // PRIVACY POLICY TEXT
+            // PRIVACY POLICY / TERMS OF USE FOOTER TEXT
+            //
+            // This whole paragraph is ONE RichText widget made up of
+            // several TextSpan "pieces" glued together. Two of those
+            // pieces -- "Privacy Policy" and "Terms of Use" -- have a
+            // `recognizer` attached, which is what makes just those
+            // two words tappable, while the rest of the sentence stays
+            // plain, non-tappable text.
             // ================================================
             Center(
               child: RichText(
@@ -781,6 +846,9 @@ Future<void> _handleRegister() async {
                         color: Colors.black,
                         decoration: TextDecoration.underline,
                       ),
+                      // Attaching the recognizer here is what makes
+                      // this specific span of text respond to taps.
+                      recognizer: _privacyPolicyTapRecognizer,
                     ),
                     const TextSpan(text: ' and '),
                     TextSpan(
@@ -789,6 +857,7 @@ Future<void> _handleRegister() async {
                         color: Colors.black,
                         decoration: TextDecoration.underline,
                       ),
+                      recognizer: _termsOfUseTapRecognizer,
                     ),
                     const TextSpan(text: '.'),
                   ],

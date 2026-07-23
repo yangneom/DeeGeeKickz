@@ -10,6 +10,8 @@
 
 import 'review_model.dart';
 
+export 'review_model.dart' show FeedbackReply;
+
 class FeedbackModel {
   final ReviewModel review; // the underlying review data
 
@@ -27,6 +29,7 @@ class FeedbackModel {
       '${review.createdAt.day.toString().padLeft(2, '0')}/'
       '${review.createdAt.year.toString().substring(2)}';
   String? get adminReply  => review.adminReply;
+  List<FeedbackReply> get replies => review.replies;
 
   // ── Factory: build from Supabase row ─────────────────────────
   factory FeedbackModel.fromSupabase(Map<String, dynamic> row) {
@@ -44,6 +47,7 @@ class FeedbackModel {
       'datePosted':      datePosted,
       'status':          status,
       'adminReply':      adminReply ?? '',
+      'replies':         replies,
       // keep original model accessible for service calls
       '_feedbackId':     id,
     };

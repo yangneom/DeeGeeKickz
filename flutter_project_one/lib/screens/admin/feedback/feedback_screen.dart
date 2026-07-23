@@ -290,8 +290,8 @@ class _FeedbackCard extends StatelessWidget {
           ),
 
           // ── Admin reply preview ──
-          if (feedback.adminReply != null &&
-              feedback.adminReply!.trim().isNotEmpty) ...[
+          // ── Latest reply preview (full thread lives in the dialog) ──
+          if (feedback.replies.isNotEmpty) ...[
             const SizedBox(height: 12),
             Container(
               padding: const EdgeInsets.all(10),
@@ -312,9 +312,11 @@ class _FeedbackCard extends StatelessWidget {
                       crossAxisAlignment:
                           CrossAxisAlignment.start,
                       children: [
-                        const Text(
-                          'Store Reply',
-                          style: TextStyle(
+                        Text(
+                          feedback.replies.length > 1
+                              ? 'Store Reply (${feedback.replies.length})'
+                              : 'Store Reply',
+                          style: const TextStyle(
                             fontSize: 11,
                             fontWeight: FontWeight.w700,
                             color: Color(0xFF0284C7),
@@ -323,7 +325,7 @@ class _FeedbackCard extends StatelessWidget {
                         ),
                         const SizedBox(height: 2),
                         Text(
-                          feedback.adminReply!,
+                          feedback.replies.last.replyText,
                           style: const TextStyle(
                             fontSize: 12,
                             color: Color(0xFF374151),

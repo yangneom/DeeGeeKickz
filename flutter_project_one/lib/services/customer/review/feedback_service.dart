@@ -14,7 +14,7 @@ class FeedbackService {
   final ActivityLogService _activityLog = ActivityLogService();
 
   // ── SELECT helper ─────────────────────────────────────────────
-  static const String _selectWithJoins = '''
+ static const String _selectWithJoins = '''
     feedback_id,
     user_id,
     product_id,
@@ -32,6 +32,16 @@ class FeedbackService {
     ),
     product (
       product_name
+    ),
+    feedback_replies (
+      reply_id,
+      reply_text,
+      created_at,
+      users (
+        first_name,
+        last_name,
+        role
+      )
     )
   ''';
 
@@ -198,6 +208,18 @@ class FeedbackService {
                          ? DateTime.now().toIso8601String()
                          : null,
       });
+
+      // 2b. Append to the public reply thread (feedback_replies).
+      // This is additive — feedback.admin_reply above still holds
+      // the latest reply for any older code reading that single
+      // field, while feedback_replies is the new full thread.
+      if (trimmedReply.isNotEmpty) {
+        await _supabase.from('feedback_replies').insert({
+          'feedback_id': feedbackId,
+          'author_id':   adminId,
+          'reply_text':  trimmedReply,
+        });
+      }
 
       // 3. Write to the global Activity Log — include the actual
       // reply text in the action string (truncated) and the full

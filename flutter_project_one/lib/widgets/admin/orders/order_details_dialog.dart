@@ -47,6 +47,10 @@ class _OrderDetailsDialogState extends State<OrderDetailsDialog> {
   late String _currentStatus;
   String?              _paymentStatus;   // tracked so action buttons can react
   bool                 _isSavingLink  = false;
+
+  // NEW — true while create-delivery-order is running (Mark Shipped tap)
+  bool                 _isBookingDelivery = false;
+
   Map<String, dynamic>? _cachedPayment;
   bool                 _paymentLoaded = false;
 
@@ -357,8 +361,6 @@ class _OrderDetailsDialogState extends State<OrderDetailsDialog> {
 
   // ================================================
   // PAYMENT SECTION
-  // Shows payment info + status only.
-  // Approve/Reject buttons are in _buildActionButtons.
   // ================================================
   Widget _buildPaymentSection() {
     return FutureBuilder<Map<String, dynamic>?>(
@@ -377,7 +379,6 @@ class _OrderDetailsDialogState extends State<OrderDetailsDialog> {
 
         final Map<String, dynamic>? payment = snapshot.data;
 
-        // Cache it so FutureBuilder doesn't re-fetch on rebuild
         if (!_paymentLoaded) {
           _cachedPayment  = payment;
           _paymentLoaded  = true;
@@ -402,7 +403,6 @@ class _OrderDetailsDialogState extends State<OrderDetailsDialog> {
         final String? receiptUrl    = payment['receipt_url']    as String?;
         final String  method        = payment['payment_method'] ?? '—';
 
-        // Sync payment status into state so _buildActionButtons can read it
         WidgetsBinding.instance.addPostFrameCallback((_) {
           if (mounted && _paymentStatus != paymentStatus) {
             setState(() => _paymentStatus = paymentStatus);
@@ -425,8 +425,6 @@ class _OrderDetailsDialogState extends State<OrderDetailsDialog> {
           child: Column(
             crossAxisAlignment: CrossAxisAlignment.start,
             children: [
-
-              // Header row
               Row(
                 mainAxisAlignment: MainAxisAlignment.spaceBetween,
                 children: [
@@ -441,18 +439,11 @@ class _OrderDetailsDialogState extends State<OrderDetailsDialog> {
                   _paymentStatusBadge(paymentStatus),
                 ],
               ),
-
               const SizedBox(height: 8),
-
               Text(
                 'Method: $method',
                 style: const TextStyle(fontSize: 12, color: Color(0xFF6B7280)),
               ),
-
-              // Rejection note
-              
-
-              // Cancel reason
               if (widget.order.cancelReason != null &&
                   widget.order.cancelReason!.isNotEmpty) ...[
                 const SizedBox(height: 8),
@@ -483,7 +474,6 @@ class _OrderDetailsDialogState extends State<OrderDetailsDialog> {
                   ),
                 ),
               ],
-              // Receipt link
               if (receiptUrl != null && receiptUrl.isNotEmpty) ...[
                 const SizedBox(height: 10),
                 GestureDetector(
@@ -526,9 +516,6 @@ class _OrderDetailsDialogState extends State<OrderDetailsDialog> {
       bg = const Color(0xFFD1FAE5); text = const Color(0xFF065F46); border = const Color(0xFF6EE7B7);
     }
     if (status == 'Verified') {
-      // Gateway confirmed the charge (gcash/card), but admin has not
-      // yet approved it — not a finalized sale yet, so this gets its
-      // own distinct color from 'Paid' rather than looking identical.
       bg = const Color(0xFFDBEAFE); text = const Color(0xFF1D4ED8); border = const Color(0xFF93C5FD);
     }
     if (status == 'Pending') {
@@ -560,6 +547,13 @@ class _OrderDetailsDialogState extends State<OrderDetailsDialog> {
 
   // ================================================
   // LALAMOVE LINK + ADMIN NOTE
+  //
+  // UPDATE: the Lalamove link field is now a FALLBACK, not the
+  // normal path. Normally "Mark Shipped" books Lalamove itself
+  // (see _buildActionButtons) and this field just displays the
+  // resulting link read-only-ish. It's only meant to be typed
+  // into if automatic booking fails (e.g. missing coordinates)
+  // and admin needs to paste a link obtained some other way.
   // ================================================
   Widget _buildAdminFields() {
     if (_isReadOnly) {
@@ -642,18 +636,42 @@ class _OrderDetailsDialogState extends State<OrderDetailsDialog> {
 
         const SizedBox(width: 16),
 
-        // Lalamove link
+        // Lalamove link — now a fallback/manual-override field
         Expanded(
           child: Column(
             crossAxisAlignment: CrossAxisAlignment.start,
             children: [
-              const Text(
-                'Lalamove Tracking Link',
-                style: TextStyle(
-                  fontSize:   13,
-                  fontWeight: FontWeight.w600,
-                  color:      Color(0xFF374151),
-                ),
+              Row(
+                children: [
+                  const Text(
+                    'Lalamove Tracking Link',
+                    style: TextStyle(
+                      fontSize:   13,
+                      fontWeight: FontWeight.w600,
+                      color:      Color(0xFF374151),
+                    ),
+                  ),
+                  const SizedBox(width: 6),
+                  if (!widget.order.hasCoordinates)
+                    Container(
+                      padding: const EdgeInsets.symmetric(horizontal: 6, vertical: 2),
+                      decoration: BoxDecoration(
+                        color: const Color(0xFFFEF3C7),
+                        borderRadius: BorderRadius.circular(4),
+                      ),
+                      child: const Text(
+                        'MANUAL — no coordinates',
+                        style: TextStyle(fontSize: 9, fontWeight: FontWeight.w700, color: Color(0xFF92400E)),
+                      ),
+                    ),
+                ],
+              ),
+              const SizedBox(height: 4),
+              Text(
+                widget.order.hasCoordinates
+                    ? 'Filled automatically when you tap "Mark Shipped" below. Only edit this if you need to override it.'
+                    : 'This order has no map coordinates, so automatic booking isn\'t available — paste a Lalamove link here manually instead.',
+                style: const TextStyle(fontSize: 11, color: Color(0xFF9CA3AF)),
               ),
               const SizedBox(height: 8),
               TextField(
@@ -719,7 +737,7 @@ class _OrderDetailsDialogState extends State<OrderDetailsDialog> {
                         )
                       : const Icon(Icons.save_outlined, size: 14),
                   label: Text(
-                    _isSavingLink ? 'Saving…' : 'Save Link',
+                    _isSavingLink ? 'Saving…' : 'Save Link Manually',
                     style: const TextStyle(fontSize: 12),
                   ),
                   style: OutlinedButton.styleFrom(
@@ -740,20 +758,14 @@ class _OrderDetailsDialogState extends State<OrderDetailsDialog> {
 
   // ================================================
   // ACTION BUTTONS
-  // All buttons live here at the bottom:
-  //   - Pending payment  → Reject Order + Approve Payment
-  //   - Confirmed        → Mark Preparing
-  //   - Preparing        → Mark Shipped
-  //   - Shipped          → Mark Completed
   //
-  // NOTE ON COD: gcash/card orders only reach 'Confirmed' once
-  // payment_status is already 'Paid' (set during approvePayment()),
-  // so gating the Preparing/Shipped/Completed buttons on
-  // `_paymentStatus == 'Paid'` works fine for them. COD orders never
-  // become 'Paid' until they're marked 'Completed' (cash is only
-  // collected on delivery) — so those buttons additionally allow
-  // COD through regardless of `_paymentStatus`, otherwise a COD
-  // order would get permanently stuck at Shipped.
+  // UPDATE: "Preparing → Shipped" now calls
+  // _orderService.markAsShipped(), which books the real Lalamove
+  // order automatically (fresh quote + order placement) and
+  // saves the resulting tracking link + lalamove_order_id —
+  // no manual link typing required. Falls back to the manual
+  // link field only if the order has no coordinates or the
+  // Lalamove call fails.
   // ================================================
   Widget _buildActionButtons() {
     if (_isReadOnly) return const SizedBox.shrink();
@@ -769,7 +781,6 @@ class _OrderDetailsDialogState extends State<OrderDetailsDialog> {
         // ── Reject + Approve (payment Pending only) ──────────────────
        if (_currentStatus == 'Pending') ...[
 
-          // REJECT
           OutlinedButton(
             onPressed: () {
               showCancelReasonDialog(
@@ -810,7 +821,6 @@ class _OrderDetailsDialogState extends State<OrderDetailsDialog> {
             child: const Text('Reject Order', style: TextStyle(fontSize: 13)),
           ),
 
-          // APPROVE
           ElevatedButton(
             onPressed: () async {
               final bool? confirmed = await showConfirmDialog(
@@ -836,7 +846,6 @@ class _OrderDetailsDialogState extends State<OrderDetailsDialog> {
                     ),
                   );
                 }
-                // Stop here — order stays at Pending, nothing else runs.
                 return;
               } catch (e) {
                 if (mounted) {
@@ -869,10 +878,6 @@ class _OrderDetailsDialogState extends State<OrderDetailsDialog> {
                 print('Receipt generation failed: $receiptErr');
               }
 
-              // COD orders don't become 'Paid' at approval — only
-              // gcash/card do (see PaymentService.approvePayment).
-              // Reflect the correct resulting payment status here so
-              // the local state and callback don't lie about it.
               final String resultingPaymentStatus =
                   _isCod ? (_paymentStatus ?? widget.order.paymentStatus) : 'Paid';
 
@@ -933,39 +938,85 @@ class _OrderDetailsDialogState extends State<OrderDetailsDialog> {
           ),
 
         // ── Preparing → Shipped ───────────────────────────────────────
+        // NOW BOOKS LALAMOVE AUTOMATICALLY instead of requiring a
+        // manually-typed link.
         if (_currentStatus == 'Preparing' && paidOrCod)
           ElevatedButton(
-            onPressed: () async {
-              final String link = _lalamoveLinkController.text.trim();
-              if (link.isEmpty) {
-                ScaffoldMessenger.of(context).showSnackBar(
-                  const SnackBar(
-                    content:         Text('Please enter the Lalamove tracking link before marking as Shipped.'),
-                    backgroundColor: Color(0xFFDC2626),
-                  ),
-                );
-                return;
-              }
-              final bool? confirmed = await showConfirmDialog(
-                context:      context,
-                title:        'Mark as Shipped?',
-                message:      'This will move the order to Shipped and save the Lalamove tracking link for the customer.',
-                confirmLabel: 'Mark Shipped',
-                confirmColor: const Color(0xFF06B6D4),
-              );
-              if (confirmed != true) return;
+            onPressed: _isBookingDelivery
+                ? null
+                : () async {
+                    final bool? confirmed = await showConfirmDialog(
+                      context: context,
+                      title:   'Mark as Shipped?',
+                      message: widget.order.hasCoordinates
+                          ? 'This will book a real Lalamove courier for this order and notify the customer.'
+                          : 'This order has no map coordinates, so a courier can\'t be booked automatically — '
+                            'make sure you\'ve pasted a tracking link in the field below before continuing.',
+                      confirmLabel: 'Mark Shipped',
+                      confirmColor: const Color(0xFF06B6D4),
+                    );
+                    if (confirmed != true) return;
 
-              await _orderService.updateOrderStatus(
-                orderId:     int.parse(widget.order.orderId),
-                status:      'Shipped',
-                adminNote:   _adminNoteController.text,
-                trackingUrl: link,
-              );
-              if (mounted) {
-                setState(() => _currentStatus = 'Shipped');
-                widget.onStatusUpdated('Shipped', _paymentStatus ?? widget.order.paymentStatus);
-              }
-            },
+                    setState(() => _isBookingDelivery = true);
+
+                    try {
+                      await _orderService.markAsShipped(
+                        order: widget.order,
+                        adminNote: _adminNoteController.text,
+                      );
+
+                      if (mounted) {
+                        setState(() {
+                          _currentStatus = 'Shipped';
+                          _isBookingDelivery = false;
+                        });
+                        widget.onStatusUpdated('Shipped', _paymentStatus ?? widget.order.paymentStatus);
+                      }
+                    } on OrderMissingCoordinatesException catch (_) {
+                      // Fall back to the manual link field.
+                      final String link = _lalamoveLinkController.text.trim();
+                      if (link.isEmpty) {
+                        if (mounted) {
+                          setState(() => _isBookingDelivery = false);
+                          ScaffoldMessenger.of(context).showSnackBar(
+                            const SnackBar(
+                              content: Text(
+                                'No coordinates on file — please paste a Lalamove tracking link manually before marking as Shipped.',
+                              ),
+                              backgroundColor: Color(0xFFDC2626),
+                            ),
+                          );
+                        }
+                        return;
+                      }
+
+                      await _orderService.updateOrderStatus(
+                        orderId:     int.parse(widget.order.orderId),
+                        status:      'Shipped',
+                        adminNote:   _adminNoteController.text,
+                        trackingUrl: link,
+                      );
+
+                      if (mounted) {
+                        setState(() {
+                          _currentStatus = 'Shipped';
+                          _isBookingDelivery = false;
+                        });
+                        widget.onStatusUpdated('Shipped', _paymentStatus ?? widget.order.paymentStatus);
+                      }
+                    } catch (e) {
+                      if (mounted) {
+                        setState(() => _isBookingDelivery = false);
+                        ScaffoldMessenger.of(context).showSnackBar(
+                          SnackBar(
+                            content: Text('Could not book delivery: $e'),
+                            backgroundColor: const Color(0xFFDC2626),
+                            duration: const Duration(seconds: 6),
+                          ),
+                        );
+                      }
+                    }
+                  },
             style: ElevatedButton.styleFrom(
               backgroundColor: const Color(0xFF06B6D4),
               foregroundColor: Colors.white,
@@ -973,7 +1024,13 @@ class _OrderDetailsDialogState extends State<OrderDetailsDialog> {
               shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(6)),
               elevation: 0,
             ),
-            child: const Text('Mark Shipped', style: TextStyle(fontSize: 13)),
+            child: _isBookingDelivery
+                ? const SizedBox(
+                    width: 14,
+                    height: 14,
+                    child: CircularProgressIndicator(strokeWidth: 2, color: Colors.white),
+                  )
+                : const Text('Mark Shipped', style: TextStyle(fontSize: 13)),
           ),
 
         // ── Shipped → Completed ───────────────────────────────────────
@@ -997,8 +1054,6 @@ class _OrderDetailsDialogState extends State<OrderDetailsDialog> {
                 adminNote: _adminNoteController.text,
               );
 
-              // COD payment_status becomes 'Paid' at Completed
-              // (see OrderManagementService.updateOrderStatus).
               final String resultingPaymentStatus =
                   _isCod ? 'Paid' : (_paymentStatus ?? widget.order.paymentStatus);
 
@@ -1045,7 +1100,6 @@ class _OrderDetailsDialogState extends State<OrderDetailsDialog> {
           mainAxisSize: MainAxisSize.min,
           children: [
 
-            // ── FIXED HEADER ──────────────────────────────────────────
             Container(
               padding: const EdgeInsets.fromLTRB(24, 20, 16, 16),
               decoration: const BoxDecoration(
@@ -1092,7 +1146,6 @@ class _OrderDetailsDialogState extends State<OrderDetailsDialog> {
               ),
             ),
 
-            // ── SCROLLABLE BODY ───────────────────────────────────────
             Flexible(
               child: SingleChildScrollView(
                 padding: const EdgeInsets.all(24),

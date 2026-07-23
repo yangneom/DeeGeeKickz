@@ -73,9 +73,14 @@ class _SuperLayoutState extends ConsumerState<SuperLayout> {
     }
 
    if (_currentIndex == 5) {
-      return const SuperNotificationsScreen();
+      return SuperNotificationsScreen(
+        onNavigate: (int index) {
+          setState(() {
+            _currentIndex = index;
+          });
+        },
+      );
     }
-
     if (_currentIndex == 6) {
        return const ActivityLogScreen();
     }

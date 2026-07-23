@@ -6,11 +6,14 @@
 //  2. feedbackId is read from item['_feedbackId']
 //     (set by FeedbackModel.toAdminMap())
 //  3. 'Hidden' status option added to _statusOptions
-//  4. UI structure, confirm dialog flow: UNCHANGED
+//  4. Reply thread now distinguishes staff vs customer replies
+//     (reply.authorName / reply.isStaff instead of reply.adminName)
+//  5. UI structure, confirm dialog flow: UNCHANGED
 // ================================================
 
 import 'package:flutter/material.dart';
 import '../../common/dialog/confirm_dialog.dart';
+import '../../../models/review_model.dart' show FeedbackReply;
 
 class FeedbackDetailsDialog extends StatefulWidget {
   final Map<String, dynamic> feedback;
@@ -39,8 +42,9 @@ class _FeedbackDetailsDialogState extends State<FeedbackDetailsDialog> {
   @override
   void initState() {
     super.initState();
-    _selectedStatus       = widget.feedback['status'];
-    _replyController.text = widget.feedback['adminReply'] ?? '';
+    _selectedStatus = widget.feedback['status'];
+    // Reply field starts empty — this composes a NEW reply appended
+    // to the thread below, it no longer prefills/overwrites the last one.
   }
 
   @override
@@ -103,21 +107,6 @@ class _FeedbackDetailsDialogState extends State<FeedbackDetailsDialog> {
         message:      message,
         confirmLabel: 'Confirm',
         confirmColor: confirmColor,
-      );
-      if (confirmed != true) return;
-    }
-
-    // ── Confirm overwrite existing reply ──
-    final bool replyChanged      = newReply != existingReply;
-    final bool hadExistingReply  = existingReply.isNotEmpty;
-
-    if (replyChanged && hadExistingReply) {
-      final bool? confirmed = await showConfirmDialog(
-        context:      context,
-        title:        'Overwrite existing reply?',
-        message:      'You already have a saved reply. This will replace it with your new message.',
-        confirmLabel: 'Overwrite',
-        confirmColor: const Color(0xFF2563EB),
       );
       if (confirmed != true) return;
     }
@@ -316,14 +305,72 @@ class _FeedbackDetailsDialogState extends State<FeedbackDetailsDialog> {
                     ),
                     const SizedBox(height: 16),
 
-                    const Text('Admin Reply', style: TextStyle(fontSize: 13, fontWeight: FontWeight.w600, color: Color(0xFF374151))),
+                  Text(
+                      'Reply Thread'
+                      '${(widget.feedback['replies'] as List<FeedbackReply>).isEmpty ? '' : ' (${(widget.feedback['replies'] as List<FeedbackReply>).length})'}',
+                      style: const TextStyle(fontSize: 13, fontWeight: FontWeight.w600, color: Color(0xFF374151)),
+                    ),
+                    const SizedBox(height: 8),
+
+                    // ── Existing replies, oldest first ──
+                    if ((widget.feedback['replies'] as List<FeedbackReply>).isEmpty)
+                      const Padding(
+                        padding: EdgeInsets.only(bottom: 8),
+                        child: Text(
+                          'No replies yet.',
+                          style: TextStyle(fontSize: 12, color: Color(0xFF9CA3AF)),
+                        ),
+                      )
+                    else
+                      ...(widget.feedback['replies'] as List<FeedbackReply>).map(
+                        (reply) => Container(
+                          margin: const EdgeInsets.only(bottom: 8),
+                          padding: const EdgeInsets.all(12),
+                          decoration: BoxDecoration(
+                            color: reply.isStaff ? const Color(0xFFF0F9FF) : const Color(0xFFF9FAFB),
+                            borderRadius: BorderRadius.circular(8),
+                            border: Border.all(color: reply.isStaff ? const Color(0xFFBAE6FD) : const Color(0xFFE5E7EB)),
+                          ),
+                          child: Column(
+                            crossAxisAlignment: CrossAxisAlignment.start,
+                            children: [
+                              Row(
+                                mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                                children: [
+                                  Text(
+                                    reply.isStaff ? reply.authorName : '${reply.authorName} (Customer)',
+                                    style: TextStyle(
+                                      fontSize: 12,
+                                      fontWeight: FontWeight.w700,
+                                      color: reply.isStaff ? const Color(0xFF0284C7) : const Color(0xFF6B7280),
+                                    ),
+                                  ),
+                                  Text(
+                                    '${reply.createdAt.month}/${reply.createdAt.day}/${reply.createdAt.year}',
+                                    style: const TextStyle(fontSize: 11, color: Color(0xFF6B7280)),
+                                  ),
+                                ],
+                              ),
+                              const SizedBox(height: 4),
+                              Text(
+                                reply.replyText,
+                                style: const TextStyle(fontSize: 13, color: Color(0xFF374151)),
+                              ),
+                            ],
+                          ),
+                        ),
+                      ),
+
+                    const SizedBox(height: 12),
+
+                    const Text('Add a Reply', style: TextStyle(fontSize: 13, fontWeight: FontWeight.w600, color: Color(0xFF374151))),
                     const SizedBox(height: 8),
                     TextField(
                       controller: _replyController,
                       maxLines:   4,
                       style:      const TextStyle(fontSize: 13),
                       decoration: InputDecoration(
-                        hintText:  'Write a reply...',
+                        hintText:  'Write a new reply...',
                         hintStyle: const TextStyle(fontSize: 13, color: Color(0xFF9CA3AF)),
                         filled:    true,
                         fillColor: const Color(0xFFF9FAFB),

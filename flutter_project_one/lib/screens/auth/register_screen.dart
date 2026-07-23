@@ -6,6 +6,8 @@ import 'package:flutter_riverpod/flutter_riverpod.dart';
 
 // Import our RegisterForm widget that we just built in Step 1
 import '../../services/auth/register_form.dart';
+import 'privacy_policy_screen.dart';
+import 'terms_of_use_screen.dart';
 
 // ================================================
 // REGISTER SCREEN

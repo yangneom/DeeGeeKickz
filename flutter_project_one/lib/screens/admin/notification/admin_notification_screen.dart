@@ -2,10 +2,13 @@ import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 
 import '../../../providers/customer/notification_provider.dart';
+import '../../../models/notification_model.dart';
 import '../../../widgets/admin/notifications/staff_notification_tile.dart';
 
 class AdminNotificationsScreen extends ConsumerStatefulWidget {
-  const AdminNotificationsScreen({super.key});
+  final void Function(int index) onNavigate;
+
+  const AdminNotificationsScreen({super.key, required this.onNavigate});
 
   @override
   ConsumerState<AdminNotificationsScreen> createState() => _AdminNotificationsScreenState();
@@ -21,6 +24,24 @@ class _AdminNotificationsScreenState extends ConsumerState<AdminNotificationsScr
     WidgetsBinding.instance.addPostFrameCallback((_) {
       ref.read(notificationProvider.notifier).loadNotifications();
     });
+  }
+
+  // Maps a notification type to the Admin sidebar index that screen lives at.
+  int? _indexForType(NotificationType type) {
+    switch (type) {
+      case NotificationType.order:
+      case NotificationType.orderCancellation:
+        return 5; // Order Approval
+      case NotificationType.lowStock:
+      case NotificationType.outOfStock:
+        return 1; // Inventory
+      case NotificationType.newFeedback:
+        return 3; // Feedback
+      case NotificationType.newMessage:
+        return 4; // Messages
+      default:
+        return null; // no matching Admin screen for this type
+    }
   }
 
   @override
@@ -106,7 +127,11 @@ class _AdminNotificationsScreenState extends ConsumerState<AdminNotificationsScr
                               final n = notifState.notifications[i];
                               return StaffNotificationTile(
                                 notification: n,
-                                onMarkRead: () => notifier.markRead(n.id),
+                                onTap: () {
+                                  if (n.isUnread) notifier.markRead(n.id);
+                                  final index = _indexForType(n.type);
+                                  if (index != null) widget.onNavigate(index);
+                                },
                               );
                             },
                           ),

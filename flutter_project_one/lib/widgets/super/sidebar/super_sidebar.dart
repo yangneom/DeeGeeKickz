@@ -1,6 +1,8 @@
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import '../../../providers/auth/auth_provider.dart';
+import '../../../providers/customer/customer_cart_provider.dart';
+import '../../../screens/auth/login_screen.dart';
 
 // ================================================
 // SUPER ADMIN SIDEBAR
@@ -238,8 +240,20 @@ class SuperSidebar extends ConsumerWidget {
         try {
           final authService = ref.read(authServiceProvider);
           await authService.logout();
+          ref.read(customerCartProvider.notifier).clearLocalOnly();
+          if (context.mounted) {
+            Navigator.of(context).pushAndRemoveUntil(
+              MaterialPageRoute(builder: (_) => const LoginScreen()),
+              (route) => false,
+            );
+          }
         } catch (error) {
           print('Logout error: $error');
+          if (context.mounted) {
+            ScaffoldMessenger.of(context).showSnackBar(
+              const SnackBar(content: Text('Logout failed. Please try again.')),
+            );
+          }
         }
       },
       child: Container(

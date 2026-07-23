@@ -62,7 +62,6 @@ class CheckoutStep2Review extends StatelessWidget {
                 items: items,
                 subtotal: subtotal,
                 shipping: shipping,
-                tax: tax,
                 total: total,
                 showPlaceOrder: false,
                 onPlaceOrder: () {},
@@ -92,7 +91,6 @@ class CheckoutStep2Review extends StatelessWidget {
             items: items,
             subtotal: subtotal,
             shipping: shipping,
-            tax: tax,
             total: total,
             showPlaceOrder: false,
             onPlaceOrder: () {},
@@ -125,7 +123,6 @@ class _ReviewDetails extends StatelessWidget {
     return Column(
       crossAxisAlignment: CrossAxisAlignment.start,
       children: [
-        // ── Section title ──────────────────────────────
         const Text(
           'Review Your Order',
           style: TextStyle(
@@ -138,7 +135,6 @@ class _ReviewDetails extends StatelessWidget {
         ),
         const SizedBox(height: 32),
 
-        // ── Shipping address card ──────────────────────
         Container(
           width: double.infinity,
           padding: const EdgeInsets.all(24),
@@ -228,7 +224,6 @@ class _ReviewDetails extends StatelessWidget {
 
         const SizedBox(height: 48),
 
-        // ── Continue to payment ────────────────────────
         _ContinueToPaymentButton(onTap: onContinue),
       ],
     );

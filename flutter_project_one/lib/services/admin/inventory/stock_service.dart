@@ -118,7 +118,7 @@ class StockService {
       final staff = await _supabase
           .from('users')
           .select('id')
-          .inFilter('role', ['Admin', 'Super Admin']);
+          .eq('role', 'Admin');
 
       print('LOWSTOCK CHECK: staff found = $staff');
 

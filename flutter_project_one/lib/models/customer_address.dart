@@ -4,7 +4,17 @@
 // Matches the real Supabase `address` table:
 //   address_id, user_id, street, barangay, city,
 //   province, region, zip_code, landmark,
-//   is_default, created_at
+//   is_default, lat, lng, created_at
+//
+// UPDATE: added nullable lat/lng — populated by
+// geocoding when the address is saved (see
+// AddressBottomSheet._save()). Nullable because:
+//   - Older addresses saved before this feature
+//     existed won't have coordinates yet.
+//   - Geocoding can fail (bad/incomplete address),
+//     and we don't want that to block saving the
+//     address entirely — just means Lalamove
+//     delivery can't be quoted for it until fixed.
 //
 // userName and userPhone are NOT stored here —
 // they come from the users table and are passed
@@ -20,6 +30,8 @@ class CustomerAddress {
   final String zipCode;
   final String landmark;
   final bool isDefault;
+  final double? lat;
+  final double? lng;
 
   const CustomerAddress({
     required this.id,
@@ -31,7 +43,14 @@ class CustomerAddress {
     required this.zipCode,
     required this.landmark,
     this.isDefault = false,
+    this.lat,
+    this.lng,
   });
+
+  /// True once this address has coordinates and can be used
+  /// for a Lalamove quotation. Check this before calling
+  /// get-delivery-quote at checkout.
+  bool get hasCoordinates => lat != null && lng != null;
 
   // Display helper — full address as one line
   String get fullAddress {
@@ -41,7 +60,7 @@ class CustomerAddress {
     return parts.join(', ');
   }
 
-CustomerAddress copyWith({
+  CustomerAddress copyWith({
     String? id,
     String? street,
     String? barangay,
@@ -51,6 +70,8 @@ CustomerAddress copyWith({
     String? zipCode,
     String? landmark,
     bool? isDefault,
+    double? lat,
+    double? lng,
   }) {
     return CustomerAddress(
       id:        id        ?? this.id,
@@ -62,6 +83,8 @@ CustomerAddress copyWith({
       zipCode:   zipCode   ?? this.zipCode,
       landmark:  landmark  ?? this.landmark,
       isDefault: isDefault ?? this.isDefault,
+      lat:       lat       ?? this.lat,
+      lng:       lng       ?? this.lng,
     );
   }
 
@@ -76,6 +99,8 @@ CustomerAddress copyWith({
       zipCode: json['zip_code'] as String? ?? '',
       landmark: json['landmark'] as String? ?? '',
       isDefault: json['is_default'] as bool? ?? false,
+      lat: (json['lat'] as num?)?.toDouble(),
+      lng: (json['lng'] as num?)?.toDouble(),
     );
   }
 
@@ -90,35 +115,8 @@ CustomerAddress copyWith({
       'zip_code': zipCode,
       'landmark': landmark,
       'is_default': isDefault,
+      'lat': lat,
+      'lng': lng,
     };
   }
 }
-
-// ================================================
-// MOCK SAVED ADDRESSES
-// Temporary — replace with real Supabase data later
-// ================================================
-final List<CustomerAddress> mockSavedAddresses = [
-  const CustomerAddress(
-    id:        'addr_001',
-    street:    '123 Performance Way',
-    barangay:  'Barangay Bel-Air',
-    city:      'Makati',
-    province:  'Metro Manila',
-    region:    'NCR – National Capital Region',
-    zipCode:   '1200',
-    landmark:  'Near Ayala MRT',
-    isDefault: true,
-  ),
-  const CustomerAddress(
-    id:        'addr_002',
-    street:    '456 Bonifacio Ave',
-    barangay:  'Barangay Fort Bonifacio',
-    city:      'Taguig',
-    province:  'Metro Manila',
-    region:    'NCR – National Capital Region',
-    zipCode:   '1634',
-    landmark:  'Near SM Aura',
-    isDefault: false,
-  ),
-];

@@ -7,6 +7,42 @@
 //                  order can submit (verified purchase).
 // ================================================
 
+class FeedbackReply {
+  final int id;
+  final String authorName;
+  final String authorRole; // 'Admin' | 'Super Admin' | 'Customer'
+  final String replyText;
+  final DateTime createdAt;
+
+  const FeedbackReply({
+    required this.id,
+    required this.authorName,
+    required this.authorRole,
+    required this.replyText,
+    required this.createdAt,
+  });
+
+  bool get isStaff => authorRole == 'Admin' || authorRole == 'Super Admin';
+
+  factory FeedbackReply.fromSupabase(Map<String, dynamic> row) {
+    final userMap = row['users'] as Map<String, dynamic>? ?? {};
+    final String firstName = userMap['first_name'] as String? ?? '';
+    final String lastName  = userMap['last_name']  as String? ?? '';
+    final String role      = userMap['role'] as String? ?? 'Customer';
+    final String fullName  = '$firstName $lastName'.trim().isEmpty
+        ? (role == 'Admin' || role == 'Super Admin' ? 'Store' : 'Customer')
+        : '$firstName $lastName'.trim();
+
+    return FeedbackReply(
+      id:         row['reply_id']  as int,
+      authorName: fullName,
+      authorRole: role,
+      replyText:  row['reply_text'] as String? ?? '',
+      createdAt:  DateTime.parse(row['created_at'] as String),
+    );
+  }
+}
+
 class ReviewModel {
   final int id;
   final String customerId;       // users.id (uuid)
@@ -18,7 +54,8 @@ class ReviewModel {
   final List<String> imageUrls;  // not in current schema — kept for future
   final bool verifiedPurchase;   // always false until phase 2
   final String status;           // ENUM: 'Visible' | 'Flagged' | 'Hidden'
-  final String? adminReply;      // feedback.admin_reply
+  final String? adminReply;      // feedback.admin_reply (legacy single-reply field, kept for backward compat)
+  final List<FeedbackReply> replies; // full reply thread (feedback_replies table)
   final DateTime createdAt;
   final DateTime updatedAt;
 
@@ -34,6 +71,7 @@ class ReviewModel {
     this.verifiedPurchase = false,
     required this.status,
     this.adminReply,
+    this.replies = const [],
     required this.createdAt,
     required this.updatedAt,
   });
@@ -43,6 +81,7 @@ class ReviewModel {
   //   feedback row
   //     + users  (first_name, last_name)  via user_id FK
   //     + product (product_name)          via product_id FK
+  //     + feedback_replies (reply thread) via feedback_id FK
   factory ReviewModel.fromSupabase(Map<String, dynamic> row) {
     // Join data comes in as nested maps
     final userMap = row['users'] as Map<String, dynamic>? ?? {};
@@ -65,6 +104,10 @@ class ReviewModel {
       verifiedPurchase: false,                 // phase 2
       status:           row['status']          as String? ?? 'Visible',
       adminReply:       row['admin_reply']     as String?,
+      replies:          ((row['feedback_replies'] as List<dynamic>? ?? [])
+          .map((r) => FeedbackReply.fromSupabase(r as Map<String, dynamic>))
+          .toList()
+        ..sort((a, b) => a.createdAt.compareTo(b.createdAt))),
       createdAt:        DateTime.parse(row['created_at'] as String),
       updatedAt:        DateTime.parse(
                           (row['updated_at'] ?? row['created_at']) as String,
@@ -73,6 +116,7 @@ class ReviewModel {
   }
 
   // ── Copy with ─────────────────────────────────────────────────
+  // (replies are refreshed via refetch, not local mutation)
   ReviewModel copyWith({
     String? status,
     String? adminReply,
@@ -90,6 +134,7 @@ class ReviewModel {
       verifiedPurchase: verifiedPurchase,
       status:           status         ?? this.status,
       adminReply:       adminReply     ?? this.adminReply,
+      replies:          replies,
       createdAt:        createdAt,
       updatedAt:        updatedAt      ?? this.updatedAt,
     );

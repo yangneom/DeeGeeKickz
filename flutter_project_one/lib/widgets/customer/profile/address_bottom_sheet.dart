@@ -1,4 +1,5 @@
 import 'package:flutter/material.dart';
+import 'package:supabase_flutter/supabase_flutter.dart';
 import '../../../models/customer_address.dart';
 
 /// Shows a bottom sheet for adding a new address or editing an existing one.
@@ -43,6 +44,10 @@ class _AddressBottomSheetState extends State<AddressBottomSheet> {
   late final TextEditingController _landmarkCtrl;
   late String _region;
   bool _isDefault = false;
+
+  // NEW — true while geocode-address is running, so the Save
+  // button can show a spinner and block double-taps.
+  bool _isSaving = false;
 
   bool get _isEditing => widget.existing != null;
 
@@ -102,7 +107,45 @@ class _AddressBottomSheetState extends State<AddressBottomSheet> {
     super.dispose();
   }
 
-  void _save() {
+  // ================================================
+  // GEOCODE — calls the geocode-address Edge Function.
+  // Returns {lat, lng} on success, or null if geocoding
+  // failed (bad address, no match, network error, etc).
+  // A null return does NOT block saving — the address is
+  // still saved without coordinates, and simply can't be
+  // used for a Lalamove quote until it's fixed later.
+  // ================================================
+  Future<Map<String, double>?> _geocode() async {
+    try {
+      final response = await Supabase.instance.client.functions.invoke(
+        'geocode-address',
+        body: {
+          'street': _streetCtrl.text.trim(),
+          'barangay': _barangayCtrl.text.trim(),
+          'city': _cityCtrl.text.trim(),
+          'province': _provinceCtrl.text.trim(),
+          'zipCode': _zipCodeCtrl.text.trim(),
+        },
+      );
+
+      final data = response.data;
+      if (data == null || data['lat'] == null || data['lng'] == null) {
+        print('AddressBottomSheet._geocode: no coordinates in response — $data');
+        return null;
+      }
+
+      return {
+        'lat': (data['lat'] as num).toDouble(),
+        'lng': (data['lng'] as num).toDouble(),
+      };
+    } catch (e) {
+      // Network error, function down, etc. — don't block the save.
+      print('AddressBottomSheet._geocode error: $e');
+      return null;
+    }
+  }
+
+  Future<void> _save() async {
     // Validate required fields
     if (_streetCtrl.text.trim().isEmpty ||
         _barangayCtrl.text.trim().isEmpty ||
@@ -121,6 +164,31 @@ class _AddressBottomSheetState extends State<AddressBottomSheet> {
       return;
     }
 
+    if (_isSaving) return;
+    setState(() => _isSaving = true);
+
+    // Only re-geocode if the address text actually changed (or this
+    // is a brand-new address) — no point burning a request re-geocoding
+    // an unchanged address when editing just the "default" checkbox.
+    final CustomerAddress? existing = widget.existing;
+    final bool addressTextChanged = existing == null ||
+        existing.street   != _streetCtrl.text.trim()   ||
+        existing.barangay != _barangayCtrl.text.trim() ||
+        existing.city     != _cityCtrl.text.trim()      ||
+        existing.province != _provinceCtrl.text.trim()  ||
+        existing.zipCode  != _zipCodeCtrl.text.trim();
+
+    double? lat = existing?.lat;
+    double? lng = existing?.lng;
+
+    if (addressTextChanged) {
+      final coords = await _geocode();
+      lat = coords?['lat'];
+      lng = coords?['lng'];
+    }
+
+    if (!mounted) return;
+
     final CustomerAddress result = CustomerAddress(
       id:        widget.existing?.id ?? '',   // '' = new, not yet in Supabase
       street:    _streetCtrl.text.trim(),
@@ -131,8 +199,11 @@ class _AddressBottomSheetState extends State<AddressBottomSheet> {
       zipCode:   _zipCodeCtrl.text.trim(),
       landmark:  _landmarkCtrl.text.trim(),
       isDefault: _isDefault,
+      lat: lat,
+      lng: lng,
     );
 
+    setState(() => _isSaving = false);
     Navigator.of(context).pop(result);
   }
 
@@ -309,29 +380,38 @@ class _AddressBottomSheetState extends State<AddressBottomSheet> {
 
                   // ── Save button ─────────────────────────────────
                   GestureDetector(
-                    onTap: _save,
+                    onTap: _isSaving ? null : _save,
                     child: Container(
                       width: double.infinity,
                       padding: const EdgeInsets.symmetric(vertical: 16),
-                      color: Colors.black,
+                      color: _isSaving ? const Color(0xFF4C4546) : Colors.black,
                       alignment: Alignment.center,
-                      child: Text(
-                        _isEditing ? 'SAVE CHANGES' : 'SAVE ADDRESS',
-                        style: const TextStyle(
-                          fontFamily: 'Inter',
-                          fontSize: 14,
-                          fontWeight: FontWeight.w600,
-                          letterSpacing: 2.0,
-                          color: Colors.white,
-                        ),
-                      ),
+                      child: _isSaving
+                          ? const SizedBox(
+                              width: 18,
+                              height: 18,
+                              child: CircularProgressIndicator(
+                                strokeWidth: 2,
+                                color: Colors.white,
+                              ),
+                            )
+                          : Text(
+                              _isEditing ? 'SAVE CHANGES' : 'SAVE ADDRESS',
+                              style: const TextStyle(
+                                fontFamily: 'Inter',
+                                fontSize: 14,
+                                fontWeight: FontWeight.w600,
+                                letterSpacing: 2.0,
+                                color: Colors.white,
+                              ),
+                            ),
                     ),
                   ),
                   const SizedBox(height: 12),
 
                   // ── Cancel button ───────────────────────────────
                   GestureDetector(
-                    onTap: () => Navigator.of(context).pop(),
+                    onTap: _isSaving ? null : () => Navigator.of(context).pop(),
                     child: Container(
                       width: double.infinity,
                       padding: const EdgeInsets.symmetric(vertical: 16),

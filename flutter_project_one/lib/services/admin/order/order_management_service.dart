@@ -1,6 +1,7 @@
 import 'package:supabase_flutter/supabase_flutter.dart';
 import '../../../models/order.dart';
 import '../../super/activity_log/activity_log_service.dart';
+import '../../customer/delivery/lalamove_service.dart';
 
 // ================================================
 // ORDER MANAGEMENT SERVICE (Admin)
@@ -10,17 +11,43 @@ import '../../super/activity_log/activity_log_service.dart';
 //         there are multiple FKs to the same table.
 // FIX 2: saveTrackingUrl — persists Lalamove link to
 //         orders.tracking_url when admin marks Shipped.
+//         (Now mainly a manual-override escape hatch —
+//         see markAsShipped for the normal automatic path.)
 // FIX 3: updateOrderStatus — COD orders only actually
 //         collect cash on delivery. When a COD order is
 //         marked 'Completed', payment_status is flipped
 //         to 'Paid' at that moment (see PaymentService
 //         for why gcash/card don't need this — they're
 //         already marked Paid at admin approval).
+//
+// UPDATE: markAsShipped() — NEW. Replaces the old flow where
+//         admin had to manually paste a Lalamove link before
+//         marking an order Shipped. This calls Lalamove for
+//         real (via LalamoveService -> create-delivery-order),
+//         then saves the resulting tracking_url AND
+//         lalamove_order_id (needed by the webhook to match
+//         future status updates back to this order).
 // ================================================
+
+/// Thrown by markAsShipped when the order's address has no
+/// coordinates — the UI should tell the admin the customer
+/// needs to re-save their address before this order can ship.
+class OrderMissingCoordinatesException implements Exception {
+  final String message;
+  OrderMissingCoordinatesException([
+    this.message = 'This order\'s address has no map coordinates yet, '
+        'so a courier can\'t be booked. Ask the customer to re-save '
+        'their address, or use the manual tracking link field below instead.',
+  ]);
+
+  @override
+  String toString() => message;
+}
 
 class OrderManagementService {
   final SupabaseClient _supabase = Supabase.instance.client;
   final ActivityLogService _activityLog = ActivityLogService();
+  final LalamoveService _lalamoveService = LalamoveService();
 
   // ================================================
   // LOAD ORDERS
@@ -36,6 +63,7 @@ class OrderManagementService {
           payment_method,
           order_status,
           tracking_url,
+          lalamove_order_id,
           created_at,
           user_id,
           address_id,
@@ -48,7 +76,9 @@ class OrderManagementService {
             street,
             city,
             zip_code,
-            landmark
+            landmark,
+            lat,
+            lng
           ),
           order_item (
             product_name_snapshot,
@@ -107,20 +137,22 @@ class OrderManagementService {
 
   // ================================================
   // UPDATE ORDER STATUS
+  // Used for every transition EXCEPT the Shipped step, which
+  // now goes through markAsShipped() instead (see below).
+  // Still accepts trackingUrl for the manual-override path in
+  // the admin UI, if the automatic booking ever needs bypassing.
   // ================================================
   Future<void> updateOrderStatus({
     required int    orderId,
     required String status,
     String?         adminNote,
-    String?         trackingUrl,  // NEW — pass when marking Shipped
+    String?         trackingUrl,
   }) async {
 
-    // Build update payload
     final Map<String, dynamic> updatePayload = {
       'order_status': status,
     };
 
-    // Save Lalamove link if provided
     if (trackingUrl != null && trackingUrl.trim().isNotEmpty) {
       updatePayload['tracking_url'] = trackingUrl.trim();
     }
@@ -132,8 +164,6 @@ class OrderManagementService {
 
     // COD orders only actually collect cash on delivery — mark the
     // payment row Paid at the same moment the order is Completed.
-    // gcash/card orders are already Paid by this point (set during
-    // admin approval), so this only ever affects COD.
     if (status == 'Completed') {
       final Map<String, dynamic>? paymentRow = await _supabase
           .from('payment')
@@ -156,10 +186,6 @@ class OrderManagementService {
       'admin_note': adminNote,
     });
 
-    // ── Activity log ──
-    // 'Cancelled' and 'Completed' (which implies refund/payment resolution)
-    // get a slightly more specific action label since those are the
-    // financially/dispute-relevant transitions.
     String action;
     if (status == 'Cancelled') {
       action = 'Cancelled order #$orderId'
@@ -181,9 +207,69 @@ class OrderManagementService {
   }
 
   // ================================================
-  // SAVE TRACKING URL ONLY
-  // Call this if admin wants to save/update the
-  // Lalamove link without changing the order status.
+  // MARK AS SHIPPED — books the real Lalamove order
+  //
+  // Replaces the old "paste a link" step. Calls Lalamove
+  // (fresh quotation + order placement, all inside
+  // create-delivery-order), then saves the real tracking_url
+  // and lalamove_order_id, and moves the order to 'Shipped'.
+  //
+  // Throws OrderMissingCoordinatesException if the order's
+  // address has no lat/lng — UI should catch this and offer
+  // the manual-link fallback (updateOrderStatus with
+  // trackingUrl) instead of silently failing.
+  // ================================================
+  Future<void> markAsShipped({
+    required Order order,
+    String? adminNote,
+  }) async {
+    if (!order.hasCoordinates) {
+      throw OrderMissingCoordinatesException();
+    }
+
+    final int orderId = int.parse(order.orderId);
+
+    // 1. Book the real Lalamove delivery order.
+    final LalamoveOrderResult result = await _lalamoveService.createDeliveryOrder(
+      orderId: orderId,
+      dropoffLat: order.lat!,
+      dropoffLng: order.lng!,
+      dropoffAddressText: order.address,
+      recipientName: order.customerName,
+      recipientPhone: order.contact,
+    );
+
+    // 2. Save the results + move to Shipped.
+    await _supabase.from('orders').update({
+      'order_status': 'Shipped',
+      'tracking_url': result.trackingUrl,
+      'lalamove_order_id': result.lalamoveOrderId,
+    }).eq('order_id', orderId);
+
+    await _supabase.from('order_progress').insert({
+      'order_id':   orderId,
+      'status':     'Shipped',
+      'admin_note': adminNote,
+    });
+
+    await _activityLog.log(
+      action: 'Booked Lalamove delivery and marked order #$orderId as Shipped',
+      affectedModule: AffectedModule.orders,
+      targetId: orderId.toString(),
+      metadata: {
+        'status': 'Shipped',
+        'lalamove_order_id': result.lalamoveOrderId,
+        'tracking_url': result.trackingUrl,
+        if (adminNote != null) 'admin_note': adminNote,
+      },
+    );
+  }
+
+  // ================================================
+  // SAVE TRACKING URL ONLY (manual override / fallback)
+  // Kept for the case where an order has no coordinates and
+  // markAsShipped() can't run automatically — admin can still
+  // paste a link by hand as a fallback.
   // ================================================
   Future<void> saveTrackingUrl({
     required int    orderId,

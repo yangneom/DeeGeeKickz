@@ -150,13 +150,30 @@ class SalesReportService {
       monthlyCogs[key] = (monthlyCogs[key] ?? 0) + (costEach * qty);
     }
 
-    final List<String> sortedKeys = monthlyRevenue.keys.toList()..sort();
+// Build every month key from the earliest to the latest qualifying
+    // sale, inclusive — so a month with zero sales shows an explicit
+    // 0 row instead of being silently skipped. Skipping was causing
+    // the NEXT month with sales to compute growth % against a stale
+    // earlier month instead of against the true (zero) previous month.
+    final List<String> presentKeys = monthlyRevenue.keys.toList()..sort();
+    final DateTime firstMonth = monthStartMap[presentKeys.first]!;
+    final DateTime lastMonth = monthStartMap[presentKeys.last]!;
+
+    final List<String> sortedKeys = [];
+    DateTime cursor = DateTime(firstMonth.year, firstMonth.month);
+    while (!cursor.isAfter(lastMonth)) {
+      final String key =
+          '${cursor.year}-${cursor.month.toString().padLeft(2, '0')}';
+      sortedKeys.add(key);
+      monthStartMap.putIfAbsent(key, () => cursor);
+      cursor = DateTime(cursor.year, cursor.month + 1);
+    }
 
     final List<MonthlyReport> reports = [];
     double? previousTotal;
 
     for (final key in sortedKeys) {
-      final double total = monthlyRevenue[key]!;
+      final double total = monthlyRevenue[key] ?? 0;
       final DateTime monthStart = monthStartMap[key]!;
       final double cogs = monthlyCogs[key] ?? 0;
       final double grossProfit = total - cogs;
@@ -164,11 +181,14 @@ class SalesReportService {
       final Map<String, int> productQty = monthlyProductQty[key] ?? {};
       String bestSeller = '—';
       if (productQty.isNotEmpty) {
-        bestSeller = productQty.entries
-            .reduce((a, b) => a.value >= b.value ? a : b)
-            .key;
+        final List<MapEntry<String, int>> sortedProducts =
+            productQty.entries.toList()
+              ..sort((a, b) {
+                final int cmp = b.value.compareTo(a.value);
+                return cmp != 0 ? cmp : a.key.compareTo(b.key);
+              });
+        bestSeller = sortedProducts.first.key;
       }
-
       double growth = 0;
       if (previousTotal != null && previousTotal != 0) {
         growth = ((total - previousTotal!) / previousTotal!) * 100;

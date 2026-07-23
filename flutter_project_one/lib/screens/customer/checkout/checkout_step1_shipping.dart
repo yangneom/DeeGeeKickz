@@ -3,6 +3,7 @@ import 'package:supabase_flutter/supabase_flutter.dart';
 import '../../../models/customer_cart_item.dart';
 import '../../../models/customer_address.dart';
 import '../../../services/customer/address/address_service.dart';
+import '../../../services/customer/delivery/lalamove_service.dart';
 import '../../../widgets/customer/checkout/checkout_order_summary.dart';
 import '../../../widgets/customer/checkout/checkout_address_selector.dart';
 import '../../../widgets/customer/profile/address_bottom_sheet.dart';
@@ -18,7 +19,15 @@ class CheckoutStep1Shipping extends StatefulWidget {
   final String initialBarangay;
   final List<CustomerCartItem> items;
   final double subtotal, shipping, tax, total;
+
+  /// NEW — fired whenever the shipping fee changes: right after an
+  /// address is selected (fee = 0, isLoading = true, while the quote
+  /// is in flight), then again once the quote resolves (real fee,
+  /// isLoading = false) or fails (fallback fee, isLoading = false).
+  final void Function(double shippingFee, bool isLoading) onShippingFeeChanged;
+
   final void Function({
+    String? addressId,
     required String street,
     required String barangay,
     required String city,
@@ -42,6 +51,7 @@ class CheckoutStep1Shipping extends StatefulWidget {
     required this.shipping,
     required this.tax,
     required this.total,
+    required this.onShippingFeeChanged,
     required this.onContinue,
   });
 
@@ -51,6 +61,7 @@ class CheckoutStep1Shipping extends StatefulWidget {
 
 class _CheckoutStep1ShippingState extends State<CheckoutStep1Shipping> {
   final AddressService _addressService = AddressService();
+  final LalamoveService _lalamoveService = LalamoveService();
 
   List<CustomerAddress> _savedAddresses = [];
   bool _isLoadingAddresses = true;
@@ -58,6 +69,10 @@ class _CheckoutStep1ShippingState extends State<CheckoutStep1Shipping> {
 
   String? _selectedAddressId;
   CustomerAddress? _selectedAddress;
+
+  // NEW — shipping quote state, shown inline below the selected address.
+  bool _isLoadingQuote = false;
+  String? _quoteErrorMessage;
 
   String _userName  = '';
   String _userPhone = '';
@@ -112,6 +127,50 @@ class _CheckoutStep1ShippingState extends State<CheckoutStep1Shipping> {
       _selectedAddressId = address.id;
       _selectedAddress   = address;
     });
+    _fetchShippingQuote(address);
+  }
+
+  // ================================================
+  // FETCH SHIPPING QUOTE
+  // Calls Lalamove (via LalamoveService -> get-delivery-quote) for
+  // the newly selected address. Falls back to the old flat rate if
+  // the address has no coordinates yet or the quote call fails, so
+  // checkout never gets stuck — just shows a warning inline.
+  // ================================================
+  Future<void> _fetchShippingQuote(CustomerAddress address) async {
+    setState(() {
+      _isLoadingQuote = true;
+      _quoteErrorMessage = null;
+    });
+    widget.onShippingFeeChanged(0, true);
+
+    try {
+      final quote = await _lalamoveService.getShippingQuote(
+        dropoffAddress: address,
+      );
+
+      if (!mounted) return;
+      setState(() => _isLoadingQuote = false);
+      widget.onShippingFeeChanged(quote.priceTotal, false);
+    } on MissingCoordinatesException catch (e) {
+      if (!mounted) return;
+      _useFallbackShipping(e.toString());
+    } catch (e) {
+      print('CheckoutStep1Shipping._fetchShippingQuote error: $e');
+      if (!mounted) return;
+      _useFallbackShipping(
+        'Could not reach the delivery pricing service — using an estimated rate instead.',
+      );
+    }
+  }
+
+  void _useFallbackShipping(String message) {
+    final double fallback = widget.subtotal >= 150 ? 0.0 : 10.0;
+    setState(() {
+      _isLoadingQuote = false;
+      _quoteErrorMessage = message;
+    });
+    widget.onShippingFeeChanged(fallback, false);
   }
 
 Future<void> _editAddress(CustomerAddress address) async {
@@ -210,7 +269,21 @@ setState(() => _isSavingAddress = true);
       return;
     }
 
+    if (_isLoadingQuote) {
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(
+          content: Text(
+            'Please wait — calculating your shipping fee.',
+            style: TextStyle(fontFamily: 'Inter'),
+          ),
+          backgroundColor: Colors.black,
+        ),
+      );
+      return;
+    }
+
     widget.onContinue(
+      addressId: _selectedAddress!.id.isEmpty ? null : _selectedAddress!.id,
       street:   _selectedAddress!.street,
       barangay: _selectedAddress!.barangay,
       city:     _selectedAddress!.city,
@@ -339,6 +412,59 @@ setState(() => _isSavingAddress = true);
                         ),
                       ),
                     ],
+
+                    // ── NEW: shipping fee status row ─────────────
+                    const SizedBox(height: 12),
+                    const Divider(height: 1, color: Color(0xFFCFC4C5)),
+                    const SizedBox(height: 12),
+                    if (_isLoadingQuote)
+                      const Row(
+                        children: [
+                          SizedBox(
+                            width: 14,
+                            height: 14,
+                            child: CircularProgressIndicator(strokeWidth: 2),
+                          ),
+                          SizedBox(width: 8),
+                          Text(
+                            'Calculating delivery fee…',
+                            style: TextStyle(
+                              fontFamily: 'Inter',
+                              fontSize: 13,
+                              color: Color(0xFF656464),
+                            ),
+                          ),
+                        ],
+                      )
+                    else if (_quoteErrorMessage != null)
+                      Row(
+                        crossAxisAlignment: CrossAxisAlignment.start,
+                        children: [
+                          const Icon(Icons.info_outline,
+                              size: 16, color: Color(0xFF9CA3AF)),
+                          const SizedBox(width: 8),
+                          Expanded(
+                            child: Text(
+                              _quoteErrorMessage!,
+                              style: const TextStyle(
+                                fontFamily: 'Inter',
+                                fontSize: 12,
+                                color: Color(0xFF9CA3AF),
+                              ),
+                            ),
+                          ),
+                        ],
+                      )
+                    else
+                      Text(
+                        'Delivery fee: ₱${widget.shipping.toStringAsFixed(2)}',
+                        style: const TextStyle(
+                          fontFamily: 'Inter',
+                          fontSize: 13,
+                          fontWeight: FontWeight.w600,
+                          color: Colors.black,
+                        ),
+                      ),
                   ],
                 ),
               ),
@@ -366,7 +492,6 @@ setState(() => _isSavingAddress = true);
                   items:          widget.items,
                   subtotal:       widget.subtotal,
                   shipping:       widget.shipping,
-                  tax:            widget.tax,
                   total:          widget.total,
                   showPlaceOrder: false,
                   onPlaceOrder:   () {},

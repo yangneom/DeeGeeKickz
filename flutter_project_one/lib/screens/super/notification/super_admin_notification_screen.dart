@@ -2,10 +2,13 @@ import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 
 import '../../../providers/customer/notification_provider.dart';
+import '../../../models/notification_model.dart';
 import '../../../widgets/admin/notifications/staff_notification_tile.dart';
 
 class SuperNotificationsScreen extends ConsumerWidget {
-  const SuperNotificationsScreen({super.key});
+  final void Function(int index) onNavigate;
+
+  const SuperNotificationsScreen({super.key, required this.onNavigate});
 
   @override
   Widget build(BuildContext context, WidgetRef ref) {
@@ -81,7 +84,11 @@ class SuperNotificationsScreen extends ConsumerWidget {
                               final n = notifState.notifications[i];
                               return StaffNotificationTile(
                                 notification: n,
-                                onMarkRead: () => notifier.markRead(n.id),
+                                onTap: () {
+                                  if (n.isUnread) notifier.markRead(n.id);
+                                  final index = _indexForType(n.type);
+                                  if (index != null) onNavigate(index);
+                                },
                               );
                             },
                           ),
@@ -89,5 +96,19 @@ class SuperNotificationsScreen extends ConsumerWidget {
         ],
       ),
     );
+  }
+}
+
+// Maps a notification type to the Super Admin sidebar index that screen lives at.
+int? _indexForType(NotificationType type) {
+  switch (type) {
+    case NotificationType.newFeedback:
+      return 4; // Feedback Management
+    case NotificationType.salesAlert:
+      return 3; // Sales Report
+    case NotificationType.adminActivity:
+      return 6; // Activity Log
+    default:
+      return null; // no matching Super Admin screen for this type
   }
 }

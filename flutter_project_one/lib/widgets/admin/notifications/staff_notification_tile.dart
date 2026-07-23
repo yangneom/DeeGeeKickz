@@ -6,12 +6,12 @@ import '../../../models/notification_model.dart';
 /// staff notifications share one look — differentiated by icon/color.
 class StaffNotificationTile extends StatelessWidget {
   final AppNotification notification;
-  final VoidCallback onMarkRead;
+  final VoidCallback onTap;
 
   const StaffNotificationTile({
     super.key,
     required this.notification,
-    required this.onMarkRead,
+    required this.onTap,
   });
 
   IconData get _icon {
@@ -56,7 +56,7 @@ class StaffNotificationTile extends StatelessWidget {
     final bool isUnread = notification.isUnread;
 
     return GestureDetector(
-      onTap: isUnread ? onMarkRead : null,
+      onTap: onTap,
       child: Container(
         margin: const EdgeInsets.only(bottom: 8),
         padding: const EdgeInsets.all(16),

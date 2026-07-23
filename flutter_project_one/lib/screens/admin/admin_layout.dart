@@ -101,7 +101,13 @@ class _AdminLayoutState extends ConsumerState<AdminLayout> {
     }
 
     if (_currentIndex == 7) {
-      return const AdminNotificationsScreen();
+      return AdminNotificationsScreen(
+        onNavigate: (int index) {
+          setState(() {
+            _currentIndex = index;
+          });
+        },
+      );
     }
 
     // default — show dashboard

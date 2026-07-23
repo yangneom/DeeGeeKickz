@@ -1,6 +1,8 @@
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import '../../../providers/auth/auth_provider.dart';
+import '../../../providers/customer/customer_cart_provider.dart';
+import '../../../screens/auth/login_screen.dart';
 
 // ================================================
 // ADMIN SIDEBAR
@@ -29,15 +31,24 @@ class AdminSidebar extends ConsumerStatefulWidget {
 
 class _AdminSidebarState extends ConsumerState<AdminSidebar> {
 
-  // ================================================
-  // HANDLE LOGOUT
-  // ================================================
-  Future<void> _handleLogout() async {
+ Future<void> _handleLogout() async {
     try {
       final authService = ref.read(authServiceProvider);
       await authService.logout();
+      ref.read(customerCartProvider.notifier).clearLocalOnly();
+      if (mounted) {
+        Navigator.of(context).pushAndRemoveUntil(
+          MaterialPageRoute(builder: (_) => const LoginScreen()),
+          (route) => false,
+        );
+      }
     } catch (error) {
       print('Logout error: $error');
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          const SnackBar(content: Text('Logout failed. Please try again.')),
+        );
+      }
     }
   }
 

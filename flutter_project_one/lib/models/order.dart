@@ -47,9 +47,16 @@ class OrderItem {
 // ================================================
 // ORDER CLASS
 //
-// FIX: Added trackingUrl and receiptUrl fields.
-//      These are nullable — not every order will
-//      have a Lalamove link or receipt yet.
+// UPDATE: Added lat/lng — the dropoff coordinates for this
+//         order's address, needed to book the real Lalamove
+//         delivery order when admin marks "Shipped". Nullable
+//         since orders placed before geocoding existed (or with
+//         a failed geocode) won't have them.
+//
+// UPDATE: Added lalamoveOrderId — the real Lalamove order id
+//         returned by create-delivery-order, saved alongside
+//         trackingUrl so the webhook can match incoming status
+//         events back to this order.
 // ================================================
 class Order {
   final String  orderId;
@@ -62,16 +69,24 @@ class Order {
   final String  paymentStatus;
   final String  orderStatus;
   final String  dateTime;
-  final String? adminNote;  // ← ADD
+  final String? adminNote;
   final List<OrderItem> items;
 
-  // NEW — Lalamove delivery tracking URL saved by admin
+  // Lalamove delivery tracking URL (now set automatically, not pasted)
   final String? trackingUrl;
 
-  // NEW — PDF receipt URL stored after payment confirmed
-  final String? receiptUrl;
-  final String? cancelReason;  // ← ADD THIS
+  // NEW — the Lalamove order id itself, for webhook matching
+  final String? lalamoveOrderId;
 
+  // NEW — dropoff coordinates, needed to book delivery
+  final double? lat;
+  final double? lng;
+
+  // PDF receipt URL stored after payment confirmed
+  final String? receiptUrl;
+  final String? cancelReason;
+
+  bool get hasCoordinates => lat != null && lng != null;
 
   Order({
     required this.orderId,
@@ -86,9 +101,12 @@ class Order {
     required this.dateTime,
     required this.items,
     this.trackingUrl,
+    this.lalamoveOrderId,
+    this.lat,
+    this.lng,
     this.receiptUrl,
-    this.cancelReason,  // ← ADD THIS
-    this.adminNote,  // ← ADD
+    this.cancelReason,
+    this.adminNote,
   });
 
     factory Order.fromMap(
@@ -123,6 +141,8 @@ class Order {
     final String fullAddress = [street, city, zipCode]
         .where((s) => s.isNotEmpty)
         .join(', ');
+    final double? lat = (addr['lat'] as num?)?.toDouble();
+    final double? lng = (addr['lng'] as num?)?.toDouble();
 
     // ── order items ──
     final List<dynamic>   rawItems = map['order_item'] ?? [];
@@ -146,21 +166,24 @@ class Order {
     }
 
     return Order(
-      orderId:       map['order_id'].toString(),
-      customerName:  customerName,
-      contact:       contact,
-      landmark:      landmark,
-      address:       fullAddress,
-      totalAmount:   (map['total_amount'] as num).toDouble(),
-      paymentMethod: map['payment_method'] ?? '',
-      paymentStatus: paymentStatus,
-      orderStatus:   map['order_status'] ?? 'Pending',
-      dateTime:      dateTime,
-      items:         items,
-      trackingUrl:   trackingUrl ?? map['tracking_url'] as String?,
-      receiptUrl:    receiptUrl,
-      cancelReason:  cancelReason,
-      adminNote:     adminNote,
+      orderId:         map['order_id'].toString(),
+      customerName:    customerName,
+      contact:         contact,
+      landmark:        landmark,
+      address:         fullAddress,
+      totalAmount:     (map['total_amount'] as num).toDouble(),
+      paymentMethod:   map['payment_method'] ?? '',
+      paymentStatus:   paymentStatus,
+      orderStatus:     map['order_status'] ?? 'Pending',
+      dateTime:        dateTime,
+      items:           items,
+      trackingUrl:     trackingUrl ?? map['tracking_url'] as String?,
+      lalamoveOrderId: map['lalamove_order_id'] as String?,
+      lat:             lat,
+      lng:             lng,
+      receiptUrl:      receiptUrl,
+      cancelReason:    cancelReason,
+      adminNote:       adminNote,
     );
   }
 }

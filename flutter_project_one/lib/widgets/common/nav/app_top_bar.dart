@@ -1,21 +1,27 @@
 import 'package:flutter/material.dart';
+import 'package:flutter_riverpod/flutter_riverpod.dart';
 
 import 'package:supabase_flutter/supabase_flutter.dart';
 
 import '../../../screens/auth/login_screen.dart';
 import '../../../core/utils/auth_gate.dart';
 
-
 import '../../../screens/customer/shop_screen.dart/shop_screen.dart';
 import '../../../screens/customer/promo/promo_screen.dart';
 import '../../../screens/customer/cart/cart_screen.dart';
 import '../../../screens/customer/profile/profile_screen.dart';
-import '../../../screens/customer/search/search_screen.dart';           // ← added
-import '../../../screens/customer/notifications/notifications_screen.dart'; // ← added
-
+import '../../../screens/customer/search/search_screen.dart';
+import '../../../screens/customer/notifications/notifications_screen.dart';
+import '../../../providers/customer/customer_cart_provider.dart';
+import '../../../providers/customer/notification_provider.dart';
 
 /// Responsive top navigation bar shared across all customer-web screens.
-class AppTopBar extends StatelessWidget implements PreferredSizeWidget {
+///
+/// Mobile layout is now: hamburger — logo — (nothing on the right).
+/// Search, Bag, Orders, and Profile all live in BottomNavBar on mobile,
+/// so duplicating Search/Bag icons here was redundant and has been removed.
+/// Desktop keeps its full icon row since there's no bottom nav there.
+class AppTopBar extends ConsumerWidget implements PreferredSizeWidget {
   final String activeRoute;
   final VoidCallback? onMenuTap;
   final VoidCallback? onSearchTap;
@@ -58,9 +64,13 @@ class AppTopBar extends StatelessWidget implements PreferredSizeWidget {
     }
   }
 
-
   @override
-  Widget build(BuildContext context) {
+  Widget build(BuildContext context, WidgetRef ref) {
+    final cartCount = ref.watch(customerCartProvider.select(
+      (items) => items.fold<int>(0, (sum, i) => sum + i.quantity),
+    ));
+    final unreadCount = ref.watch(notificationProvider).unreadCount;
+
     return Container(
       height: _navHeight,
       decoration: BoxDecoration(
@@ -127,75 +137,56 @@ class AppTopBar extends StatelessWidget implements PreferredSizeWidget {
                     ),
 
                     // ── Right ─────────────────────────────────
+                    // Desktop only: mobile gets Search/Bag/Orders/Profile
+                    // from BottomNavBar, so nothing is duplicated here.
                     Row(
                       children: [
                         if (isDesktop) ...[
-                          // Bell → NotificationsScreen ← updated
                           _IconButton(
-                              icon: Icons.notifications_outlined,
-                              showBadge: true,
-                              onTap: onNotificationsTap ??
-                                  () => requireAuth(
-                                        context,
-                                        const NotificationsScreen(),
-                                      ),
-                            ),
+                            icon: Icons.notifications_outlined,
+                            showBadge: unreadCount > 0,
+                            onTap: onNotificationsTap ??
+                                () => requireAuth(
+                                      context,
+                                      const NotificationsScreen(),
+                                    ),
+                          ),
                           const SizedBox(width: 24),
 
-                          
                           _IconButton(
                             icon: Icons.search,
                             onTap: onSearchTap ??
                                 () => Navigator.of(context).push(
                                       MaterialPageRoute(
-                                        builder: (_) =>
-                                            const SearchScreen(),
+                                        builder: (_) => const SearchScreen(),
                                       ),
                                     ),
                           ),
                           const SizedBox(width: 24),
-                        ],
 
-                        
-                        _IconButton(
-                          icon: Icons.shopping_bag_outlined,
-                          showBadge: true,
-                          onTap: onBagTap ??
-                              () => Navigator.of(context).push(
-                                    MaterialPageRoute(
-                                      builder: (_) => const CartScreen(),
+                          _IconButton(
+                            icon: Icons.shopping_bag_outlined,
+                            showBadge: cartCount > 0,
+                            onTap: onBagTap ??
+                                () => Navigator.of(context).push(
+                                      MaterialPageRoute(
+                                        builder: (_) => const CartScreen(),
+                                      ),
                                     ),
-                                  ),
-                        ),
-
-                        if (isDesktop) ...[
+                          ),
                           const SizedBox(width: 24),
 
-                          // Person → ProfileScreen ← already wired
                           _IconButton(
                             icon: Icons.person_outline,
                             onTap: onPersonTap ??
-                            () => requireAuth(
-                                  context,
-                                  const ProfileScreen(),
-                                ),
-                          ),
-                        ],
-
-                        // Mobile: search icon (no bell on mobile — bell is in drawer)
-                        if (!isDesktop) ...[
-                          const SizedBox(width: 12),
-                          _IconButton(
-                            icon: Icons.search,
-                            onTap: onSearchTap ??
-                                () => Navigator.of(context).push(
-                                      MaterialPageRoute(
-                                        builder: (_) =>
-                                            const SearchScreen(),
-                                      ),
+                                () => requireAuth(
+                                      context,
+                                      const ProfileScreen(),
                                     ),
                           ),
                         ],
+                        // Mobile: intentionally empty. Search, Bag, Orders,
+                        // and Profile all live in BottomNavBar already.
                       ],
                     ),
                   ],

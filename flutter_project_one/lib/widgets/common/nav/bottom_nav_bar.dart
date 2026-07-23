@@ -1,18 +1,23 @@
 import 'package:flutter/material.dart';
 
 import '../../../screens/customer/cart/cart_screen.dart';
-import '../../../screens/customer/orders/order_history_screen.dart'; // ← replaces chat
+import '../../../screens/customer/search/search_screen.dart';
+import '../../../screens/customer/orders/order_history_screen.dart';
 import '../../../screens/customer/profile/profile_screen.dart';
 import '../../../core/utils/auth_gate.dart';
 
 /// Bottom navigation bar shown ONLY on mobile widths (< 768px).
 ///
 /// Index map:
-///   0 → Home
-///   1 → Search
+///   0 → Home      → pops to root
+///   1 → Search    → SearchScreen
 ///   2 → Bag       → CartScreen
-///   3 → Orders    → OrderHistoryScreen   (was: Chat)
+///   3 → Orders    → OrderHistoryScreen
 ///   4 → Profile   → ProfileScreen
+///
+/// All navigation is now handled internally — pass currentIndex only.
+/// Pass currentIndex: -1 on screens that don't correspond to any tab
+/// (e.g. ShopScreen) so nothing is falsely highlighted.
 ///
 /// Self-hides (returns SizedBox.shrink) on desktop/tablet.
 class BottomNavBar extends StatelessWidget {
@@ -34,7 +39,7 @@ class BottomNavBar extends StatelessWidget {
     _NavItem(icon: Icons.home_outlined,           label: 'Home'),
     _NavItem(icon: Icons.search,                  label: 'Search'),
     _NavItem(icon: Icons.shopping_bag_outlined,   label: 'Bag'),
-    _NavItem(icon: Icons.receipt_long_outlined,   label: 'Orders'),  // ← updated
+    _NavItem(icon: Icons.receipt_long_outlined,   label: 'Orders'),
     _NavItem(icon: Icons.person_outline,          label: 'Profile'),
   ];
 
@@ -63,13 +68,22 @@ class BottomNavBar extends StatelessWidget {
               return InkWell(
                 onTap: () {
                   switch (index) {
+                    case 0: // Home
+                      Navigator.of(context).popUntil((r) => r.isFirst);
+                      break;
+                    case 1: // Search
+                      Navigator.of(context).push(
+                        MaterialPageRoute(
+                            builder: (_) => const SearchScreen()),
+                      );
+                      break;
                     case 2: // Bag
                       Navigator.of(context).push(
                         MaterialPageRoute(
                             builder: (_) => const CartScreen()),
                       );
                       break;
-                    case 3: // Orders ← updated from Chat
+                    case 3: // Orders
                       Navigator.of(context).push(
                         MaterialPageRoute(
                             builder: (_) => const OrderHistoryScreen()),

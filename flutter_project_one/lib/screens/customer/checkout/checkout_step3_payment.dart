@@ -103,10 +103,6 @@ class _CheckoutStep3PaymentState
   // COD — no payment, set directly to Pending
   // ================================================
   Future<void> _handleCod(int orderId) async {
-    // COD orders skip payment entirely.
-    // order_status is already 'Awaiting Payment' from createOrder.
-    // We update it to 'Pending' directly so it appears in
-    // admin approval without needing a webhook.
     await PaymentService().setCodPending(orderId: orderId);
 
     print('COD: order $orderId set to pending, navigating to Order History');
@@ -152,10 +148,6 @@ class _CheckoutStep3PaymentState
       ),
     );
 
-    // Deep links only work on mobile (see main.dart's `if (!kIsWeb)`
-    // guard) — on web there's no automatic return path, so navigate
-    // away from checkout immediately rather than leaving the user on
-    // a now-empty-cart checkout screen after the tab opens GCash.
     _goToOrderHistory();
   }
 
@@ -163,7 +155,6 @@ class _CheckoutStep3PaymentState
   // CARD — in-house card form
   // ================================================
   Future<void> _handleCard(int orderId) async {
-    // Release processing state while dialog is open
     if (mounted) setState(() => _isProcessing = false);
 
     final bool? paid = await showCardPaymentDialog(
@@ -199,10 +190,6 @@ class _CheckoutStep3PaymentState
     }
   }
 
-  // ── Uses the GLOBAL navigator key, not local context — CheckoutScreen
-  // unmounts this widget the instant the cart clears (its build() has
-  // an `if (items.isEmpty)` guard), so a local Navigator.of(context)
-  // call here would silently no-op. The global key sidesteps that.
   void _goToOrderHistory() {
     print('_goToOrderHistory called, navigatorState = ${appNavigatorKey.currentState}');
     appNavigatorKey.currentState?.pushAndRemoveUntil(
@@ -247,7 +234,6 @@ class _CheckoutStep3PaymentState
                   items:          widget.items,
                   subtotal:       widget.subtotal,
                   shipping:       widget.shipping,
-                  tax:            widget.tax,
                   total:          widget.total,
                   showPlaceOrder: true,
                   isProcessing:   _isProcessing,
@@ -270,7 +256,6 @@ class _CheckoutStep3PaymentState
               items:          widget.items,
               subtotal:       widget.subtotal,
               shipping:       widget.shipping,
-              tax:            widget.tax,
               total:          widget.total,
               showPlaceOrder: true,
               isProcessing:   _isProcessing,

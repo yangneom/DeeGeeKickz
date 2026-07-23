@@ -265,7 +265,7 @@ class PaymentService {
   // never be left claiming a status that implies money is still
   // held/finalized when it isn't.
   // ================================================
-  Future<void> cancelOrder({
+Future<void> cancelOrder({
     required int    orderId,
     required String reason,
     required String cancelledBy,
@@ -285,6 +285,14 @@ class PaymentService {
         'status':     'Cancelled',
         'admin_note': 'Cancelled by $cancelledBy: $reason',
       });
+
+      // Only notify staff when the CUSTOMER cancels — an admin
+      // rejecting an order goes through rejectPayment(), not this
+      // method, so no extra guard is needed here.
+      await _notifyStaffOrderCancellation(
+        orderId: orderId,
+        reason: reason,
+      );
 
       // Check whether the gateway had already confirmed this
       // payment (or, belt-and-suspenders, whether it was somehow
@@ -325,6 +333,34 @@ class PaymentService {
     } catch (e) {
       print('PaymentService.cancelOrder error: $e');
       rethrow;
+    }
+  }
+  // ================================================
+  // NOTIFY STAFF — ORDER CANCELLATION
+  // Recipient: Admin only (ties to Order Approval, Admin-only).
+  // ================================================
+  Future<void> _notifyStaffOrderCancellation({
+    required int orderId,
+    required String reason,
+  }) async {
+    try {
+      final staff = await _supabase
+          .from('users')
+          .select('id')
+          .eq('role', 'Admin');
+
+      if ((staff as List).isEmpty) return;
+
+      final rows = staff.map((u) => {
+            'customer_id': u['id'],
+            'type': 'order_cancellation',
+            'title': 'Order cancelled',
+            'body': 'Order #$orderId was cancelled by the customer. Reason: $reason',
+          }).toList();
+
+      await _supabase.from('notifications').insert(rows); // NO .select() !
+    } catch (error) {
+      print('_notifyStaffOrderCancellation error: $error');
     }
   }
 

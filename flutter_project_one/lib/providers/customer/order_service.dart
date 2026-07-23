@@ -6,8 +6,9 @@ import '../../services/customer/payment/payment_service.dart';
 class OrderService {
   final SupabaseClient _supabase = Supabase.instance.client;
  
-  Future<int> createOrder({
+Future<int> createOrder({
   required String userId,
+  String? addressId,
 
     // Shipping address from checkout
     required String street,
@@ -24,22 +25,28 @@ class OrderService {
     required String paymentMethod,
   }) async {
     // ───────────────────────────────────────────
-    // 1. Save shipping address
+    // 1. Resolve shipping address — reuse the existing row if the
+    //    customer selected a saved address (addressId provided);
+    //    only insert a new row when they added one fresh at checkout.
     // ───────────────────────────────────────────
- 
-    final addressResponse = await _supabase
-        .from('address')
-        .insert({
-          'user_id': userId,
-          'street': street,
-          'city': city,
-          'zip_code': postal,
-          'landmark': null,
-        })
-        .select()
-        .single();
- 
-    final int addressId = addressResponse['address_id'];
+
+    final int resolvedAddressId;
+    if (addressId != null) {
+      resolvedAddressId = int.parse(addressId);
+    } else {
+      final addressResponse = await _supabase
+          .from('address')
+          .insert({
+            'user_id': userId,
+            'street': street,
+            'city': city,
+            'zip_code': postal,
+            'landmark': null,
+          })
+          .select()
+          .single();
+      resolvedAddressId = addressResponse['address_id'];
+    }
  
     // ───────────────────────────────────────────
     // 2. Create order
@@ -49,7 +56,7 @@ class OrderService {
         .from('orders')
         .insert({
           'user_id': userId,
-          'address_id': addressId,
+          'address_id': resolvedAddressId,
  
           'subtotal': subtotal,
           'shipping': shipping,
@@ -144,7 +151,7 @@ for (final item in items) {
       final staff = await _supabase
           .from('users')
           .select('id')
-          .inFilter('role', ['Admin', 'Super Admin']);
+          .eq('role', 'Admin');
 
       if ((staff as List).isEmpty) return;
 
@@ -194,7 +201,7 @@ for (final item in items) {
         .eq('size_id', sizeId);
   }
 
-  Future<double> _getCostPrice(int? sizeId) async {
+Future<double> _getCostPrice(int? sizeId) async {
     if (sizeId == null) return 0;
     try {
       final row = await _supabase
@@ -203,7 +210,18 @@ for (final item in items) {
           .eq('size_id', sizeId)
           .single();
       final variant = row['product_variant'];
-      return (variant?['cost_price'] as num?)?.toDouble() ?? 0;
+      final double? costPrice = (variant?['cost_price'] as num?)?.toDouble();
+
+      // A null cost_price isn't a query failure — it means this
+      // product variant genuinely has no cost recorded. Log it so
+      // it's visible (Gross Profit in Sales Report will silently
+      // read as inflated for this item otherwise), but still return
+      // 0 so order creation isn't blocked over a data-entry gap.
+      if (costPrice == null) {
+        print('_getCostPrice warning: cost_price is null for sizeId=$sizeId — Gross Profit will undercount this item\'s COGS.');
+      }
+
+      return costPrice ?? 0;
     } catch (e) {
       print('_getCostPrice error: $e');
       return 0;

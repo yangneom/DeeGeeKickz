@@ -229,8 +229,9 @@ class _ProductReviewsSectionState
                   top: BorderSide(color: Color(0xFFCFC4C5)),
                 ),
               ),
-              child: isDesktop
+               child: isDesktop
                   ? _DesktopLayout(
+                      productId: widget.productId,
                       avgRating: avgRating,
                       reviewCount: reviewCount,
                       starCounts: starCounts,
@@ -248,6 +249,7 @@ class _ProductReviewsSectionState
                           _openWriteReview(context),
                     )
                   : _MobileLayout(
+                      productId: widget.productId,
                       avgRating: avgRating,
                       reviewCount: reviewCount,
                       starCounts: starCounts,
@@ -310,6 +312,7 @@ class _ErrorSection extends StatelessWidget {
 // ── Desktop layout ────────────────────────────────────────────────
 
 class _DesktopLayout extends StatelessWidget {
+  final int productId;
   final double avgRating;
   final int reviewCount;
   final Map<int, int> starCounts;
@@ -322,8 +325,8 @@ class _DesktopLayout extends StatelessWidget {
   final ValueChanged<_SortOption> onSort;
   final VoidCallback onLoadMore;
   final VoidCallback onWriteReview;
-
-  const _DesktopLayout({
+const _DesktopLayout({
+    required this.productId,
     required this.avgRating,
     required this.reviewCount,
     required this.starCounts,
@@ -355,6 +358,7 @@ class _DesktopLayout extends StatelessWidget {
         const SizedBox(width: 40),
         Expanded(
           child: _ReviewsList(
+            productId: productId,
             reviewCount: reviewCount,
             starCounts: starCounts,
             selectedStar: selectedStar,
@@ -374,8 +378,10 @@ class _DesktopLayout extends StatelessWidget {
 // ── Mobile layout ─────────────────────────────────────────────────
 
 class _MobileLayout extends StatelessWidget {
+  final int productId;
   final double avgRating;
   final int reviewCount;
+         
   final Map<int, int> starCounts;
   final int? selectedStar;
   final _SortOption sort;
@@ -387,7 +393,8 @@ class _MobileLayout extends StatelessWidget {
   final VoidCallback onLoadMore;
   final VoidCallback onWriteReview;
 
-  const _MobileLayout({
+const _MobileLayout({
+    required this.productId,
     required this.avgRating,
     required this.reviewCount,
     required this.starCounts,
@@ -415,6 +422,7 @@ class _MobileLayout extends StatelessWidget {
         ),
         const SizedBox(height: 32),
         _ReviewsList(
+          productId: productId,
           reviewCount: reviewCount,
           starCounts: starCounts,
           selectedStar: selectedStar,
@@ -429,6 +437,8 @@ class _MobileLayout extends StatelessWidget {
     );
   }
 }
+
+// ── Rating summary panel ──────────────────────────────────────────
 
 // ── Rating summary panel ──────────────────────────────────────────
 
@@ -543,6 +553,7 @@ class _RatingSummary extends StatelessWidget {
 // ── Reviews list ──────────────────────────────────────────────────
 
 class _ReviewsList extends StatelessWidget {
+  final int productId;
   final int reviewCount;
   final Map<int, int> starCounts;
   final int? selectedStar;
@@ -554,6 +565,7 @@ class _ReviewsList extends StatelessWidget {
   final VoidCallback onLoadMore;
 
   const _ReviewsList({
+    required this.productId,
     required this.reviewCount,
     required this.starCounts,
     required this.selectedStar,
@@ -677,7 +689,7 @@ class _ReviewsList extends StatelessWidget {
             ),
           )
         else
-          ...reviews.map((r) => _ReviewCard(review: r)),
+          ...reviews.map((r) => _ReviewCard(review: r, productId: productId)),
 
         if (hasMore) ...[
           const SizedBox(height: 8),
@@ -711,15 +723,81 @@ class _ReviewsList extends StatelessWidget {
 
 // ── Review card ───────────────────────────────────────────────────
 
-class _ReviewCard extends StatelessWidget {
+class _ReviewCard extends ConsumerStatefulWidget {
   final ReviewModel review;
-  const _ReviewCard({required this.review});
+  final int productId;
+  const _ReviewCard({required this.review, required this.productId});
+
+  @override
+  ConsumerState<_ReviewCard> createState() => _ReviewCardState();
+}
+
+class _ReviewCardState extends ConsumerState<_ReviewCard> {
+  bool _expanded = false;
+  bool _showReplyBox = false;
+  bool _submittingReply = false;
+  final TextEditingController _replyController = TextEditingController();
+
+  @override
+  void dispose() {
+    _replyController.dispose();
+    super.dispose();
+  }
+
+  Future<void> _submitReply() async {
+    final text = _replyController.text.trim();
+    if (text.isEmpty) return;
+
+    setState(() => _submittingReply = true);
+
+    final submitReply = ref.read(replySubmitProvider);
+    final String? error = await submitReply(
+      feedbackId: widget.review.id,
+      productId: widget.productId,
+      replyText: text,
+    );
+
+    if (!mounted) return;
+    setState(() => _submittingReply = false);
+
+    if (error != null) {
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(
+          content: Text(error),
+          backgroundColor: const Color(0xFFBA1A1A),
+          behavior: SnackBarBehavior.floating,
+        ),
+      );
+      return;
+    }
+
+    _replyController.clear();
+    setState(() => _showReplyBox = false);
+  }
+
+  String _monthName(int month) {
+    const months = [
+      '',
+      'Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun',
+      'Jul', 'Aug', 'Sep', 'Oct', 'Nov', 'Dec',
+    ];
+    return months[month];
+  }
 
   @override
   Widget build(BuildContext context) {
+    final review = widget.review;
     final date =
         '${_monthName(review.createdAt.month)} '
         '${review.createdAt.day}, ${review.createdAt.year}';
+
+    final authState = ref.watch(authStateProvider);
+    final isLoggedIn = authState.value?.session != null;
+
+    final replies = review.replies;
+    final bool hasMultiple = replies.length > 1;
+    final List<FeedbackReply> visibleReplies =
+        _expanded || !hasMultiple ? replies : [replies.last];
 
     return Container(
       padding: const EdgeInsets.only(bottom: 32),
@@ -785,55 +863,181 @@ class _ReviewCard extends StatelessWidget {
               color: Color(0xFF4C4546),
             ),
           ),
-          if (review.adminReply != null &&
-              review.adminReply!.trim().isNotEmpty) ...[
+
+          // ── Reply thread ──────────────────────────────────
+          if (replies.isNotEmpty) ...[
             const SizedBox(height: 12),
-            Container(
-              padding: const EdgeInsets.all(12),
-              decoration: BoxDecoration(
-                color: const Color(0xFFF3F3F4),
-                border: Border.all(
-                    color: const Color(0xFFCFC4C5)),
-              ),
-              child: Column(
-                crossAxisAlignment: CrossAxisAlignment.start,
-                children: [
-                  const Text(
-                    'STORE REPLY',
-                    style: TextStyle(
+            ...visibleReplies.map((reply) => Container(
+                  margin: const EdgeInsets.only(bottom: 8),
+                  padding: const EdgeInsets.all(12),
+                  decoration: BoxDecoration(
+                    color: reply.isStaff
+                        ? const Color(0xFFF3F3F4)
+                        : const Color(0xFFFAFAFA),
+                    border: Border.all(
+                      color: reply.isStaff
+                          ? const Color(0xFFCFC4C5)
+                          : const Color(0xFFE2E2E2),
+                    ),
+                  ),
+                  child: Column(
+                    crossAxisAlignment: CrossAxisAlignment.start,
+                    children: [
+                      Text(
+                        reply.isStaff
+                            ? 'STORE REPLY'
+                            : '${reply.authorName.toUpperCase()} REPLIED',
+                        style: const TextStyle(
+                          fontFamily: 'Inter',
+                          fontSize: 11,
+                          fontWeight: FontWeight.w700,
+                          letterSpacing: 0.8,
+                          color: Colors.black,
+                        ),
+                      ),
+                      const SizedBox(height: 6),
+                      Text(
+                        reply.replyText,
+                        style: const TextStyle(
+                          fontFamily: 'Inter',
+                          fontSize: 14,
+                          height: 1.5,
+                          color: Color(0xFF4C4546),
+                        ),
+                      ),
+                    ],
+                  ),
+                )),
+            if (hasMultiple)
+              GestureDetector(
+                onTap: () => setState(() => _expanded = !_expanded),
+                child: Padding(
+                  padding: const EdgeInsets.only(bottom: 8),
+                  child: Text(
+                    _expanded
+                        ? 'HIDE REPLIES'
+                        : 'VIEW ALL ${replies.length} REPLIES',
+                    style: const TextStyle(
                       fontFamily: 'Inter',
-                      fontSize: 11,
-                      fontWeight: FontWeight.w700,
-                      letterSpacing: 0.8,
+                      fontSize: 12,
+                      fontWeight: FontWeight.w600,
+                      letterSpacing: 0.5,
+                      decoration: TextDecoration.underline,
                       color: Colors.black,
                     ),
                   ),
-                  const SizedBox(height: 6),
-                  Text(
-                    review.adminReply!,
-                    style: const TextStyle(
-                      fontFamily: 'Inter',
-                      fontSize: 14,
-                      height: 1.5,
-                      color: Color(0xFF4C4546),
+                ),
+              ),
+          ],
+
+          // ── Reply composer ──────────────────────────────────
+          const SizedBox(height: 4),
+          if (!_showReplyBox)
+            GestureDetector(
+              onTap: () {
+                if (!isLoggedIn) {
+                  ScaffoldMessenger.of(context).showSnackBar(
+                    const SnackBar(
+                      content: Text('Sign in to reply.'),
+                      backgroundColor: Colors.black,
+                      behavior: SnackBarBehavior.floating,
+                    ),
+                  );
+                  return;
+                }
+                setState(() => _showReplyBox = true);
+              },
+              child: const Text(
+                'REPLY',
+                style: TextStyle(
+                  fontFamily: 'Inter',
+                  fontSize: 12,
+                  fontWeight: FontWeight.w600,
+                  letterSpacing: 0.5,
+                  decoration: TextDecoration.underline,
+                  color: Color(0xFF4C4546),
+                ),
+              ),
+            )
+          else
+            Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                TextField(
+                  controller: _replyController,
+                  maxLines: 3,
+                  style: const TextStyle(fontFamily: 'Inter', fontSize: 14),
+                  decoration: InputDecoration(
+                    hintText: 'Write a reply...',
+                    hintStyle: const TextStyle(
+                        fontFamily: 'Inter',
+                        fontSize: 14,
+                        color: Color(0xFFCFC4C5)),
+                    filled: true,
+                    fillColor: const Color(0xFFF3F3F4),
+                    contentPadding: const EdgeInsets.all(12),
+                    border: OutlineInputBorder(
+                      borderRadius: BorderRadius.circular(0),
+                      borderSide: const BorderSide(color: Color(0xFFCFC4C5)),
                     ),
                   ),
-                ],
-              ),
+                ),
+                const SizedBox(height: 8),
+                Row(
+                  children: [
+                    GestureDetector(
+                      onTap: _submittingReply ? null : _submitReply,
+                      child: Container(
+                        padding: const EdgeInsets.symmetric(
+                            horizontal: 20, vertical: 10),
+                        color: Colors.black,
+                        child: _submittingReply
+                            ? const SizedBox(
+                                width: 14,
+                                height: 14,
+                                child: CircularProgressIndicator(
+                                  strokeWidth: 2,
+                                  color: Colors.white,
+                                ),
+                              )
+                            : const Text(
+                                'SEND',
+                                style: TextStyle(
+                                  fontFamily: 'Inter',
+                                  fontSize: 12,
+                                  fontWeight: FontWeight.w600,
+                                  letterSpacing: 1,
+                                  color: Colors.white,
+                                ),
+                              ),
+                      ),
+                    ),
+                    const SizedBox(width: 12),
+                    GestureDetector(
+                      onTap: _submittingReply
+                          ? null
+                          : () => setState(() {
+                                _showReplyBox = false;
+                                _replyController.clear();
+                              }),
+                      child: const Text(
+                        'CANCEL',
+                        style: TextStyle(
+                          fontFamily: 'Inter',
+                          fontSize: 12,
+                          fontWeight: FontWeight.w600,
+                          letterSpacing: 0.5,
+                          color: Color(0xFF4C4546),
+                        ),
+                      ),
+                    ),
+                  ],
+                ),
+              ],
             ),
-          ],
         ],
       ),
     );
-  }
-
-  String _monthName(int month) {
-    const months = [
-      '',
-      'Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun',
-      'Jul', 'Aug', 'Sep', 'Oct', 'Nov', 'Dec',
-    ];
-    return months[month];
   }
 }
 

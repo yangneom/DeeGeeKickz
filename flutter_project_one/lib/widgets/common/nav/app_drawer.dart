@@ -1,14 +1,23 @@
 import 'package:flutter/material.dart';
+import 'package:flutter_riverpod/flutter_riverpod.dart';
 
 import '../../../screens/customer/promo/promo_screen.dart';
 import '../../../screens/customer/messages/customer_chat_screen.dart';
+import '../../../screens/customer/notifications/notifications_screen.dart';
+import '../../../screens/auth/login_screen.dart';
+import '../../../core/utils/auth_gate.dart';
+import '../../../providers/auth/auth_provider.dart';
+import '../../../providers/customer/notification_provider.dart';
+import '../../../providers/customer/customer_cart_provider.dart';
 
 /// Shared navigation drawer shown on mobile widths.
-class AppDrawer extends StatelessWidget {
+class AppDrawer extends ConsumerWidget {
   const AppDrawer({super.key});
 
   @override
-  Widget build(BuildContext context) {
+  Widget build(BuildContext context, WidgetRef ref) {
+    final unreadCount = ref.watch(notificationProvider).unreadCount;
+
     return Drawer(
       backgroundColor: const Color(0xFFF9F9F9),
       child: SafeArea(
@@ -60,8 +69,11 @@ class AppDrawer extends StatelessWidget {
                   _DrawerItem(
                     icon: Icons.notifications_outlined,
                     label: 'Notifications',
-                    showBadge: true,
-                    onTap: () => Navigator.of(context).pop(),
+                    showBadge: unreadCount > 0,
+                    onTap: () {
+                      Navigator.of(context).pop(); // close drawer first
+                      requireAuth(context, const NotificationsScreen());
+                    },
                   ),
                   _DrawerItem(
                     icon: Icons.support_agent_outlined,
@@ -84,7 +96,19 @@ class AppDrawer extends StatelessWidget {
             _DrawerItem(
               icon: Icons.logout,
               label: 'Logout',
-              onTap: () => Navigator.of(context).pop(),
+              onTap: () async {
+                Navigator.of(context).pop(); // close drawer first
+                await ref.read(authServiceProvider).logout();
+                // Clear any locally-held guest cart so a fresh guest
+                // session doesn't inherit the previous account's cart.
+                await ref.read(customerCartProvider.notifier).clearLocalOnly();
+                if (context.mounted) {
+                  Navigator.of(context).pushAndRemoveUntil(
+                    MaterialPageRoute(builder: (_) => const LoginScreen()),
+                    (route) => false,
+                  );
+                }
+              },
             ),
             const SizedBox(height: 8),
           ],

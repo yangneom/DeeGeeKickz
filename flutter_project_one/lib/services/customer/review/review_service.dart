@@ -32,6 +32,16 @@ class ReviewService {
     ),
     product (
       product_name
+    ),
+    feedback_replies (
+      reply_id,
+      reply_text,
+      created_at,
+      users (
+        first_name,
+        last_name,
+        role
+      )
     )
   ''';
 
@@ -96,6 +106,13 @@ class ReviewService {
         'status':          'Visible',
       });
 
+      // Fire-and-forget: notify staff. Never let a notification
+      // failure make the review submission look like it failed.
+      await _notifyStaffNewFeedback(
+        productId: productId,
+        rating: rating.round(),
+      );
+
       return null; // success
     } catch (error) {
       print('submitReview error: $error');
@@ -103,6 +120,75 @@ class ReviewService {
     }
   }
 
+  // ================================================
+  // ADD REPLY
+  // Any logged-in user (staff via the admin dialog, or a
+  // customer via the product page) can append a reply.
+  // ================================================
+  Future<String?> addReply({
+    required int feedbackId,
+    required String replyText,
+  }) async {
+    try {
+      final String? userId = _supabase.auth.currentUser?.id;
+      if (userId == null) return 'You must be logged in to reply.';
+
+      final String trimmed = replyText.trim();
+      if (trimmed.isEmpty) return 'Reply cannot be empty.';
+
+      await _supabase.from('feedback_replies').insert({
+        'feedback_id': feedbackId,
+        'author_id':   userId,
+        'reply_text':  trimmed,
+      });
+
+      return null;
+    } catch (error) {
+      print('addReply error: $error');
+      return error.toString();
+    }
+  }
+
+  // ================================================
+  // NOTIFY STAFF — NEW FEEDBACK
+  // Recipient: Admin + Super Admin (both have a feedback screen).
+  // ================================================
+  Future<void> _notifyStaffNewFeedback({
+    required int productId,
+    required int rating,
+  }) async {
+    try {
+      String productName = 'a product';
+      try {
+        final row = await _supabase
+            .from('product')
+            .select('product_name')
+            .eq('product_id', productId)
+            .single();
+        productName = row['product_name']?.toString() ?? productName;
+      } catch (_) {
+        // fall back to the generic label above
+      }
+
+      final staff = await _supabase
+          .from('users')
+          .select('id')
+          .inFilter('role', ['Admin', 'Super Admin']);
+
+      if ((staff as List).isEmpty) return;
+
+      final rows = staff.map((u) => {
+            'customer_id': u['id'],
+            'type': 'new_feedback',
+            'title': 'New feedback received',
+            'body': '$productName received a $rating-star review.',
+          }).toList();
+
+      await _supabase.from('notifications').insert(rows); // NO .select() !
+    } catch (error) {
+      print('_notifyStaffNewFeedback error: $error');
+    }
+  }
   // ================================================
   // UPDATE REVIEW
   // Customer can edit their own review text / rating.
