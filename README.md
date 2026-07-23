@@ -18,7 +18,7 @@ git status
 
 # 2. After coding - save your work
 git add .
-git commit -m "did the dashboard"
+git commit -m "did a lot of work"
 git push
 
 # To check the Lib Folder Structure
