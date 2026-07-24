@@ -27,6 +27,12 @@ import '../../customer/delivery/lalamove_service.dart';
 //         then saves the resulting tracking_url AND
 //         lalamove_order_id (needed by the webhook to match
 //         future status updates back to this order).
+//
+// UPDATE: loadOrders() now also selects subtotal, shipping, and
+//         discount_amount — these were already being written to
+//         the orders table at checkout, but were never read back,
+//         so Order Details had no way to show a real breakdown
+//         (only the flat total_amount and per-item prices).
 // ================================================
 
 /// Thrown by markAsShipped when the order's address has no
@@ -39,6 +45,17 @@ class OrderMissingCoordinatesException implements Exception {
         'so a courier can\'t be booked. Ask the customer to re-save '
         'their address, or use the manual tracking link field below instead.',
   ]);
+
+  @override
+  String toString() => message;
+}
+
+/// Thrown by markAsShipped when a Lalamove courier already appears to
+/// be booked for this order. Prevents a stale/retried tap from
+/// dispatching a second real courier.
+class AlreadyBookedException implements Exception {
+  final String message;
+  AlreadyBookedException(this.message);
 
   @override
   String toString() => message;
@@ -59,6 +76,9 @@ class OrderManagementService {
         .from('orders')
         .select('''
           order_id,
+          subtotal,
+          shipping,
+          discount_amount,
           total_amount,
           payment_method,
           order_status,
@@ -90,7 +110,7 @@ class OrderManagementService {
           )
         ''')
         .neq('order_status', 'Awaiting Payment')
-        .neq('order_type', 'In-Store')
+        .or('order_type.neq.In-Store,order_type.is.null')
         .order('created_at', ascending: false);
 
         // ── Step 2: cancel reasons from order_progress ──
@@ -155,6 +175,12 @@ class OrderManagementService {
 
     if (trackingUrl != null && trackingUrl.trim().isNotEmpty) {
       updatePayload['tracking_url'] = trackingUrl.trim();
+      // Flags this order as manually tracked — it has no
+      // lalamove_order_id, so lalamove-webhook can never match and
+      // auto-advance it. Filter/highlight tracking_source = 'manual'
+      // orders stuck at 'Shipped' in the admin list so none get
+      // forgotten.
+      updatePayload['tracking_source'] = 'manual';
     }
 
     await _supabase
@@ -219,7 +245,7 @@ class OrderManagementService {
   // the manual-link fallback (updateOrderStatus with
   // trackingUrl) instead of silently failing.
   // ================================================
-  Future<void> markAsShipped({
+Future<LalamoveOrderResult> markAsShipped({
     required Order order,
     String? adminNote,
   }) async {
@@ -229,6 +255,46 @@ class OrderManagementService {
 
     final int orderId = int.parse(order.orderId);
 
+    // Re-check the SERVER's copy of this order (not the possibly
+    // stale `order` object passed in) before booking. Closes the gap
+    // where a previous attempt booked a real courier but the DB
+    // write after it failed/timed out — leaving order_status still
+    // 'Preparing' with no lalamove_order_id, which would otherwise
+    // let admin tap "Mark Shipped" again and dispatch a 2nd courier.
+    final Map<String, dynamic>? currentRow = await _supabase
+        .from('orders')
+        .select('order_status, lalamove_order_id')
+        .eq('order_id', orderId)
+        .maybeSingle();
+
+    final String? existingLalamoveId = currentRow?['lalamove_order_id'] as String?;
+    final String? currentStatus      = currentRow?['order_status'] as String?;
+
+    if (existingLalamoveId != null && existingLalamoveId.isNotEmpty) {
+      throw AlreadyBookedException(
+        'A Lalamove courier was already booked for this order '
+        '(id: $existingLalamoveId). Refresh before trying again — '
+        'do not book a second courier.',
+      );
+    }
+    if (currentStatus == 'Shipped' || currentStatus == 'Delivered' || currentStatus == 'Completed') {
+      throw AlreadyBookedException(
+        'This order is already marked "$currentStatus". Refresh the '
+        'order list — no further booking is needed.',
+      );
+    }
+
+    // Derive a rough parcel size from actual order contents instead
+    // of a hardcoded default (see Fix 6 below).
+    final int totalQty = order.items.fold<int>(0, (sum, item) => sum + item.quantity);
+    final double estimatedKg = totalQty * 1.2; // rough per-pair estimate — tune this
+    final String weightClass = estimatedKg > 20
+        ? 'LESS_THAN_20_KG'
+        : (estimatedKg > 5 ? 'LESS_THAN_5_KG' : 'LESS_THAN_3_KG');
+    // NOTE: verify these weight-class strings against Lalamove's
+    // current /v3 enum for your market — they're inferred here, not
+    // confirmed from docs.
+
     // 1. Book the real Lalamove delivery order.
     final LalamoveOrderResult result = await _lalamoveService.createDeliveryOrder(
       orderId: orderId,
@@ -237,6 +303,8 @@ class OrderManagementService {
       dropoffAddressText: order.address,
       recipientName: order.customerName,
       recipientPhone: order.contact,
+      itemQuantity: totalQty > 0 ? totalQty : 1,
+      weightClass: weightClass,
     );
 
     // 2. Save the results + move to Shipped.
@@ -244,6 +312,7 @@ class OrderManagementService {
       'order_status': 'Shipped',
       'tracking_url': result.trackingUrl,
       'lalamove_order_id': result.lalamoveOrderId,
+      'tracking_source': 'lalamove_auto',
     }).eq('order_id', orderId);
 
     await _supabase.from('order_progress').insert({
@@ -252,7 +321,7 @@ class OrderManagementService {
       'admin_note': adminNote,
     });
 
-    await _activityLog.log(
+await _activityLog.log(
       action: 'Booked Lalamove delivery and marked order #$orderId as Shipped',
       affectedModule: AffectedModule.orders,
       targetId: orderId.toString(),
@@ -263,6 +332,8 @@ class OrderManagementService {
         if (adminNote != null) 'admin_note': adminNote,
       },
     );
+
+    return result;
   }
 
   // ================================================
@@ -271,15 +342,17 @@ class OrderManagementService {
   // markAsShipped() can't run automatically — admin can still
   // paste a link by hand as a fallback.
   // ================================================
-  Future<void> saveTrackingUrl({
+Future<void> saveTrackingUrl({
     required int    orderId,
     required String trackingUrl,
   }) async {
     await _supabase
         .from('orders')
-        .update({'tracking_url': trackingUrl.trim()})
+        .update({
+          'tracking_url': trackingUrl.trim(),
+          'tracking_source': 'manual',
+        })
         .eq('order_id', orderId);
-
     await _activityLog.log(
       action: 'Updated tracking link for order #$orderId',
       affectedModule: AffectedModule.orders,

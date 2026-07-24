@@ -16,8 +16,15 @@ Future<int> createOrder({
     required String postal,
     required String country,
 
-    required List<CustomerCartItem> items,
+    // Geocoded coordinates for a fresh manual address — pass these
+    // through from checkout (call geocode-address before this, same
+    // as AddressBottomSheet does). Nullable: geocoding may fail, or
+    // this may be a saved address (addressId != null) whose row
+    // already has its own coordinates.
+    double? lat,
+    double? lng,
 
+    required List<CustomerCartItem> items,
     required double subtotal,
     required double shipping,
     required double total,
@@ -42,6 +49,8 @@ Future<int> createOrder({
             'city': city,
             'zip_code': postal,
             'landmark': null,
+            'lat': lat,
+            'lng': lng,
           })
           .select()
           .single();
@@ -57,13 +66,14 @@ Future<int> createOrder({
         .insert({
           'user_id': userId,
           'address_id': resolvedAddressId,
- 
+
           'subtotal': subtotal,
           'shipping': shipping,
           'total_amount': total,
- 
+
           'payment_method': paymentMethod,
           'order_status': 'Awaiting Payment',
+          'order_type': 'Online',
         })
         .select()
         .single();

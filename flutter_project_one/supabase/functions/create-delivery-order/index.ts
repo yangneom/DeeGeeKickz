@@ -62,13 +62,18 @@ Deno.serve(async (req: Request) => {
       sender,
       recipient,
       serviceType,
+      item,
     } = await req.json();
 
-    if (!pickup?.lat || !dropoff?.lat || !sender?.phone || !recipient?.phone) {
+    if (
+      !pickup?.lat || !pickup?.lng ||
+      !dropoff?.lat || !dropoff?.lng ||
+      !sender?.phone || !recipient?.phone
+    ) {
       return new Response(
         JSON.stringify({
           error:
-            "pickup, dropoff, sender, and recipient (with phone numbers) are all required",
+            "pickup and dropoff must each include lat and lng, and sender/recipient must include phone",
         }),
         {
           status: 400,
@@ -93,10 +98,13 @@ Deno.serve(async (req: Request) => {
             address: dropoff.address ?? "Customer delivery address",
           },
         ],
-        item: {
-          quantity: "1",
-          weight: "LESS_THAN_3_KG",
-          categories: ["FOOD_DELIVERY"],
+       item: {
+          quantity: (item?.quantity ?? "1").toString(),
+          weight: item?.weight ?? "LESS_THAN_3_KG",
+          // NOTE: verify these category values against Lalamove's
+          // current /v3 category enum for your market — do not
+          // assume "OTHERS" or the old "FOOD_DELIVERY" is correct.
+          categories: item?.categories ?? ["OTHERS"],
           handlingInstructions: [],
         },
       },

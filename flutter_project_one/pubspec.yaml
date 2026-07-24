@@ -69,3 +69,5 @@ flutter:
   assets:
     - .env
     - assets/images/logo.jpg
+    - assets/fonts/NotoSans-Regular.ttf
+    - assets/fonts/NotoSans-Bold.ttf

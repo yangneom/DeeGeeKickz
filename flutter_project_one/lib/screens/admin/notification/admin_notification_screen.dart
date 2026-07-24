@@ -22,7 +22,7 @@ class _AdminNotificationsScreenState extends ConsumerState<AdminNotificationsScr
     // loads once by default, so navigating away and back otherwise
     // shows stale data.
     WidgetsBinding.instance.addPostFrameCallback((_) {
-      ref.read(notificationProvider.notifier).loadNotifications();
+      ref.read(adminNotificationProvider.notifier).loadNotifications();
     });
   }
 
@@ -46,8 +46,8 @@ class _AdminNotificationsScreenState extends ConsumerState<AdminNotificationsScr
 
   @override
   Widget build(BuildContext context) {
-    final notifState = ref.watch(notificationProvider);
-    final notifier   = ref.read(notificationProvider.notifier);
+    final notifState = ref.watch(adminNotificationProvider);
+    final notifier   = ref.read(adminNotificationProvider.notifier);
 
     return Padding(
       padding: const EdgeInsets.all(24),

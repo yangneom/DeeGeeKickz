@@ -25,15 +25,14 @@ class CartScreen extends ConsumerWidget {
   @override
   Widget build(BuildContext context, WidgetRef ref) {
     final cartItems = ref.watch(customerCartProvider);
+    final bool isEmpty = cartItems.isEmpty;
 
     final subtotal =
         cartItems.fold(0.0, (sum, item) => sum + item.subtotal);
 
-    final tax = subtotal * 0.08;
-
-    final shipping = subtotal >= 150 ? 0.0 : 10.0;
-
-    final total = subtotal + tax + shipping;
+    // NOTE: shipping/total are no longer calculated on this screen.
+    // Real shipping fee is only known at checkout (once an address
+    // is picked), so this screen only ever shows the subtotal.
 
     return Scaffold(
       backgroundColor: const Color(0xFFF9F9F9),
@@ -65,9 +64,6 @@ class CartScreen extends ConsumerWidget {
                             cartItems: cartItems,
                             suggested: _suggested,
                             subtotal: subtotal,
-                            tax: tax,
-                            shipping: shipping,
-                            total: total,
                             onIncrement: (index) {
                               ref
                                   .read(customerCartProvider.notifier)
@@ -88,9 +84,6 @@ class CartScreen extends ConsumerWidget {
                             cartItems: cartItems,
                             suggested: _suggested,
                             subtotal: subtotal,
-                            tax: tax,
-                            shipping: shipping,
-                            total: total,
                             onIncrement: (index) {
                               ref
                                   .read(customerCartProvider.notifier)
@@ -123,16 +116,13 @@ class CartScreen extends ConsumerWidget {
 class _DesktopLayout extends StatelessWidget {
   final List<CustomerCartItem> cartItems;
   final List<ProductModel> suggested;
-  final double subtotal, tax, shipping, total;
+  final double subtotal;
   final void Function(int) onIncrement, onDecrement, onRemove;
 
   const _DesktopLayout({
     required this.cartItems,
     required this.suggested,
     required this.subtotal,
-    required this.tax,
-    required this.shipping,
-    required this.total,
     required this.onIncrement,
     required this.onDecrement,
     required this.onRemove,
@@ -161,9 +151,6 @@ class _DesktopLayout extends StatelessWidget {
           flex: 4,
           child: CartSummaryCard(
             subtotal: subtotal,
-            shipping: shipping,
-            tax: tax,
-            total: total,
           ),
         ),
       ],
@@ -175,16 +162,13 @@ class _DesktopLayout extends StatelessWidget {
 class _MobileLayout extends StatelessWidget {
   final List<CustomerCartItem> cartItems;
   final List<ProductModel> suggested;
-  final double subtotal, tax, shipping, total;
+  final double subtotal;
   final void Function(int) onIncrement, onDecrement, onRemove;
 
   const _MobileLayout({
     required this.cartItems,
     required this.suggested,
     required this.subtotal,
-    required this.tax,
-    required this.shipping,
-    required this.total,
     required this.onIncrement,
     required this.onDecrement,
     required this.onRemove,
@@ -205,9 +189,6 @@ class _MobileLayout extends StatelessWidget {
         const SizedBox(height: 32),
         CartSummaryCard(
           subtotal: subtotal,
-          shipping: shipping,
-          tax: tax,
-          total: total,
         ),
       ],
     );

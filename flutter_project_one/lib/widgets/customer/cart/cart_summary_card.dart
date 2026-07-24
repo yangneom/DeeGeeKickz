@@ -4,19 +4,23 @@ import 'package:supabase_flutter/supabase_flutter.dart';
 import '../../../screens/auth/login_screen.dart';
 
 /// Order summary sidebar card — matches HTML mockup.
-/// Shows subtotal, shipping, tax, total, and Checkout CTA.
+/// Shows subtotal, a "calculated at checkout" shipping note, and
+/// Checkout CTA.
+///
+/// NOTE: We used to show a fake flat ₱10 "Estimated Shipping" number
+/// here. It was removed because it had no connection to the real
+/// Lalamove price shown later at checkout (which is based on the
+/// customer's actual address) — showing an unrelated number here
+/// made the total jump unexpectedly once the real fee appeared,
+/// which felt misleading to the customer. Now this screen only
+/// shows the subtotal, which is the only number we can actually
+/// know for sure at this point (no address has been picked yet).
 class CartSummaryCard extends StatelessWidget {
   final double subtotal;
-  final double shipping;
-  final double tax;
-  final double total;
 
   const CartSummaryCard({
     super.key,
     required this.subtotal,
-    required this.shipping,
-    required this.tax,
-    required this.total,
   });
 
   @override
@@ -55,17 +59,37 @@ class CartSummaryCard extends StatelessWidget {
           // ── Line items ──────────────────────────────
           _SummaryRow(
             label: 'Subtotal',
-            value: '\$${subtotal.toStringAsFixed(2)}',
+            value: '₱${subtotal.toStringAsFixed(2)}',
           ),
           const SizedBox(height: 8),
-          _SummaryRow(
-            label: 'Estimated Shipping',
-            value: shipping == 0.0 ? 'FREE' : '\$${shipping.toStringAsFixed(2)}',
-          ),
-          const SizedBox(height: 8),
-          _SummaryRow(
-            label: 'Tax',
-            value: '\$${tax.toStringAsFixed(2)}',
+
+          // ── Shipping note (no number shown here) ─────
+          // We only know the real shipping fee once the customer
+          // picks a delivery address in checkout, so we don't guess
+          // at a number on this screen anymore.
+          const Row(
+            mainAxisAlignment: MainAxisAlignment.spaceBetween,
+            children: [
+              Text(
+                'Shipping',
+                style: TextStyle(
+                  fontFamily: 'Inter',
+                  fontSize: 16,
+                  fontWeight: FontWeight.w400,
+                  color: Color(0xFF656464),
+                ),
+              ),
+              Text(
+                'Calculated at checkout',
+                style: TextStyle(
+                  fontFamily: 'Inter',
+                  fontSize: 13,
+                  fontWeight: FontWeight.w500,
+                  fontStyle: FontStyle.italic,
+                  color: Color(0xFF9CA3AF),
+                ),
+              ),
+            ],
           ),
 
           const SizedBox(height: 12),
@@ -73,11 +97,15 @@ class CartSummaryCard extends StatelessWidget {
           const SizedBox(height: 12),
 
           // ── Total ────────────────────────────────────
+          // Total here = subtotal only. Shipping isn't added in
+          // until checkout, once a real fee is known — so this
+          // number will still be accurate when the customer sees
+          // it, it's just not the FINAL total yet.
           Row(
             mainAxisAlignment: MainAxisAlignment.spaceBetween,
             children: [
               const Text(
-                'TOTAL',
+                'SUBTOTAL',
                 style: TextStyle(
                   fontFamily: 'Archivo Narrow',
                   fontSize: 32,
@@ -87,7 +115,7 @@ class CartSummaryCard extends StatelessWidget {
                 ),
               ),
               Text(
-                '\$${total.toStringAsFixed(2)}',
+                '₱${subtotal.toStringAsFixed(2)}',
                 style: const TextStyle(
                   fontFamily: 'Archivo Narrow',
                   fontSize: 32,

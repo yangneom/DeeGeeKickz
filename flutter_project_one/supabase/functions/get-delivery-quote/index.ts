@@ -34,7 +34,7 @@ Deno.serve(async (req: Request) => {
   }
 
   try {
-    const { pickup, dropoff, serviceType } = await req.json();
+    const { pickup, dropoff, serviceType, item } = await req.json();
 
     if (!pickup?.lat || !pickup?.lng || !dropoff?.lat || !dropoff?.lng) {
       return new Response(
@@ -69,9 +69,9 @@ Deno.serve(async (req: Request) => {
           },
         ],
         item: {
-          quantity: "1",
-          weight: "LESS_THAN_3_KG",
-          categories: ["FOOD_DELIVERY"],
+          quantity: (item?.quantity ?? "1").toString(),
+          weight: item?.weight ?? "LESS_THAN_3_KG",
+          categories: item?.categories ?? ["OTHERS"],
           handlingInstructions: [],
         },
       },

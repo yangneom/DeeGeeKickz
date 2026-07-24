@@ -57,6 +57,14 @@ class OrderItem {
 //         returned by create-delivery-order, saved alongside
 //         trackingUrl so the webhook can match incoming status
 //         events back to this order.
+//
+// UPDATE: Added subtotal, shipping, discountAmount — these were
+//         already being written to the `orders` table at order
+//         creation (see OrderService.createOrder /
+//         CashierSaleService.saveSale) but never read back, so
+//         admin Order Details and the PDF receipt had no way to
+//         show a real breakdown. Defaulted to 0 for any legacy
+//         row where these columns might be null.
 // ================================================
 class Order {
   final String  orderId;
@@ -82,6 +90,12 @@ class Order {
   final double? lat;
   final double? lng;
 
+  // NEW — real order breakdown, read from orders.subtotal /
+  // orders.shipping / orders.discount_amount
+  final double subtotal;
+  final double shipping;
+  final double discountAmount;
+
   // PDF receipt URL stored after payment confirmed
   final String? receiptUrl;
   final String? cancelReason;
@@ -104,6 +118,9 @@ class Order {
     this.lalamoveOrderId,
     this.lat,
     this.lng,
+    this.subtotal = 0,
+    this.shipping = 0,
+    this.discountAmount = 0,
     this.receiptUrl,
     this.cancelReason,
     this.adminNote,
@@ -181,6 +198,9 @@ class Order {
       lalamoveOrderId: map['lalamove_order_id'] as String?,
       lat:             lat,
       lng:             lng,
+      subtotal:        (map['subtotal'] as num?)?.toDouble() ?? 0,
+      shipping:        (map['shipping'] as num?)?.toDouble() ?? 0,
+      discountAmount:  (map['discount_amount'] as num?)?.toDouble() ?? 0,
       receiptUrl:      receiptUrl,
       cancelReason:    cancelReason,
       adminNote:       adminNote,

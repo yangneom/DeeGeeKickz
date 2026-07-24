@@ -11,6 +11,7 @@ import '../../../widgets/common/nav/bottom_nav_bar.dart';
 import '../../../widgets/common/nav/app_footer.dart';
 import '../../../widgets/customer/notifications/notification_tile_order.dart';
 import '../../../widgets/customer/notifications/notification_tile_offer.dart';
+import '../../../widgets/customer/notifications/notification_tile_message.dart';
 
 /// Notifications screen — reads from [NotificationProvider].
 /// Accessible via the bell icon in [AppTopBar].
@@ -73,6 +74,12 @@ class NotificationsScreen extends ConsumerWidget {
                                     switch (n.type) {
                                       case NotificationType.order:
                                         return NotificationTileOrder(
+                                          notification: n,
+                                          onMarkRead: () =>
+                                              notifier.markRead(n.id),
+                                        );
+                                      case NotificationType.adminReply:
+                                        return NotificationTileMessage(
                                           notification: n,
                                           onMarkRead: () =>
                                               notifier.markRead(n.id),

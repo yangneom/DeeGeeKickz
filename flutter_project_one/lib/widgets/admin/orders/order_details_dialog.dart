@@ -7,7 +7,7 @@ import '../../../services/customer/receipt/receipt_pdf_service.dart';
 import '../../../services/customer/sms/sms_service.dart';
 import '../../common/dialog/cancel_reason_dialog.dart';
 import '../../common/dialog/confirm_dialog.dart';
-
+import '../../../services/customer/delivery/lalamove_service.dart';
 void showOrderDetailsDialog(
   BuildContext context,
   Order order,
@@ -54,6 +54,15 @@ class _OrderDetailsDialogState extends State<OrderDetailsDialog> {
   Map<String, dynamic>? _cachedPayment;
   bool                 _paymentLoaded = false;
 
+  // Live-updated copies of order fields that can change mid-dialog
+  // (i.e. after Mark Shipped books Lalamove). Everything in the UI
+  // should read these, NOT widget.order.trackingUrl / .hasCoordinates
+  // directly — widget.order is frozen at the moment the dialog opened.
+  late String? _trackingUrl;
+  late double? _lat;
+  late double? _lng;
+  bool get _hasCoordinates => _lat != null && _lng != null;
+
   final List<String> _steps = [
     'Pending',
     'Confirmed',
@@ -65,14 +74,24 @@ class _OrderDetailsDialogState extends State<OrderDetailsDialog> {
   bool get _isReadOnly =>
       _currentStatus == 'Cancelled' || _currentStatus == 'Completed';
 
+  // Manual tracking link only makes sense once an order has actually
+  // reached the shipping stage — pasting a link on a still-Pending or
+  // Confirmed order (before payment is even approved) would leave a
+  // dangling tracking_url on an order that hasn't started shipping.
+  bool get _canManageDelivery =>
+      _currentStatus == 'Preparing' || _currentStatus == 'Shipped';
+
   bool get _isCod => widget.order.paymentMethod.toLowerCase() == 'cod';
 
-  @override
+ @override
   void initState() {
     super.initState();
     _currentStatus = widget.order.orderStatus;
-    if (widget.order.trackingUrl != null) {
-      _lalamoveLinkController.text = widget.order.trackingUrl!;
+    _trackingUrl   = widget.order.trackingUrl;
+    _lat           = widget.order.lat;
+    _lng           = widget.order.lng;
+    if (_trackingUrl != null) {
+      _lalamoveLinkController.text = _trackingUrl!;
     }
   }
 
@@ -560,8 +579,7 @@ class _OrderDetailsDialogState extends State<OrderDetailsDialog> {
       return Column(
         crossAxisAlignment: CrossAxisAlignment.start,
         children: [
-          if (widget.order.trackingUrl != null &&
-              widget.order.trackingUrl!.isNotEmpty) ...[
+          if (_trackingUrl != null && _trackingUrl!.isNotEmpty) ...[
             const Text(
               'Lalamove Tracking Link',
               style: TextStyle(
@@ -573,13 +591,13 @@ class _OrderDetailsDialogState extends State<OrderDetailsDialog> {
             const SizedBox(height: 6),
             GestureDetector(
               onTap: () async {
-                final Uri uri = Uri.parse(widget.order.trackingUrl!);
+                final Uri uri = Uri.parse(_trackingUrl!);
                 if (await canLaunchUrl(uri)) {
                   await launchUrl(uri, mode: LaunchMode.externalApplication);
                 }
               },
               child: Text(
-                widget.order.trackingUrl!,
+                _trackingUrl!,
                 style: const TextStyle(
                   fontSize:   12,
                   color:      Color(0xFF2563EB),
@@ -652,7 +670,7 @@ class _OrderDetailsDialogState extends State<OrderDetailsDialog> {
                     ),
                   ),
                   const SizedBox(width: 6),
-                  if (!widget.order.hasCoordinates)
+                  if (!_hasCoordinates)
                     Container(
                       padding: const EdgeInsets.symmetric(horizontal: 6, vertical: 2),
                       decoration: BoxDecoration(
@@ -668,14 +686,18 @@ class _OrderDetailsDialogState extends State<OrderDetailsDialog> {
               ),
               const SizedBox(height: 4),
               Text(
-                widget.order.hasCoordinates
-                    ? 'Filled automatically when you tap "Mark Shipped" below. Only edit this if you need to override it.'
-                    : 'This order has no map coordinates, so automatic booking isn\'t available — paste a Lalamove link here manually instead.',
+                !_canManageDelivery
+                    ? 'Available once this order reaches Preparing status — '
+                      'not yet relevant while it\'s still $_currentStatus.'
+                    : _hasCoordinates
+                        ? 'Filled automatically when you tap "Mark Shipped" below. Only edit this if you need to override it.'
+                        : 'This order has no map coordinates, so automatic booking isn\'t available — paste a Lalamove link here manually instead.',
                 style: const TextStyle(fontSize: 11, color: Color(0xFF9CA3AF)),
               ),
               const SizedBox(height: 8),
               TextField(
                 controller: _lalamoveLinkController,
+                enabled: _canManageDelivery,
                 decoration: InputDecoration(
                   hintText:  'https://www.lalamove.com/track/...',
                   hintStyle: const TextStyle(fontSize: 12, color: Color(0xFF9CA3AF)),
@@ -698,11 +720,40 @@ class _OrderDetailsDialogState extends State<OrderDetailsDialog> {
               SizedBox(
                 width: double.infinity,
                 child: OutlinedButton.icon(
-                  onPressed: _isSavingLink
+                  onPressed: (_isSavingLink || !_canManageDelivery)
                       ? null
                       : () async {
                           final String link = _lalamoveLinkController.text.trim();
                           if (link.isEmpty) return;
+
+                          final Uri? parsed = Uri.tryParse(link);
+                          final bool looksValid = parsed != null &&
+                              (parsed.scheme == 'http' || parsed.scheme == 'https') &&
+                              parsed.host.contains('lalamove.com');
+                          if (!looksValid) {
+                            ScaffoldMessenger.of(context).showSnackBar(
+                              const SnackBar(
+                                content: Text(
+                                  'That doesn\'t look like a valid Lalamove tracking link '
+                                  '(expected https://www.lalamove.com/track/...).',
+                                ),
+                                backgroundColor: Color(0xFFDC2626),
+                              ),
+                            );
+                            return;
+                          }
+
+                          final bool? confirmed = await showConfirmDialog(
+                            context:      context,
+                            title:        'Save this tracking link?',
+                            message:      'This saves the link for the customer to view, but does NOT '
+                                          'change the order status or notify them automatically — '
+                                          'you\'ll still need to mark the order Shipped/Completed yourself.',
+                            confirmLabel: 'Save Link',
+                            confirmColor: const Color(0xFF374151),
+                          );
+                          if (confirmed != true) return;
+
                           setState(() => _isSavingLink = true);
                           try {
                             await _orderService.saveTrackingUrl(
@@ -959,8 +1010,8 @@ class _OrderDetailsDialogState extends State<OrderDetailsDialog> {
 
                     setState(() => _isBookingDelivery = true);
 
-                    try {
-                      await _orderService.markAsShipped(
+                   try {
+                      final LalamoveOrderResult result = await _orderService.markAsShipped(
                         order: widget.order,
                         adminNote: _adminNoteController.text,
                       );
@@ -969,21 +1020,44 @@ class _OrderDetailsDialogState extends State<OrderDetailsDialog> {
                         setState(() {
                           _currentStatus = 'Shipped';
                           _isBookingDelivery = false;
+                          _trackingUrl = result.trackingUrl;
+                          _lalamoveLinkController.text = result.trackingUrl;
                         });
                         widget.onStatusUpdated('Shipped', _paymentStatus ?? widget.order.paymentStatus);
                       }
+                    } on AlreadyBookedException catch (bookedErr) {
+                      // Do NOT fall through to manual booking — a
+                      // courier may genuinely already be en route.
+                      if (mounted) {
+                        setState(() => _isBookingDelivery = false);
+                        ScaffoldMessenger.of(context).showSnackBar(
+                          SnackBar(
+                            content: Text(bookedErr.message),
+                            backgroundColor: const Color(0xFFDC2626),
+                            duration: const Duration(seconds: 8),
+                          ),
+                        );
+                      }
+                      return;
                     } on OrderMissingCoordinatesException catch (_) {
                       // Fall back to the manual link field.
                       final String link = _lalamoveLinkController.text.trim();
-                      if (link.isEmpty) {
+                      final Uri? parsedLink = Uri.tryParse(link);
+                      final bool linkLooksValid = parsedLink != null &&
+                          (parsedLink.scheme == 'http' || parsedLink.scheme == 'https') &&
+                          parsedLink.host.contains('lalamove.com');
+
+                      if (link.isEmpty || !linkLooksValid) {
                         if (mounted) {
                           setState(() => _isBookingDelivery = false);
                           ScaffoldMessenger.of(context).showSnackBar(
-                            const SnackBar(
+                            SnackBar(
                               content: Text(
-                                'No coordinates on file — please paste a Lalamove tracking link manually before marking as Shipped.',
+                                link.isEmpty
+                                    ? 'No coordinates on file — please paste a Lalamove tracking link manually before marking as Shipped.'
+                                    : 'That doesn\'t look like a valid Lalamove tracking link.',
                               ),
-                              backgroundColor: Color(0xFFDC2626),
+                              backgroundColor: const Color(0xFFDC2626),
                             ),
                           );
                         }
@@ -1001,9 +1075,25 @@ class _OrderDetailsDialogState extends State<OrderDetailsDialog> {
                         setState(() {
                           _currentStatus = 'Shipped';
                           _isBookingDelivery = false;
+                          _trackingUrl = link;
                         });
                         widget.onStatusUpdated('Shipped', _paymentStatus ?? widget.order.paymentStatus);
                       }
+                    } on DeliveryQuoteFailedException catch (quoteErr) {
+                      // Same fallback as missing coordinates — automatic
+                      // booking can't work for this address, whether or
+                      // not it technically has lat/lng on file.
+                      if (mounted) {
+                        setState(() => _isBookingDelivery = false);
+                        ScaffoldMessenger.of(context).showSnackBar(
+                          SnackBar(
+                            content: Text(quoteErr.message),
+                            backgroundColor: const Color(0xFFDC2626),
+                            duration: const Duration(seconds: 8),
+                          ),
+                        );
+                      }
+                      return;
                     } catch (e) {
                       if (mounted) {
                         setState(() => _isBookingDelivery = false);

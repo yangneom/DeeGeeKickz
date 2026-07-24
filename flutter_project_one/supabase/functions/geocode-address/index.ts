@@ -82,7 +82,7 @@ Deno.serve(async (req: Request) => {
       );
     }
 
-    const result = json.results?.[0];
+const result = json.results?.[0];
 
     if (!result) {
       return new Response(
@@ -94,11 +94,36 @@ Deno.serve(async (req: Request) => {
       );
     }
 
+    // OpenCage confidence: 10 = accurate to ~0.25km, 1 = accurate to
+    // 750km+. Below this threshold the "match" is often just a city
+    // or province centroid — technically a coordinate, but useless
+    // (and misleading) for actually routing a courier there. Treat
+    // it the same as "no results" so the app falls back to manual
+    // tracking instead of silently booking against a fake point.
+    const MIN_USABLE_CONFIDENCE = 5;
+
+    if (result.confidence < MIN_USABLE_CONFIDENCE) {
+      console.warn(
+        "geocode-address: low-confidence match rejected",
+        { query, confidence: result.confidence, formatted: result.formatted },
+      );
+      return new Response(
+        JSON.stringify({
+          error: "Address match too imprecise to use for delivery",
+          confidence: result.confidence,
+        }),
+        {
+          status: 422,
+          headers: { ...corsHeaders, "Content-Type": "application/json" },
+        },
+      );
+    }
+
     return new Response(
       JSON.stringify({
         lat: result.geometry.lat,
         lng: result.geometry.lng,
-        confidence: result.confidence, // 1-10, useful if you want to flag low-confidence matches later
+        confidence: result.confidence,
         formattedAddress: result.formatted,
       }),
       {

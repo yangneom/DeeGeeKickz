@@ -99,7 +99,7 @@ class CartItemTile extends StatelessWidget {
                         ),
                         const SizedBox(width: 12),
                         Text(
-                          '\$${item.retailPrice.toStringAsFixed(2)}',
+                          '₱${item.retailPrice.toStringAsFixed(2)}',
                           style: const TextStyle(
                             fontFamily: 'Inter',
                             fontSize: 14,

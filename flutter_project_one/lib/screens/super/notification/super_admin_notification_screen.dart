@@ -12,8 +12,8 @@ class SuperNotificationsScreen extends ConsumerWidget {
 
   @override
   Widget build(BuildContext context, WidgetRef ref) {
-    final notifState = ref.watch(notificationProvider);
-    final notifier   = ref.read(notificationProvider.notifier);
+    final notifState = ref.watch(superAdminNotificationProvider);
+    final notifier   = ref.read(superAdminNotificationProvider.notifier);
 
     return Padding(
       padding: const EdgeInsets.all(24),

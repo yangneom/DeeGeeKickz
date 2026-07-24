@@ -7,6 +7,11 @@ import 'package:flutter/services.dart';
 // In-house card payment form — customer never
 // leaves the app.
 //
+// NOTE: No "Cardholder Name" field anymore. PayMongo's
+// billing.name just needs SOME name — we now always send
+// the customer's name from checkout (customerName), so the
+// customer never has to type it twice.
+//
 // HOW TO USE:
 //   final bool? paid = await showCardPaymentDialog(
 //     context:      context,
@@ -44,6 +49,10 @@ Future<bool?> showCardPaymentDialog({
 
 // ================================================
 // CARD DETAILS MODEL
+//
+// cardHolderName is filled in automatically from
+// customerName (checkout) — there is no separate
+// field asking the customer to type it anymore.
 // ================================================
 class CardDetails {
   final String cardNumber;
@@ -83,7 +92,8 @@ class CardPaymentDialog extends StatefulWidget {
 class _CardPaymentDialogState extends State<CardPaymentDialog> {
 
   final _formKey         = GlobalKey<FormState>();
-  final _nameCtrl        = TextEditingController();
+  // NOTE: _nameCtrl was removed — we no longer show a Cardholder
+  // Name field. widget.customerName is used directly instead.
   final _cardNumberCtrl  = TextEditingController();
   final _expiryCtrl      = TextEditingController();
   final _cvcCtrl         = TextEditingController();
@@ -92,14 +102,7 @@ class _CardPaymentDialogState extends State<CardPaymentDialog> {
   String? _errorMessage;
 
   @override
-  void initState() {
-    super.initState();
-    _nameCtrl.text = widget.customerName;
-  }
-
-  @override
   void dispose() {
-    _nameCtrl.dispose();
     _cardNumberCtrl.dispose();
     _expiryCtrl.dispose();
     _cvcCtrl.dispose();
@@ -135,7 +138,9 @@ class _CardPaymentDialogState extends State<CardPaymentDialog> {
         expMonth:       month,
         expYear:        year,
         cvc:            _cvcCtrl.text.trim(),
-        cardHolderName: _nameCtrl.text.trim(),
+        // Always use the checkout customer's name — no separate
+        // field for the customer to fill in.
+        cardHolderName: widget.customerName,
       ));
 
       if (mounted) Navigator.of(context).pop(true);
@@ -232,7 +237,10 @@ class _CardPaymentDialogState extends State<CardPaymentDialog> {
                     crossAxisAlignment: CrossAxisAlignment.start,
                     children: [
 
-                      // Sandbox notice
+                      // Sandbox notice — keep this while you're
+                      // still testing. Remove this whole Container
+                      // (and the SizedBox right after it) once you
+                      // go live with real PayMongo keys.
                       Container(
                         padding: const EdgeInsets.all(12),
                         decoration: BoxDecoration(
@@ -263,21 +271,11 @@ class _CardPaymentDialogState extends State<CardPaymentDialog> {
 
                       const SizedBox(height: 20),
 
-                      // Cardholder name
-                      _label('Cardholder Name'),
-                      const SizedBox(height: 6),
-                      _field(
-                        controller: _nameCtrl,
-                        hint:       'Name on card',
-                        inputType:  TextInputType.name,
-                        validator: (v) => (v == null || v.trim().isEmpty)
-                            ? 'Enter the name on your card'
-                            : null,
-                      ),
-
-                      const SizedBox(height: 16),
-
-                      // Card number
+                      // Card number — with Visa/Mastercard badges.
+                      // NOTE: only Visa + Mastercard shown here
+                      // because PayMongo does not support Amex or
+                      // Discover cards — showing those would let a
+                      // customer try a card that will always fail.
                       _label('Card Number'),
                       const SizedBox(height: 6),
                       _field(
@@ -288,6 +286,7 @@ class _CardPaymentDialogState extends State<CardPaymentDialog> {
                           FilteringTextInputFormatter.digitsOnly,
                           _CardNumberFormatter(),
                         ],
+                        suffix: const _CardBrandBadges(),
                         validator: (v) {
                           final d = v?.replaceAll(' ', '') ?? '';
                           return d.length < 16
@@ -306,7 +305,7 @@ class _CardPaymentDialogState extends State<CardPaymentDialog> {
                               crossAxisAlignment:
                                   CrossAxisAlignment.start,
                               children: [
-                                _label('Expiry'),
+                                _label('Expiration date'),
                                 const SizedBox(height: 6),
                                 _field(
                                   controller: _expiryCtrl,
@@ -331,21 +330,23 @@ class _CardPaymentDialogState extends State<CardPaymentDialog> {
                               crossAxisAlignment:
                                   CrossAxisAlignment.start,
                               children: [
-                                _label('CVC'),
+                                _label('Security code'),
                                 const SizedBox(height: 6),
                                 _field(
                                   controller:  _cvcCtrl,
                                   hint:        '123',
                                   inputType:   TextInputType.number,
                                   obscureText: true,
+                                  suffix: const Icon(Icons.credit_card,
+                                      size: 18, color: Color(0xFF9CA3AF)),
                                   formatters: [
                                     FilteringTextInputFormatter
                                         .digitsOnly,
-                                    LengthLimitingTextInputFormatter(4),
+                                    LengthLimitingTextInputFormatter(3),
                                   ],
                                   validator: (v) =>
-                                      (v == null || v.length < 3)
-                                          ? 'Enter CVC'
+                                      (v == null || v.length != 3)
+                                          ? 'Enter a 3-digit CVC'
                                           : null,
                                 ),
                               ],
@@ -475,6 +476,7 @@ class _CardPaymentDialogState extends State<CardPaymentDialog> {
     List<TextInputFormatter>?          formatters,
     String? Function(String?)?         validator,
     bool                               obscureText = false,
+    Widget?                            suffix,
   }) =>
       TextFormField(
         controller:      controller,
@@ -488,6 +490,16 @@ class _CardPaymentDialogState extends State<CardPaymentDialog> {
           hintText:  hint,
           hintStyle: const TextStyle(
               fontSize: 13, color: Color(0xFF9CA3AF)),
+          // suffixIcon shows the small brand badges / card icon
+          // inside the right edge of the field, same spot as the
+          // reference screenshot.
+          suffixIcon: suffix == null
+              ? null
+              : Padding(
+                  padding: const EdgeInsets.only(right: 8),
+                  child: suffix,
+                ),
+          suffixIconConstraints: const BoxConstraints(minWidth: 0),
           border: OutlineInputBorder(
             borderRadius: BorderRadius.circular(8),
             borderSide:
@@ -512,6 +524,47 @@ class _CardPaymentDialogState extends State<CardPaymentDialog> {
               horizontal: 12, vertical: 12),
         ),
       );
+}
+
+// ================================================
+// CARD BRAND BADGES — shown inside the Card Number
+// field, right side. Only Visa + Mastercard, because
+// those are the only two card networks PayMongo
+// actually processes — no Amex, no Discover.
+// ================================================
+class _CardBrandBadges extends StatelessWidget {
+  const _CardBrandBadges();
+
+  @override
+  Widget build(BuildContext context) {
+    return Row(
+      mainAxisSize: MainAxisSize.min,
+      children: [
+        _badge('VISA', const Color(0xFF1A1F71)),
+        const SizedBox(width: 6),
+        _badge('MC', const Color(0xFFEB001B)),
+      ],
+    );
+  }
+
+  Widget _badge(String text, Color color) {
+    return Container(
+      padding: const EdgeInsets.symmetric(horizontal: 6, vertical: 3),
+      decoration: BoxDecoration(
+        color: color,
+        borderRadius: BorderRadius.circular(4),
+      ),
+      child: Text(
+        text,
+        style: const TextStyle(
+          fontSize:      9,
+          fontWeight:    FontWeight.w700,
+          color:         Colors.white,
+          letterSpacing: 0.3,
+        ),
+      ),
+    );
+  }
 }
 
 // ── Card number formatter ────────────────────────

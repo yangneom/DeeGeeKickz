@@ -69,6 +69,25 @@ class LalamoveOrderResult {
   }
 }
 
+/// Thrown when Lalamove can't quote/book a delivery for this address —
+/// usually because the address is too vague, incomplete, or outside
+/// Lalamove's coverage, even though it technically has coordinates on
+/// file (geocoding guessed *something*, just not somewhere Lalamove
+/// can actually route to).
+class DeliveryQuoteFailedException implements Exception {
+  final String message;
+  DeliveryQuoteFailedException([
+    this.message = 'We couldn\'t get a delivery quote for this address. '
+        'This usually means the saved address is incomplete or unclear '
+        '(e.g. missing street/barangay, or not a real, deliverable location). '
+        'Ask the customer to update their address, or paste a Lalamove '
+        'tracking link manually below.',
+  ]);
+
+  @override
+  String toString() => message;
+}
+
 /// Thrown when a quote/order can't be requested because the
 /// address has no coordinates yet (geocoding failed or was
 /// never run — e.g. an address saved before this feature existed).
@@ -89,8 +108,10 @@ class LalamoveService {
   // ================================================
   // GET SHIPPING QUOTE (checkout)
   // ================================================
-  Future<LalamoveQuoteResult> getShippingQuote({
+ Future<LalamoveQuoteResult> getShippingQuote({
     required CustomerAddress dropoffAddress,
+    int itemQuantity = 1,
+    String weightClass = 'LESS_THAN_3_KG',
   }) async {
     if (!dropoffAddress.hasCoordinates) {
       throw MissingCoordinatesException();
@@ -109,6 +130,11 @@ class LalamoveService {
             'lat': dropoffAddress.lat,
             'lng': dropoffAddress.lng,
             'address': dropoffAddress.fullAddress,
+          },
+          'item': {
+            'quantity': itemQuantity.toString(),
+            'weight': weightClass,
+            'categories': ['OTHERS'],
           },
         },
       );
@@ -129,13 +155,15 @@ class LalamoveService {
   // ================================================
   // CREATE DELIVERY ORDER (admin — "Mark as Shipped")
   // ================================================
-  Future<LalamoveOrderResult> createDeliveryOrder({
+Future<LalamoveOrderResult> createDeliveryOrder({
     required int orderId,
     required double dropoffLat,
     required double dropoffLng,
     required String dropoffAddressText,
     required String recipientName,
     required String recipientPhone,
+    int itemQuantity = 1,
+    String weightClass = 'LESS_THAN_3_KG',
   }) async {
     try {
       final response = await _supabase.functions.invoke(
@@ -160,6 +188,11 @@ class LalamoveService {
             'name': recipientName,
             'phone': recipientPhone,
           },
+          'item': {
+            'quantity': itemQuantity.toString(),
+            'weight': weightClass,
+            'categories': ['OTHERS'],
+          },
         },
       );
 
@@ -172,6 +205,15 @@ class LalamoveService {
       return LalamoveOrderResult.fromMap(data);
     } catch (e) {
       print('LalamoveService.createDeliveryOrder error: $e');
+
+      final String raw = e.toString();
+      final bool isQuoteFailure = raw.contains('502') ||
+          raw.toLowerCase().contains('fresh quotation') ||
+          raw.toLowerCase().contains('could not get');
+
+      if (isQuoteFailure) {
+        throw DeliveryQuoteFailedException();
+      }
       rethrow;
     }
   }

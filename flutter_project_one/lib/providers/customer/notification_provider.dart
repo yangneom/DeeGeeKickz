@@ -36,11 +36,10 @@ class NotificationState {
   }
 }
 
-// ── Notifier ───────────────────────────────────────────────────────────────────
+// ── Notifier: Customer ──────────────────────────────────────────────────────────
 class NotificationNotifier extends Notifier<NotificationState> {
   @override
   NotificationState build() {
-    // Kick off initial load
     Future.microtask(loadNotifications);
     return const NotificationState(isLoading: true);
   }
@@ -48,7 +47,6 @@ class NotificationNotifier extends Notifier<NotificationState> {
   NotificationService get _service =>
       ref.read(notificationServiceProvider);
 
-  // ── Load ────────────────────────────────────────────────────
   Future<void> loadNotifications() async {
     state = state.copyWith(isLoading: true, error: null);
     try {
@@ -62,9 +60,7 @@ class NotificationNotifier extends Notifier<NotificationState> {
     }
   }
 
-  // ── Mark one read ───────────────────────────────────────────
   Future<void> markRead(String notificationId) async {
-    // Optimistic update
     state = state.copyWith(
       notifications: state.notifications.map((n) {
         return n.id == notificationId ? n.copyWith(isRead: true) : n;
@@ -73,14 +69,11 @@ class NotificationNotifier extends Notifier<NotificationState> {
     try {
       await _service.markRead(notificationId);
     } catch (_) {
-      // Revert on failure
       await loadNotifications();
     }
   }
 
-  // ── Mark all read ───────────────────────────────────────────
   Future<void> markAllRead() async {
-    // Optimistic update
     state = state.copyWith(
       notifications: state.notifications
           .map((n) => n.copyWith(isRead: true))
@@ -94,8 +87,119 @@ class NotificationNotifier extends Notifier<NotificationState> {
   }
 }
 
-// ── Provider ───────────────────────────────────────────────────────────────────
 final notificationProvider =
     NotifierProvider<NotificationNotifier, NotificationState>(() {
   return NotificationNotifier();
+});
+
+// ── Notifier: Admin ──────────────────────────────────────────────────────────────
+class AdminNotificationNotifier extends Notifier<NotificationState> {
+  @override
+  NotificationState build() {
+    Future.microtask(loadNotifications);
+    return const NotificationState(isLoading: true);
+  }
+
+  NotificationService get _service =>
+      ref.read(notificationServiceProvider);
+
+  Future<void> loadNotifications() async {
+    state = state.copyWith(isLoading: true, error: null);
+    try {
+      final list = await _service.fetchAdminNotifications();
+      state = state.copyWith(notifications: list, isLoading: false);
+    } catch (e) {
+      state = state.copyWith(
+        isLoading: false,
+        error: 'Failed to load notifications.',
+      );
+    }
+  }
+
+  Future<void> markRead(String notificationId) async {
+    state = state.copyWith(
+      notifications: state.notifications.map((n) {
+        return n.id == notificationId ? n.copyWith(isRead: true) : n;
+      }).toList(),
+    );
+    try {
+      await _service.markRead(notificationId);
+    } catch (_) {
+      await loadNotifications();
+    }
+  }
+
+  Future<void> markAllRead() async {
+    state = state.copyWith(
+      notifications: state.notifications
+          .map((n) => n.copyWith(isRead: true))
+          .toList(),
+    );
+    try {
+      await _service.markAdminAllRead();
+    } catch (_) {
+      await loadNotifications();
+    }
+  }
+}
+
+final adminNotificationProvider =
+    NotifierProvider<AdminNotificationNotifier, NotificationState>(() {
+  return AdminNotificationNotifier();
+});
+
+// ── Notifier: Super Admin (shared inbox) ──────────────────────────────────────────
+class SuperAdminNotificationNotifier extends Notifier<NotificationState> {
+  @override
+  NotificationState build() {
+    Future.microtask(loadNotifications);
+    return const NotificationState(isLoading: true);
+  }
+
+  NotificationService get _service =>
+      ref.read(notificationServiceProvider);
+
+  Future<void> loadNotifications() async {
+    state = state.copyWith(isLoading: true, error: null);
+    try {
+      final list = await _service.fetchSuperAdminNotifications();
+      state = state.copyWith(notifications: list, isLoading: false);
+    } catch (e) {
+      state = state.copyWith(
+        isLoading: false,
+        error: 'Failed to load notifications.',
+      );
+    }
+  }
+
+  Future<void> markRead(String notificationId) async {
+    state = state.copyWith(
+      notifications: state.notifications.map((n) {
+        return n.id == notificationId ? n.copyWith(isRead: true) : n;
+      }).toList(),
+    );
+    try {
+      await _service.markRead(notificationId);
+    } catch (_) {
+      await loadNotifications();
+    }
+  }
+
+  Future<void> markAllRead() async {
+    state = state.copyWith(
+      notifications: state.notifications
+          .map((n) => n.copyWith(isRead: true))
+          .toList(),
+    );
+    try {
+      await _service.markSuperAdminAllRead();
+    } catch (_) {
+      await loadNotifications();
+    }
+  }
+}
+
+final superAdminNotificationProvider =
+    NotifierProvider<SuperAdminNotificationNotifier, NotificationState>(() {
+  return SuperAdminNotificationNotifier();
 });

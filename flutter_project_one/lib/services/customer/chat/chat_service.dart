@@ -62,17 +62,51 @@ class ChatService {
       'is_read':         false,
     });
 
-   // Only notify staff when the CUSTOMER sends a message — not when
-    // an admin replies in their own conversation.
+   // Notify staff when the CUSTOMER sends a message, and notify the
+    // customer when an ADMIN (or cashier/super admin) replies.
     if (senderRole.toLowerCase() == 'customer') {
       await _notifyStaffNewMessage(
         conversationId: conversationId,
         customerId: senderId,
         text: text,
       );
+    } else {
+      await _notifyCustomerAdminReply(
+        conversationId: conversationId,
+        text: text,
+      );
     }
   }
 
+  // ================================================
+  // NOTIFY CUSTOMER — ADMIN REPLIED
+  // Recipient: the customer who owns this conversation.
+  // ================================================
+  Future<void> _notifyCustomerAdminReply({
+    required String conversationId,
+    required String text,
+  }) async {
+    try {
+      final convo = await _client
+          .from('conversations')
+          .select('customer_id')
+          .eq('conversation_id', int.parse(conversationId))
+          .single();
+
+      final preview = text.trim().length > 60
+          ? '${text.trim().substring(0, 60)}...'
+          : text.trim();
+
+      await _client.from('notifications').insert({
+        'customer_id': convo['customer_id'],
+        'type': 'admin_reply',
+        'title': 'New reply from support',
+        'body': preview,
+      });
+    } catch (error) {
+      print('_notifyCustomerAdminReply error: $error');
+    }
+  }
   // ================================================
   // NOTIFY STAFF — NEW MESSAGE
   // Recipient: Admin only (Super Admin has no chat screen).
