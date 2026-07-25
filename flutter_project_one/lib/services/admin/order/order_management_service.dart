@@ -339,7 +339,6 @@ await _activityLog.log(
 
     return result;
   }
-
   // ================================================
   // SAVE TRACKING URL ONLY (manual override / fallback)
   // Kept for the case where an order has no coordinates and
@@ -357,7 +356,7 @@ Future<void> saveTrackingUrl({
           'tracking_source': 'manual',
         })
         .eq('order_id', orderId);
-    await _activityLog.log(
+await _activityLog.log(
       action: 'Updated tracking link for order #$orderId',
       affectedModule: AffectedModule.orders,
       targetId: orderId.toString(),
@@ -370,6 +369,10 @@ Future<void> saveTrackingUrl({
   // Shipped, Delivered/Completed, Cancelled). Non-critical —
   // a notification failure must never block the actual status
   // update, which has already succeeded by the time this runs.
+  //
+  // RESTORED: this method (and its two call sites above) was
+  // accidentally deleted during an unrelated edit that added
+  // subtotal/shipping/discount reading to this file.
   // ================================================
   Future<void> _notifyCustomerOrderStatus({
     required int orderId,
@@ -429,4 +432,4 @@ Future<void> saveTrackingUrl({
       print('_notifyCustomerOrderStatus error: $error');
     }
   }
-} 
+}

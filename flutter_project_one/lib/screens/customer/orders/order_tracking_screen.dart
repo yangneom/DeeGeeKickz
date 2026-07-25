@@ -427,9 +427,21 @@ class OrderTrackingScreen extends StatelessWidget {
 
           const Divider(height: 24, color: Color(0xFFCFC4C5)),
 
-          _TotalRow(label: 'Subtotal', value: order.totalAmount),
+        _TotalRow(
+            label: 'Subtotal',
+            value: order.subtotal > 0
+                ? order.subtotal
+                : order.items.fold<double>(0, (sum, item) => sum + item.total),
+          ),
+          if (order.discountAmount > 0) ...[
+            const SizedBox(height: 6),
+            _TotalRow(label: 'Discount', value: -order.discountAmount),
+          ],
           const SizedBox(height: 6),
-          const _TotalRow(label: 'Shipping', value: 80),
+          _TotalRow(
+            label: 'Shipping',
+            value: order.shipping,
+          ),
           const Padding(
             padding: EdgeInsets.symmetric(vertical: 10),
             child: Divider(height: 1, color: Color(0xFFCFC4C5)),
@@ -447,7 +459,7 @@ class OrderTrackingScreen extends StatelessWidget {
                 ),
               ),
               Text(
-                '₱${(order.totalAmount + 80).toStringAsFixed(2)}',
+                '₱${order.totalAmount.toStringAsFixed(2)}',
                 style: const TextStyle(
                   fontFamily: 'Archivo Narrow',
                   fontSize:   20,

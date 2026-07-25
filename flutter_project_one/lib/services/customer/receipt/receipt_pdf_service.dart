@@ -27,6 +27,16 @@ import '../payment/payment_service.dart';
 //   assets:
 //     - assets/fonts/NotoSans-Regular.ttf
 //     - assets/fonts/NotoSans-Bold.ttf
+//
+// UPDATE: previously this hardcoded Shipping as a flat ₱80 regardless
+// of the order's real fee, and mislabeled order.totalAmount (which is
+// already the FINAL total, shipping included) as "Subtotal" — then
+// added another ₱80 on top of it for the printed TOTAL, so the number
+// on the receipt didn't match what the customer was actually charged.
+// Now uses the order's real subtotal/shipping/discountAmount (falling
+// back to summing item totals for legacy orders where subtotal wasn't
+// saved yet), and the printed TOTAL is always order.totalAmount itself
+// — the one real number already charged — never recomputed here.
 // ================================================
 
 class ReceiptPdfService {
@@ -82,6 +92,12 @@ class ReceiptPdfService {
         await rootBundle.load('assets/fonts/NotoSans-Bold.ttf');
     final pw.Font notoRegular = pw.Font.ttf(regularData);
     final pw.Font notoBold    = pw.Font.ttf(boldData);
+
+    // Real breakdown — fall back to summing item totals for legacy
+    // orders placed before orders.subtotal was being saved/read.
+    final double subtotal = order.subtotal > 0
+        ? order.subtotal
+        : order.items.fold<double>(0, (sum, item) => sum + item.total);
 
     final pw.Document pdf = pw.Document(
       theme: pw.ThemeData.withFont(
@@ -234,9 +250,25 @@ class ReceiptPdfService {
               pw.Divider(),
               pw.SizedBox(height: 6),
 
-              _row('Subtotal', '₱${order.totalAmount.toStringAsFixed(0)}', notoRegular),
+              // ── Real breakdown — subtotal, discount (if any),
+              // shipping, then the TOTAL that was actually charged.
+              _row('Subtotal', '₱${subtotal.toStringAsFixed(0)}', notoRegular),
+              if (order.discountAmount > 0) ...[
+                pw.SizedBox(height: 4),
+                _row(
+                  'Discount',
+                  '-₱${order.discountAmount.toStringAsFixed(0)}',
+                  notoRegular,
+                ),
+              ],
               pw.SizedBox(height: 4),
-              _row('Shipping', '₱80', notoRegular),
+              _row(
+                'Shipping',
+                order.shipping > 0
+                    ? '₱${order.shipping.toStringAsFixed(0)}'
+                    : 'FREE',
+                notoRegular,
+              ),
               pw.SizedBox(height: 6),
               pw.Divider(),
               pw.SizedBox(height: 6),
@@ -253,7 +285,9 @@ class ReceiptPdfService {
                     ),
                   ),
                   pw.Text(
-                    '₱${(order.totalAmount + 80).toStringAsFixed(0)}',
+                    // The one real number already charged — never
+                    // recomputed here (no more subtotal+80 guesswork).
+                    '₱${order.totalAmount.toStringAsFixed(0)}',
                     style: pw.TextStyle(
                       font:       notoBold,
                       fontSize:   13,

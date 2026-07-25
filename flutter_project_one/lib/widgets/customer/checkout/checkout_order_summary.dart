@@ -38,6 +38,11 @@ class CheckoutOrderSummary extends StatelessWidget {
     this.shippingUnavailable = false,
   });
 
+  /// Sums each item's own discountSubtotal — correctly handles a cart
+  /// with multiple products at different discount rates, since each
+  /// item already carries its own originalPrice vs retailPrice.
+  double get _totalDiscount =>
+      items.fold<double>(0, (sum, item) => sum + item.discountSubtotal);
 
   @override
   Widget build(BuildContext context) {
@@ -128,6 +133,14 @@ class CheckoutOrderSummary extends StatelessWidget {
           // NOTE: Tax row removed on purpose — only item price +
           // Lalamove shipping fee are charged.
           _Row(label: 'Subtotal', value: '₱${subtotal.toStringAsFixed(2)}'),
+          if (_totalDiscount > 0) ...[
+            const SizedBox(height: 8),
+            _Row(
+              label: 'You saved',
+              value: '-₱${_totalDiscount.toStringAsFixed(2)}',
+              valueColor: const Color(0xFF16A34A),
+            ),
+          ],
           const SizedBox(height: 8),
           _Row(
             label: 'Shipping',
@@ -202,7 +215,8 @@ class CheckoutOrderSummary extends StatelessWidget {
 class _Row extends StatelessWidget {
   final String label;
   final String value;
-  const _Row({required this.label, required this.value});
+  final Color? valueColor;
+  const _Row({required this.label, required this.value, this.valueColor});
 
   @override
   Widget build(BuildContext context) {
@@ -216,12 +230,12 @@ class _Row extends StatelessWidget {
                 fontWeight: FontWeight.w400,
                 color: Color(0xFF4C4546))),
         Text(value,
-            style: const TextStyle(
+            style: TextStyle(
                 fontFamily: 'Inter',
                 fontSize: 14,
                 fontWeight: FontWeight.w600,
                 letterSpacing: 0.7,
-                color: Colors.black)),
+                color: valueColor ?? Colors.black)),
       ],
     );
   }

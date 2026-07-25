@@ -14,6 +14,14 @@ class CustomerCartItem {
   final String size;
   final int? sizeId;
   final double retailPrice;
+
+  /// The price before any active discount was applied. Equal to
+  /// retailPrice when there's no discount. Needed so checkout, order
+  /// creation, and admin screens can all show a real "you saved ₱X"
+  /// figure instead of the discount being silently baked into
+  /// retailPrice with no trace of what it was.
+  final double originalPrice;
+
   final String imageUrl;
   int quantity;
 
@@ -26,11 +34,18 @@ class CustomerCartItem {
     required this.size,
     this.sizeId,
     required this.retailPrice,
+    double? originalPrice,
     required this.imageUrl,
     this.quantity = 1,
-  });
+  }) : originalPrice = originalPrice ?? retailPrice;
 
   double get subtotal => retailPrice * quantity;
+
+  /// Per-unit discount amount (0 if there was no discount).
+  double get discountPerUnit => originalPrice - retailPrice;
+
+  /// Total discount for this line (per-unit discount × quantity).
+  double get discountSubtotal => discountPerUnit * quantity;
 
   CustomerCartItem copyWith({
     int? cartItemId,
@@ -40,6 +55,7 @@ class CustomerCartItem {
     String? color,
     String? size,
     double? retailPrice,
+    double? originalPrice,
     int? sizeId,
     String? imageUrl,
     int? quantity,
@@ -53,6 +69,7 @@ class CustomerCartItem {
       size: size ?? this.size,
       sizeId: sizeId ?? this.sizeId,
       retailPrice: retailPrice ?? this.retailPrice,
+      originalPrice: originalPrice ?? this.originalPrice,
       imageUrl: imageUrl ?? this.imageUrl,
       quantity: quantity ?? this.quantity,
     );
@@ -60,6 +77,7 @@ class CustomerCartItem {
 
   /// Builds an item from a Supabase `cart_item` row.
   factory CustomerCartItem.fromJson(Map<String, dynamic> json) {
+    final double price = (json['price_snapshot'] as num?)?.toDouble() ?? 0.0;
     return CustomerCartItem(
       cartItemId: json['cart_item_id'] as int?,
       productId: json['product_id'] as int,
@@ -68,14 +86,17 @@ class CustomerCartItem {
       color: json['color_snapshot'] as String? ?? '',
       size: json['size_snapshot'] as String? ?? '',
       sizeId: json['size_id'] as int?,
-      retailPrice: (json['price_snapshot'] as num?)?.toDouble() ?? 0.0,
+      retailPrice: price,
+      // original_price_snapshot may not exist on rows created before
+      // this column was added — fall back to retailPrice (no discount
+      // shown) rather than crashing on old cart rows.
+      originalPrice:
+          (json['original_price_snapshot'] as num?)?.toDouble() ?? price,
       imageUrl: json['image_url_snapshot'] as String? ?? '',
       quantity: json['quantity'] as int? ?? 1,
     );
   }
 
-  /// Serializes for insert/upsert into `cart_item`. `user_id` is added
-  /// by the provider (this model doesn't know about auth).
   /// Serializes for insert/upsert into `cart_item`. `user_id` is added
   /// by the provider (this model doesn't know about auth).
   Map<String, dynamic> toJson({required String userId}) {
@@ -88,6 +109,7 @@ class CustomerCartItem {
       'color_snapshot': color,
       'size_snapshot': size,
       'price_snapshot': retailPrice,
+      'original_price_snapshot': originalPrice,
       'image_url_snapshot': imageUrl,
       'quantity': quantity,
     };
@@ -105,12 +127,14 @@ class CustomerCartItem {
       'size': size,
       'sizeId': sizeId,
       'retailPrice': retailPrice,
+      'originalPrice': originalPrice,
       'imageUrl': imageUrl,
       'quantity': quantity,
     };
   }
 
   factory CustomerCartItem.fromLocalJson(Map<String, dynamic> json) {
+    final double price = (json['retailPrice'] as num).toDouble();
     return CustomerCartItem(
       productId: json['productId'] as int,
       productName: json['productName'] as String,
@@ -118,7 +142,8 @@ class CustomerCartItem {
       color: json['color'] as String,
       size: json['size'] as String,
       sizeId: json['sizeId'] as int?,
-      retailPrice: (json['retailPrice'] as num).toDouble(),
+      retailPrice: price,
+      originalPrice: (json['originalPrice'] as num?)?.toDouble() ?? price,
       imageUrl: json['imageUrl'] as String,
       quantity: json['quantity'] as int,
     );

@@ -60,7 +60,15 @@ Future<int> createOrder({
     // ───────────────────────────────────────────
     // 2. Create order
     // ───────────────────────────────────────────
- 
+// Sum each item's real per-unit discount × quantity. Handles
+    // multiple products with different discount rates correctly,
+    // since each item already carries its own originalPrice vs
+    // retailPrice — nothing here assumes a single flat discount.
+    final double discountAmount = items.fold<double>(
+      0,
+      (sum, item) => sum + item.discountSubtotal,
+    );
+
     final orderResponse = await _supabase
         .from('orders')
         .insert({
@@ -69,6 +77,7 @@ Future<int> createOrder({
 
           'subtotal': subtotal,
           'shipping': shipping,
+          'discount_amount': discountAmount,
           'total_amount': total,
 
           'payment_method': paymentMethod,

@@ -129,17 +129,18 @@ Discount? get _discount {
     final double unitPrice = _applyDiscount(_selectedVariant.retailPrice);
 
     final cartItem = CustomerCartItem(
-      productId: int.tryParse(widget.product.productId) ?? 0,
+      productId: int.tryParse(widget.product.productId) ?? 0,  // ← was a raw String
       productName: widget.product.productName,
       brand: widget.product.brand,
       color: _selectedVariant.color,
       size: _selectedSize!,
       sizeId: sizeId,
       retailPrice: unitPrice,
+      originalPrice: _selectedVariant.retailPrice,
       imageUrl: _selectedVariant.primaryImageUrl ?? '',
       quantity: _quantity,
     );
-
+ 
     ref.read(customerCartProvider.notifier).addItem(cartItem);
 
     Navigator.of(context).push(

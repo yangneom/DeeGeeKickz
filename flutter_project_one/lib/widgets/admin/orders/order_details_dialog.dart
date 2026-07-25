@@ -312,66 +312,150 @@ class _OrderDetailsDialogState extends State<OrderDetailsDialog> {
     );
   }
 
+// ================================================
+  // ITEMS + SUMMARY — merged into one visual block
+  //
+  // Previously two separate boxes (Item Purchase table, then a
+  // second Order Summary box below it with its own header/border).
+  // Now a single container: items table on top, totals directly
+  // below with no visual break — reads as one connected breakdown
+  // instead of two disconnected cards.
   // ================================================
-  // ITEMS TABLE
-  // ================================================
-  Widget _buildItemsTable() {
+  Widget _buildItemsAndSummary() {
     final List<OrderItem> items = widget.order.items;
 
-    return Column(
-      crossAxisAlignment: CrossAxisAlignment.start,
+    final double displaySubtotal = widget.order.subtotal > 0
+        ? widget.order.subtotal
+        : widget.order.items.fold<double>(0, (sum, item) => sum + item.total);
+
+    return Container(
+      decoration: BoxDecoration(
+        borderRadius: BorderRadius.circular(8),
+        border: Border.all(color: const Color(0xFFE5E7EB)),
+      ),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+
+          // ── Section title ──
+          Padding(
+            padding: const EdgeInsets.fromLTRB(16, 14, 16, 10),
+            child: Text(
+              'Order Details',
+              style: const TextStyle(
+                fontSize:   13,
+                fontWeight: FontWeight.w600,
+                color:      Color(0xFF374151),
+              ),
+            ),
+          ),
+
+          // ── Items header row ──
+          Container(
+            padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 10),
+            decoration: const BoxDecoration(
+              color: Color(0xFFF9FAFB),
+              border: Border(
+                top:    BorderSide(color: Color(0xFFE5E7EB)),
+                bottom: BorderSide(color: Color(0xFFE5E7EB)),
+              ),
+            ),
+            child: const Row(
+              children: [
+                Expanded(flex: 3, child: Text('Product Name', style: TextStyle(fontSize: 12, fontWeight: FontWeight.w600, color: Color(0xFF6B7280)))),
+                Expanded(flex: 2, child: Text('Brand',        style: TextStyle(fontSize: 12, fontWeight: FontWeight.w600, color: Color(0xFF6B7280)))),
+                Expanded(flex: 1, child: Text('Size',         style: TextStyle(fontSize: 12, fontWeight: FontWeight.w600, color: Color(0xFF6B7280)))),
+                Expanded(flex: 1, child: Text('Qty',          style: TextStyle(fontSize: 12, fontWeight: FontWeight.w600, color: Color(0xFF6B7280)))),
+                Expanded(flex: 2, child: Text('Price',        style: TextStyle(fontSize: 12, fontWeight: FontWeight.w600, color: Color(0xFF6B7280)))),
+                Expanded(flex: 2, child: Text('Total',        style: TextStyle(fontSize: 12, fontWeight: FontWeight.w600, color: Color(0xFF6B7280)))),
+              ],
+            ),
+          ),
+
+          // ── Item rows ──
+          for (final OrderItem item in items)
+            Container(
+              padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 12),
+              decoration: const BoxDecoration(
+                border: Border(bottom: BorderSide(color: Color(0xFFE5E7EB))),
+              ),
+              child: Row(
+                children: [
+                  Expanded(flex: 3, child: Text(item.productName,                    style: const TextStyle(fontSize: 13, color: Color(0xFF111827)))),
+                  Expanded(flex: 2, child: Text(item.brand,                          style: const TextStyle(fontSize: 13, color: Color(0xFF111827)))),
+                  Expanded(flex: 1, child: Text(item.size.toString(),                style: const TextStyle(fontSize: 13, color: Color(0xFF111827)))),
+                  Expanded(flex: 1, child: Text(item.quantity.toString(),            style: const TextStyle(fontSize: 13, color: Color(0xFF111827)))),
+                  Expanded(flex: 2, child: Text('₱${item.price.toStringAsFixed(0)}', style: const TextStyle(fontSize: 13, color: Color(0xFF111827)))),
+                  Expanded(flex: 2, child: Text('₱${item.total.toStringAsFixed(0)}', style: const TextStyle(fontSize: 13, color: Color(0xFF111827)))),
+                ],
+              ),
+            ),
+
+          // ── Totals — directly below, same container, no gap ──
+          Padding(
+            padding: const EdgeInsets.all(16),
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                _summaryRow('Subtotal', '₱${displaySubtotal.toStringAsFixed(0)}'),
+                if (widget.order.discountAmount > 0) ...[
+                  const SizedBox(height: 8),
+                  _summaryRow(
+                    'Discount',
+                    '-₱${widget.order.discountAmount.toStringAsFixed(0)}',
+                    valueColor: const Color(0xFF16A34A),
+                  ),
+                ],
+                const SizedBox(height: 8),
+                _summaryRow(
+                  'Shipping',
+                  widget.order.shipping > 0
+                      ? '₱${widget.order.shipping.toStringAsFixed(0)}'
+                      : 'FREE',
+                ),
+                const SizedBox(height: 12),
+                const Divider(height: 1, color: Color(0xFFE5E7EB)),
+                const SizedBox(height: 12),
+                Row(
+                  mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                  children: [
+                    const Text(
+                      'Total',
+                      style: TextStyle(
+                        fontSize:   14,
+                        fontWeight: FontWeight.w700,
+                        color:      Color(0xFF111827),
+                      ),
+                    ),
+                    Text(
+                      '₱${widget.order.totalAmount.toStringAsFixed(0)}',
+                      style: const TextStyle(
+                        fontSize:   16,
+                        fontWeight: FontWeight.w700,
+                        color:      Color(0xFF2563EB),
+                      ),
+                    ),
+                  ],
+                ),
+              ],
+            ),
+          ),
+        ],
+      ),
+    );
+  }
+
+  Widget _summaryRow(String label, String value, {Color? valueColor}) {
+    return Row(
+      mainAxisAlignment: MainAxisAlignment.spaceBetween,
       children: [
-        const Text(
-          'Item Purchase',
+        Text(label, style: const TextStyle(fontSize: 13, color: Color(0xFF6B7280))),
+        Text(
+          value,
           style: TextStyle(
             fontSize:   13,
             fontWeight: FontWeight.w600,
-            color:      Color(0xFF374151),
-          ),
-        ),
-        const SizedBox(height: 8),
-        Container(
-          decoration: BoxDecoration(
-            borderRadius: BorderRadius.circular(8),
-            border: Border.all(color: const Color(0xFFE5E7EB)),
-          ),
-          child: Column(
-            children: [
-              Container(
-                padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 10),
-                decoration: const BoxDecoration(
-                  color: Color(0xFFF9FAFB),
-                  border: Border(bottom: BorderSide(color: Color(0xFFE5E7EB))),
-                ),
-                child: const Row(
-                  children: [
-                    Expanded(flex: 3, child: Text('Product Name', style: TextStyle(fontSize: 12, fontWeight: FontWeight.w600, color: Color(0xFF6B7280)))),
-                    Expanded(flex: 2, child: Text('Brand',        style: TextStyle(fontSize: 12, fontWeight: FontWeight.w600, color: Color(0xFF6B7280)))),
-                    Expanded(flex: 1, child: Text('Size',         style: TextStyle(fontSize: 12, fontWeight: FontWeight.w600, color: Color(0xFF6B7280)))),
-                    Expanded(flex: 1, child: Text('Qty',          style: TextStyle(fontSize: 12, fontWeight: FontWeight.w600, color: Color(0xFF6B7280)))),
-                    Expanded(flex: 2, child: Text('Price',        style: TextStyle(fontSize: 12, fontWeight: FontWeight.w600, color: Color(0xFF6B7280)))),
-                    Expanded(flex: 2, child: Text('Total',        style: TextStyle(fontSize: 12, fontWeight: FontWeight.w600, color: Color(0xFF6B7280)))),
-                  ],
-                ),
-              ),
-              for (final OrderItem item in items)
-                Container(
-                  padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 12),
-                  decoration: const BoxDecoration(
-                    border: Border(bottom: BorderSide(color: Color(0xFFE5E7EB))),
-                  ),
-                  child: Row(
-                    children: [
-                      Expanded(flex: 3, child: Text(item.productName,                    style: const TextStyle(fontSize: 13, color: Color(0xFF111827)))),
-                      Expanded(flex: 2, child: Text(item.brand,                          style: const TextStyle(fontSize: 13, color: Color(0xFF111827)))),
-                      Expanded(flex: 1, child: Text(item.size.toString(),                style: const TextStyle(fontSize: 13, color: Color(0xFF111827)))),
-                      Expanded(flex: 1, child: Text(item.quantity.toString(),            style: const TextStyle(fontSize: 13, color: Color(0xFF111827)))),
-                      Expanded(flex: 2, child: Text('₱${item.price.toStringAsFixed(0)}', style: const TextStyle(fontSize: 13, color: Color(0xFF111827)))),
-                      Expanded(flex: 2, child: Text('₱${item.total.toStringAsFixed(0)}', style: const TextStyle(fontSize: 13, color: Color(0xFF111827)))),
-                    ],
-                  ),
-                ),
-            ],
+            color:      valueColor ?? const Color(0xFF111827),
           ),
         ),
       ],
@@ -923,12 +1007,28 @@ class _OrderDetailsDialogState extends State<OrderDetailsDialog> {
                   orderStatus:   'Confirmed',
                   dateTime:      widget.order.dateTime,
                   items:         widget.order.items,
+                  subtotal:        widget.order.subtotal,
+                  shipping:        widget.order.shipping,
+                  discountAmount:  widget.order.discountAmount,
                 );
                 await ReceiptPdfService().generateAndUpload(confirmedOrder);
               } catch (receiptErr) {
                 print('Receipt generation failed: $receiptErr');
+                // TEMPORARY — surfacing this visibly so we can see the
+                // real error instead of it vanishing into the console.
+                // Revert to silent once the root cause is fixed, since
+                // a receipt failure shouldn't normally block/alarm the
+                // admin over an already-successful approval.
+                if (mounted) {
+                  ScaffoldMessenger.of(context).showSnackBar(
+                    SnackBar(
+                      content: Text('Receipt generation failed: $receiptErr'),
+                      backgroundColor: const Color(0xFFDC2626),
+                      duration: const Duration(seconds: 10),
+                    ),
+                  );
+                }
               }
-
               final String resultingPaymentStatus =
                   _isCod ? (_paymentStatus ?? widget.order.paymentStatus) : 'Paid';
 
@@ -1242,11 +1342,11 @@ class _OrderDetailsDialogState extends State<OrderDetailsDialog> {
                 child: Column(
                   crossAxisAlignment: CrossAxisAlignment.start,
                   children: [
-                    _buildProgressStepper(),
+                   _buildProgressStepper(),
                     const SizedBox(height: 16),
                     _buildCustomerInfo(),
                     const SizedBox(height: 16),
-                    _buildItemsTable(),
+                    _buildItemsAndSummary(),
                     const SizedBox(height: 16),
                     _buildPaymentSection(),
                     const SizedBox(height: 16),
