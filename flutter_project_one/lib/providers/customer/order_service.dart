@@ -172,12 +172,13 @@ for (final item in items) {
         _ => paymentMethod,
       };
 
-      final rows = staff.map((u) => {
+     final rows = staff.map((u) => {
             'customer_id': u['id'],
             'type': 'order',
             'title': 'New order placed',
             'body': 'Order #$orderId — ₱${total.toStringAsFixed(2)} via $methodLabel.',
             'order_id': orderId,
+            'recipient_role': 'admin',
           }).toList();
 
       await _supabase.from('notifications').insert(rows);

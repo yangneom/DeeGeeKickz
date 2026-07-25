@@ -8,6 +8,14 @@ import '../../../models/customer_cart_item.dart';
 /// item price + Lalamove shipping fee, no separate tax line.
 /// UPDATE: currency symbol changed from $ to ₱ (Philippine peso)
 /// throughout, since this is a PH-only nationwide store.
+/// UPDATE: added shippingUnavailable — previously a shipping fee of
+/// exactly 0 was always displayed as "FREE", but Step 1 now also
+/// passes 0 while a quote is blocked/failed (see
+/// CheckoutStep1Shipping._fetchShippingQuote). That made a blocked,
+/// unpriceable address look like a legitimate free-shipping offer.
+/// When true, this shows "—" for both Shipping and Total instead of
+/// guessing. Defaults to false so Step 2/3 (only reachable once a
+/// real quote succeeded) don't need to pass anything new.
 class CheckoutOrderSummary extends StatelessWidget {
   final List<CustomerCartItem> items;
   final double subtotal;
@@ -16,6 +24,7 @@ class CheckoutOrderSummary extends StatelessWidget {
   final VoidCallback onPlaceOrder;
   final bool showPlaceOrder;
   final bool isProcessing;
+  final bool shippingUnavailable;
 
   const CheckoutOrderSummary({
     super.key,
@@ -26,6 +35,7 @@ class CheckoutOrderSummary extends StatelessWidget {
     required this.onPlaceOrder,
     this.showPlaceOrder = true,
     this.isProcessing = false,
+    this.shippingUnavailable = false,
   });
 
 
@@ -121,9 +131,11 @@ class CheckoutOrderSummary extends StatelessWidget {
           const SizedBox(height: 8),
           _Row(
             label: 'Shipping',
-            value: shipping == 0.0
-                ? 'FREE'
-                : '₱${shipping.toStringAsFixed(2)}',
+            value: shippingUnavailable
+                ? '—'
+                : shipping == 0.0
+                    ? 'FREE'
+                    : '₱${shipping.toStringAsFixed(2)}',
           ),
 
           const SizedBox(height: 16),
@@ -143,7 +155,7 @@ class CheckoutOrderSummary extends StatelessWidget {
                 ),
               ),
               Text(
-                '₱${total.toStringAsFixed(2)}',
+                shippingUnavailable ? '—' : '₱${total.toStringAsFixed(2)}',
                 style: const TextStyle(
                   fontFamily: 'Archivo Narrow',
                   fontSize: 32,

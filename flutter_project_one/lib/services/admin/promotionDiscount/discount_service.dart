@@ -355,10 +355,69 @@ Future<bool> hasOverlappingDiscount({
         },
       );
 
+      // Only announce to customers if this discount is actually live
+      // now — a Scheduled/Draft discount shouldn't notify yet.
+      if (status == 'Active') {
+        await _notifyCustomersNewPromotion(
+          productId: productId,
+          discountType: discountType,
+          discountValue: discountValue,
+        );
+      }
+
       return null;
     } catch (error) {
       print('addDiscount error: $error');
       return error.toString();
+    }
+  }
+
+  // ================================================
+  // NOTIFY CUSTOMERS — NEW PROMOTION
+  // Store-wide announcement: every customer gets notified when a
+  // new discount goes live. Non-critical — a notification failure
+  // must never block discount creation itself.
+  // ================================================
+  Future<void> _notifyCustomersNewPromotion({
+    required int productId,
+    required String discountType,
+    required double discountValue,
+  }) async {
+    try {
+      String productName = 'A product';
+      try {
+        final row = await _supabase
+            .from('product')
+            .select('product_name')
+            .eq('product_id', productId)
+            .single();
+        productName = row['product_name']?.toString() ?? productName;
+      } catch (_) {
+        // fall back to the generic label above
+      }
+
+      final String valueLabel = discountType == 'Percentage'
+          ? '${discountValue.toStringAsFixed(0)}% off'
+          : '₱${discountValue.toStringAsFixed(2)} off';
+
+      final customers = await _supabase
+          .from('users')
+          .select('id')
+          .eq('role', 'Customer');
+
+      if ((customers as List).isEmpty) return;
+
+      final rows = customers.map((u) => {
+            'customer_id': u['id'],
+            'type': 'promotion',
+            'title': 'New discount available',
+            'body': '$productName is now $valueLabel. Shop now before it ends!',
+            'recipient_role': 'customer',
+          }).toList();
+
+      await _supabase.from('notifications').insert(rows);
+    } catch (error) {
+      print('_notifyCustomersNewPromotion error: $error');
     }
   }
 

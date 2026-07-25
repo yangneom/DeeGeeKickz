@@ -8,7 +8,7 @@ import '../../../models/discount_model.dart';
 import '../../../providers/customer/customer_cart_provider.dart';
 import '../../../services/admin/promotionDiscount/discount_service.dart';
 import '../../../screens/customer/messages/customer_chat_screen.dart';
- 
+import '../../../screens/customer/checkout/checkout_screen.dart'; 
 /// Product info panel backed by the real [Product] model.
 /// Color picker → variant images update gallery via callback (future).
 /// Size picker → shows only sizes with available stock.
@@ -110,6 +110,43 @@ Discount? get _discount {
         .firstWhere((s) => s!.size == _selectedSize, orElse: () => null);
   }
  
+  void _onBuyNow() {
+    if (_selectedSize == null) {
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(content: Text('Please select a size')),
+      );
+      return;
+    }
+
+    if (_availableQtyForSize == 0) {
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(content: Text('This size is out of stock')),
+      );
+      return;
+    }
+
+    final int? sizeId = _selectedSizeEntry?.sizeId;
+    final double unitPrice = _applyDiscount(_selectedVariant.retailPrice);
+
+    final cartItem = CustomerCartItem(
+      productId: int.tryParse(widget.product.productId) ?? 0,
+      productName: widget.product.productName,
+      brand: widget.product.brand,
+      color: _selectedVariant.color,
+      size: _selectedSize!,
+      sizeId: sizeId,
+      retailPrice: unitPrice,
+      imageUrl: _selectedVariant.primaryImageUrl ?? '',
+      quantity: _quantity,
+    );
+
+    ref.read(customerCartProvider.notifier).addItem(cartItem);
+
+    Navigator.of(context).push(
+      MaterialPageRoute(builder: (_) => const CheckoutScreen()),
+    );
+  }
+
   void _onAddToBag() {
     if (_selectedSize == null) {
       ScaffoldMessenger.of(context).showSnackBar(
@@ -180,43 +217,18 @@ Discount? get _discount {
         const SizedBox(height: 6),
  
         // ── Name + favourite ──────────────────────────────────
-        Row(
-          crossAxisAlignment: CrossAxisAlignment.start,
-          children: [
-            Expanded(
-              child: Text(
-                product.productName.toUpperCase(),
-                style: const TextStyle(
-                  fontFamily: 'Archivo Narrow',
-                  fontSize: 32,
-                  fontWeight: FontWeight.w700,
-                  letterSpacing: -0.5,
-                  height: 1.1,
-                  color: Colors.black,
-                ),
-              ),
-            ),
-            const SizedBox(width: 12),
-            GestureDetector(
-              onTap: () =>
-                  setState(() => _isFavorited = !_isFavorited),
-              child: Container(
-                padding: const EdgeInsets.all(8),
-                decoration: BoxDecoration(
-                  border: Border.all(
-                      color: const Color(0xFFCFC4C5)),
-                  borderRadius: BorderRadius.circular(999),
-                ),
-                child: Icon(
-                  _isFavorited
-                      ? Icons.favorite
-                      : Icons.favorite_border,
-                  size: 22,
-                  color: Colors.black,
-                ),
-              ),
-            ),
-          ],
+        
+        // ── Name ────────────────────────────────────────────
+        Text(
+          product.productName.toUpperCase(),
+          style: const TextStyle(
+            fontFamily: 'Archivo Narrow',
+            fontSize: 32,
+            fontWeight: FontWeight.w700,
+            letterSpacing: -0.5,
+            height: 1.1,
+            color: Colors.black,
+          ),
         ),
  
         const SizedBox(height: 16),
@@ -316,29 +328,15 @@ Discount? get _discount {
         ],
  
         // ── Size picker ───────────────────────────────────────
-        Row(
-          mainAxisAlignment: MainAxisAlignment.spaceBetween,
-          children: [
-            const Text(
-              'SELECT SIZE (US)',
-              style: TextStyle(
-                fontFamily: 'Inter',
-                fontSize: 14,
-                fontWeight: FontWeight.w600,
-                letterSpacing: 0.7,
-                color: Colors.black,
-              ),
-            ),
-            const Text(
-              'Size Guide',
-              style: TextStyle(
-                fontFamily: 'Inter',
-                fontSize: 12,
-                color: Color(0xFF4C4546),
-                decoration: TextDecoration.underline,
-              ),
-            ),
-          ],
+        const Text(
+          'SELECT SIZE (US)',
+          style: TextStyle(
+            fontFamily: 'Inter',
+            fontSize: 14,
+            fontWeight: FontWeight.w600,
+            letterSpacing: 0.7,
+            color: Colors.black,
+          ),
         ),
         const SizedBox(height: 12),
  
@@ -485,7 +483,7 @@ Discount? get _discount {
             onTap: _onAddToBag),
         const SizedBox(height: 12),
         _CtaButton(
-            label: 'Buy Now', filled: false, onTap: () {}),
+            label: 'Buy Now', filled: false, onTap: _onBuyNow),
         const SizedBox(height: 8),
  
         TextButton.icon(

@@ -240,7 +240,14 @@ class _TransactionDetailsDialogState extends State<TransactionDetailsDialog> {
     );
   }
 
-  // ── SUMMARY — now real subtotal/discount/total from the order ──
+  // ── SUMMARY — now real subtotal/shipping/discount/total from the order ──
+  //
+  // UPDATE: added the Shipping row that was missing before. Without
+  // it, Subtotal - Discount visibly didn't equal Total for any order
+  // that had a real shipping fee baked into total_amount — the ₱10
+  // difference just looked like a math error with no explanation.
+  // Now: Subtotal + Shipping - Discount = Total, and every part of
+  // that is shown.
   Widget _buildSummary() {
     return Container(
       padding: const EdgeInsets.all(20),
@@ -251,6 +258,11 @@ class _TransactionDetailsDialogState extends State<TransactionDetailsDialog> {
           const Text('Summary', style: TextStyle(fontSize: 15, fontWeight: FontWeight.w600, color: Color(0xFF111827))),
           const SizedBox(height: 20),
           _buildSummaryRow(label: 'Subtotal', value: '₱${widget.sale.subtotal.toStringAsFixed(0)}'),
+          const SizedBox(height: 12),
+          _buildSummaryRow(
+            label: 'Shipping',
+            value: widget.sale.shipping > 0 ? '₱${widget.sale.shipping.toStringAsFixed(0)}' : 'FREE',
+          ),
           const SizedBox(height: 12),
           const Divider(color: Color(0xFFE5E7EB)),
           const SizedBox(height: 12),

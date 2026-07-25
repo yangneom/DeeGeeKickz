@@ -230,6 +230,7 @@ class PaymentService {
       }).eq('order_id', orderId);
 
       // 3. Cancel the order
+      // 3. Cancel the order
       await _supabase.from('orders').update({
         'order_status': 'Cancelled',
       }).eq('order_id', orderId);
@@ -241,9 +242,45 @@ class PaymentService {
         'admin_note': 'Payment rejected by admin: $reason',
       });
 
+      // 5. Notify the customer — this order previously had no
+      // customer-facing notification at all when rejected.
+      await _notifyCustomerOrderRejected(orderId: orderId, reason: reason);
+
     } catch (e) {
       print('PaymentService.rejectPayment error: $e');
       rethrow;
+    }
+  }
+
+  // ================================================
+  // NOTIFY CUSTOMER — ORDER REJECTED
+  // Non-critical — a notification failure must never block the
+  // actual rejection, which has already succeeded by this point.
+  // ================================================
+  Future<void> _notifyCustomerOrderRejected({
+    required int orderId,
+    required String reason,
+  }) async {
+    try {
+      final row = await _supabase
+          .from('orders')
+          .select('user_id')
+          .eq('order_id', orderId)
+          .single();
+
+      final String? customerId = row['user_id'] as String?;
+      if (customerId == null) return;
+
+      await _supabase.from('notifications').insert({
+        'customer_id': customerId,
+        'type': 'order',
+        'title': 'Order rejected',
+        'body': 'Order #$orderId was not approved. Reason: $reason',
+        'order_id': orderId,
+        'recipient_role': 'customer',
+      });
+    } catch (error) {
+      print('_notifyCustomerOrderRejected error: $error');
     }
   }
 
@@ -356,6 +393,7 @@ Future<void> cancelOrder({
             'type': 'order_cancellation',
             'title': 'Order cancelled',
             'body': 'Order #$orderId was cancelled by the customer. Reason: $reason',
+            'recipient_role': 'admin',
           }).toList();
 
       await _supabase.from('notifications').insert(rows); // NO .select() !
@@ -439,11 +477,15 @@ Future<void> cancelOrder({
       final int reserved = (row['reserved_quantity'] as num?)?.toInt() ?? 0;
 
      await _supabase.from('product_variant_size').update({
+        'stock_quantity': (stock - quantity) < 0 ? 0 : stock - quantity,
         'reserved_quantity':
             (reserved - quantity) < 0 ? 0 : reserved - quantity,
       }).eq('size_id', sizeId);
     }
   }
+
+  // ================================================
+  // RELEASE STOCK (rejection / cancellation)
 
   // ================================================
   // RELEASE STOCK (rejection / cancellation)

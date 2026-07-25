@@ -188,6 +188,8 @@ class OrderManagementService {
         .update(updatePayload)
         .eq('order_id', orderId);
 
+    await _notifyCustomerOrderStatus(orderId: orderId, status: status);
+
     // COD orders only actually collect cash on delivery — mark the
     // payment row Paid at the same moment the order is Completed.
     if (status == 'Completed') {
@@ -333,6 +335,8 @@ await _activityLog.log(
       },
     );
 
+    await _notifyCustomerOrderStatus(orderId: orderId, status: 'Shipped');
+
     return result;
   }
 
@@ -359,4 +363,70 @@ Future<void> saveTrackingUrl({
       targetId: orderId.toString(),
     );
   }
-}
+
+  // ================================================
+  // NOTIFY CUSTOMER — ORDER STATUS CHANGED
+  // Fires on every status transition (Confirmed, Preparing,
+  // Shipped, Delivered/Completed, Cancelled). Non-critical —
+  // a notification failure must never block the actual status
+  // update, which has already succeeded by the time this runs.
+  // ================================================
+  Future<void> _notifyCustomerOrderStatus({
+    required int orderId,
+    required String status,
+  }) async {
+    try {
+      final row = await _supabase
+          .from('orders')
+          .select('user_id')
+          .eq('order_id', orderId)
+          .single();
+
+      final String? customerId = row['user_id'] as String?;
+      if (customerId == null) return;
+
+      final String title;
+      final String body;
+      switch (status) {
+        case 'Confirmed':
+          title = 'Order confirmed';
+          body = 'Order #$orderId has been confirmed and is being prepared.';
+          break;
+        case 'Preparing':
+          title = 'Order is being prepared';
+          body = 'Order #$orderId is being packed for shipment.';
+          break;
+        case 'Shipped':
+          title = 'Order shipped';
+          body = 'Order #$orderId is on its way to you.';
+          break;
+        case 'Delivered':
+          title = 'Order delivered';
+          body = 'Order #$orderId has been delivered. Enjoy!';
+          break;
+        case 'Completed':
+          title = 'Order completed';
+          body = 'Order #$orderId is complete. Thanks for shopping with us!';
+          break;
+        case 'Cancelled':
+          title = 'Order cancelled';
+          body = 'Order #$orderId has been cancelled.';
+          break;
+        default:
+          title = 'Order update';
+          body = 'Order #$orderId status changed to $status.';
+      }
+
+      await _supabase.from('notifications').insert({
+        'customer_id': customerId,
+        'type': 'order',
+        'title': title,
+        'body': body,
+        'order_id': orderId,
+        'recipient_role': 'customer',
+      });
+    } catch (error) {
+      print('_notifyCustomerOrderStatus error: $error');
+    }
+  }
+} 

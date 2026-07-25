@@ -11,7 +11,7 @@ import 'screens/customer/orders/order_history_screen.dart';
 import 'screens/auth/set_password_screen.dart';
 import 'screens/auth/login_screen.dart';
 import 'providers/customer/customer_cart_provider.dart';
-
+import 'providers/customer/notification_provider.dart';
 // Global navigator key — lets any file navigate without needing a
 // local BuildContext that might get unmounted mid-flow (e.g. checkout
 // screens that disappear the instant the cart clears).
@@ -177,6 +177,14 @@ class _MyAppState extends ConsumerState<MyApp> {
           }
 
           await ref.read(customerCartProvider.notifier).mergeGuestCartIntoAccount();
+
+          // Force every notification feed to refetch fresh for
+          // whichever account just signed in — otherwise Riverpod
+          // keeps serving the PREVIOUS user's cached notification
+          // state after switching accounts.
+          ref.invalidate(notificationProvider);
+          ref.invalidate(adminNotificationProvider);
+          ref.invalidate(superAdminNotificationProvider);
         } catch (e) {
           print('Auth event profile check error: $e');
         }

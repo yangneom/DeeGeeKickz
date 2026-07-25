@@ -148,6 +148,7 @@ class ChatService {
             'type': 'new_message',
             'title': 'New message from $customerName',
             'body': preview,
+            'recipient_role': 'admin',
           }).toList();
 
       await _client.from('notifications').insert(rows); // NO .select() !

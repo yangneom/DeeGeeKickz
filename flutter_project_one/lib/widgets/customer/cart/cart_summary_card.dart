@@ -15,6 +15,13 @@ import '../../../screens/auth/login_screen.dart';
 /// which felt misleading to the customer. Now this screen only
 /// shows the subtotal, which is the only number we can actually
 /// know for sure at this point (no address has been picked yet).
+///
+/// UPDATE: the big bottom number used to be labeled "SUBTOTAL" too —
+/// identical label AND identical value to the "Subtotal" row right
+/// above it, which read as a copy-paste duplicate even though it was
+/// intentional (it really is just the subtotal, shipping isn't known
+/// yet). Relabeled to "ESTIMATED TOTAL" so it's clear this is the
+/// running total-so-far, not a repeated line.
 class CartSummaryCard extends StatelessWidget {
   final double subtotal;
 
@@ -96,19 +103,20 @@ class CartSummaryCard extends StatelessWidget {
           const Divider(color: Color(0xFFCFC4C5), thickness: 1, height: 1),
           const SizedBox(height: 12),
 
-          // ── Total ────────────────────────────────────
-          // Total here = subtotal only. Shipping isn't added in
-          // until checkout, once a real fee is known — so this
-          // number will still be accurate when the customer sees
-          // it, it's just not the FINAL total yet.
+          // ── Estimated total (subtotal only — shipping TBD) ──
+          // NOT a duplicate of the Subtotal row above: same number
+          // right now because shipping isn't known yet, but labeled
+          // differently so it doesn't read as a copy-paste mistake,
+          // and it's the number that will visibly grow once real
+          // shipping is added at checkout.
           Row(
             mainAxisAlignment: MainAxisAlignment.spaceBetween,
             children: [
               const Text(
-                'SUBTOTAL',
+                'ESTIMATED TOTAL',
                 style: TextStyle(
                   fontFamily: 'Archivo Narrow',
-                  fontSize: 32,
+                  fontSize: 28,
                   fontWeight: FontWeight.w600,
                   letterSpacing: -0.5,
                   color: Colors.black,
@@ -231,7 +239,7 @@ class _CheckoutButtonState extends State<_CheckoutButton> {
             ),
           ),
         ),
-      ),
+    ),
     );
   }
 }

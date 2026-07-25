@@ -1,6 +1,8 @@
 import 'package:flutter/material.dart';
+import 'package:flutter_riverpod/flutter_riverpod.dart';
 
 import '../../../models/product.dart';
+import '../../../providers/product/product_provider.dart';
 import '../../../widgets/common/nav/app_top_bar.dart';
 import '../../../widgets/common/nav/app_drawer.dart';
 import '../../../widgets/common/nav/bottom_nav_bar.dart';
@@ -10,8 +12,11 @@ import '../../../widgets/customer/product_detail/product_info_section.dart';
 import '../../../widgets/customer/product_detail/product_specs_section.dart';
 import '../../../widgets/customer/product_detail/product_reviews_section.dart';
 
-class ProductDetailScreen extends StatelessWidget {
-  /// Real product from Supabase — passed from ShopProductCard
+class ProductDetailScreen extends ConsumerStatefulWidget {
+  /// Real product from Supabase — passed from ShopProductCard.
+  /// Used only as an initial value / fallback; the screen re-reads
+  /// productsProvider below so stock numbers (reserved/available)
+  /// are never frozen at whatever they were when this was tapped.
   final Product product;
 
   const ProductDetailScreen({
@@ -19,10 +24,44 @@ class ProductDetailScreen extends StatelessWidget {
     required this.product,
   });
 
+  @override
+  ConsumerState<ProductDetailScreen> createState() =>
+      _ProductDetailScreenState();
+}
+
+class _ProductDetailScreenState extends ConsumerState<ProductDetailScreen> {
   static const double _mdBreakpoint = 768;
 
   @override
+  void initState() {
+    super.initState();
+    // Someone else (Admin approving/rejecting an order, a cashier
+    // sale, another customer checking out) may have changed stock
+    // for this exact product since productsProvider last fetched.
+    // Force a fresh fetch every time this screen opens, instead of
+    // trusting whatever was cached from earlier in the session.
+    WidgetsBinding.instance.addPostFrameCallback((_) {
+      ref.invalidate(productsProvider);
+    });
+  }
+
+  @override
   Widget build(BuildContext context) {
+    final productsAsync = ref.watch(productsProvider);
+
+    // Look up the freshest version of this exact product by ID.
+    // Falls back to the object passed into the constructor while
+    // the fresh list is still loading, or if it's ever missing —
+    // so this screen never crashes, it just may show slightly stale
+    // data for a moment instead of failing outright.
+    final Product product = productsAsync.maybeWhen(
+      data: (products) => products.firstWhere(
+        (p) => p.productId == widget.product.productId,
+        orElse: () => widget.product,
+      ),
+      orElse: () => widget.product,
+    );
+
     // Collect all image URLs across all variants
     final List<String> allImages = product.variants
         .expand((v) => v.imageUrls)

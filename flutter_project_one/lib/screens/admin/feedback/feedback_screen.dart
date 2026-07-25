@@ -313,9 +313,13 @@ class _FeedbackCard extends StatelessWidget {
                           CrossAxisAlignment.start,
                       children: [
                         Text(
-                          feedback.replies.length > 1
-                              ? 'Store Reply (${feedback.replies.length})'
-                              : 'Store Reply',
+                          feedback.replies.last.isStaff
+                              ? (feedback.replies.length > 1
+                                  ? 'Store Reply (${feedback.replies.length})'
+                                  : 'Store Reply')
+                              : (feedback.replies.length > 1
+                                  ? '${feedback.replies.last.authorName} Replied (${feedback.replies.length})'
+                                  : '${feedback.replies.last.authorName} Replied'),
                           style: const TextStyle(
                             fontSize: 11,
                             fontWeight: FontWeight.w700,

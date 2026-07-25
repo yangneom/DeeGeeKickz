@@ -5,6 +5,7 @@ import '../../../services/customer/payment/payment_service.dart';
 import 'package:supabase_flutter/supabase_flutter.dart';
 import '../../auth/login_screen.dart';
 import '../../../providers/customer/customer_cart_provider.dart';
+import '../../../providers/product/product_provider.dart';
 import '../../../widgets/common/nav/app_top_bar.dart';
 import '../../../widgets/common/nav/app_drawer.dart';
 import '../../../widgets/common/nav/bottom_nav_bar.dart';
@@ -40,10 +41,13 @@ class _CheckoutScreenState extends ConsumerState<CheckoutScreen> {
   String landmark = '';
 
   // ── Real shipping fee (from Lalamove, via Step 1) ─────────────────────
-  // Starts at the old flat-rate default so totals still render sensibly
-  // before Step 1's first quote comes back; Step 1 overwrites this the
-  // moment an address is selected.
-  double _shippingFee = 10.0;
+  // UPDATE: no more flat-rate fallback (₱10/free-over-₱150) — Step 1
+  // now BLOCKS checkout entirely if a real quote can't be obtained,
+  // instead of silently using a guessed number. Starts at 0 since
+  // there's nothing real to show until Step 1's first quote resolves;
+  // the "Continue" button on Step 1 is disabled until then anyway, so
+  // this initial value is never actually charged to a customer.
+  double _shippingFee = 0.0;
   bool   _isLoadingShippingFee = false;
 
   void _onShippingFeeChanged(double fee, bool isLoading) {
@@ -140,8 +144,10 @@ class _CheckoutScreenState extends ConsumerState<CheckoutScreen> {
       (sum, item) => sum + item.subtotal,
     );
 
-    // Real Lalamove-quoted fee, set by Step 1 — NOT the old
-    // `subtotal >= 150 ? 0 : 10` flat rule.
+    // Real Lalamove-quoted fee, set by Step 1. Step 1 blocks the
+    // customer from ever reaching this point (Step 3) unless a real
+    // quote was successfully obtained, so _shippingFee here is always
+    // a confirmed, real number — never a guess.
     final double shipping = _shippingFee;
     final double total    = subtotal + shipping;
 
@@ -160,6 +166,12 @@ class _CheckoutScreenState extends ConsumerState<CheckoutScreen> {
 );
 
 ref.read(customerCartProvider.notifier).clearCart();
+
+// Stock was just reserved for these items — refresh the shop's
+// product list so anyone browsing (including this same customer,
+// if they go back to the product page) sees the real, current
+// available quantity instead of a stale cached number.
+ref.invalidate(productsProvider);
 
 return orderId;
   }
@@ -188,7 +200,7 @@ return orderId;
     // below (still 0.0) purely so those widgets' constructors don't
     // need touching, but nothing renders a Tax row anymore.
     final double tax       = 0.0;
-    final double shipping = _shippingFee; // ← real Lalamove fee, not flat rate
+    final double shipping = _shippingFee; // ← real Lalamove fee, confirmed before Step 2 is reachable
     final double total    = subtotal + shipping;
 
 

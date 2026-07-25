@@ -169,10 +169,9 @@ class ReviewService {
       } catch (_) {
         // fall back to the generic label above
       }
-
-      final staff = await _supabase
+final staff = await _supabase
           .from('users')
-          .select('id')
+          .select('id, role')
           .inFilter('role', ['Admin', 'Super Admin']);
 
       if ((staff as List).isEmpty) return;
@@ -182,6 +181,7 @@ class ReviewService {
             'type': 'new_feedback',
             'title': 'New feedback received',
             'body': '$productName received a $rating-star review.',
+            'recipient_role': u['role'] == 'Super Admin' ? 'super_admin' : 'admin',
           }).toList();
 
       await _supabase.from('notifications').insert(rows); // NO .select() !

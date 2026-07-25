@@ -4,8 +4,9 @@ import '../../../models/order.dart'; // ← add this import (reuses OrderItem)
 class SaleRecord {
   final String orderId;
   final String orderType;
-  final double subtotal;         // ← new
-  final double discountAmount;   // ← new
+  final double subtotal;
+  final double shipping;        // ← new
+  final double discountAmount;
   final double totalAmount;
   final String paymentMethod;
   final String orderStatus;
@@ -14,8 +15,9 @@ class SaleRecord {
   SaleRecord({
     required this.orderId,
     required this.orderType,
-    required this.subtotal,       // ← new
-    required this.discountAmount, // ← new
+    required this.subtotal,
+    required this.shipping,       // ← new
+    required this.discountAmount,
     required this.totalAmount,
     required this.paymentMethod,
     required this.orderStatus,
@@ -39,6 +41,7 @@ class SaleRecord {
       orderId:         map['order_id'].toString(),
       orderType:       map['order_type'] ?? 'online',
       subtotal:        (map['subtotal'] as num?)?.toDouble() ?? 0,
+      shipping:        (map['shipping'] as num?)?.toDouble() ?? 0,
       discountAmount:  (map['discount_amount'] as num?)?.toDouble() ?? 0,
       totalAmount:     (map['total_amount'] as num?)?.toDouble() ?? 0,
       paymentMethod:   map['payment_method'] ?? '',
@@ -58,13 +61,13 @@ class SalesManagementService {
       if (typeFilter != null) {
         response = await _supabase
             .from('orders')
-            .select('order_id, order_type, subtotal, discount_amount, total_amount, payment_method, order_status, created_at')
+            .select('order_id, order_type, subtotal, shipping, discount_amount, total_amount, payment_method, order_status, created_at')
             .eq('order_type', typeFilter)
             .order('created_at', ascending: false);
       } else {
         response = await _supabase
             .from('orders')
-            .select('order_id, order_type, subtotal, discount_amount, total_amount, payment_method, order_status, created_at')
+            .select('order_id, order_type, subtotal, shipping, discount_amount, total_amount, payment_method, order_status, created_at')
             .order('created_at', ascending: false);
       }
 

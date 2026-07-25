@@ -24,6 +24,17 @@ Future<CustomerAddress?> showAddressBottomSheet({
   );
 }
 
+/// Thrown by _geocode when the address itself is the problem — no
+/// match found, or a match was found but rejected as too imprecise
+/// to trust (see geocode-address's confidence threshold). This is
+/// the ONE case where saving is blocked — a network hiccup or the
+/// geocoding service being briefly down should NOT block a customer
+/// from saving what may well be a perfectly real address.
+class _AddressQualityException implements Exception {
+  final String message;
+  _AddressQualityException(this.message);
+}
+
 class AddressBottomSheet extends StatefulWidget {
   /// If null → Add New mode. If provided → Edit mode.
   final CustomerAddress? existing;
@@ -48,6 +59,11 @@ class _AddressBottomSheetState extends State<AddressBottomSheet> {
   // NEW — true while geocode-address is running, so the Save
   // button can show a spinner and block double-taps.
   bool _isSaving = false;
+
+  // NEW — set when the last save attempt was blocked because the
+  // address couldn't be verified as real. Shown inline above the
+  // Save button so it's obvious why saving didn't go through.
+  String? _addressErrorMessage;
 
   bool get _isEditing => widget.existing != null;
 
@@ -109,13 +125,20 @@ class _AddressBottomSheetState extends State<AddressBottomSheet> {
 
   // ================================================
   // GEOCODE — calls the geocode-address Edge Function.
-  // Returns {lat, lng} on success, or null if geocoding
-  // failed (bad address, no match, network error, etc).
-  // A null return does NOT block saving — the address is
-  // still saved without coordinates, and simply can't be
-  // used for a Lalamove quote until it's fixed later.
+  //
+  // Returns {lat, lng} on success.
+  // Returns null on a service-side hiccup (network error, function
+  //   down, unexpected response shape) — does NOT block saving,
+  //   since a temporary outage isn't the address's fault.
+  // Throws _AddressQualityException when the function explicitly
+  //   says this isn't a real, deliverable address (no match found,
+  //   or a match was found but confidence was too low to trust) —
+  //   THIS case blocks saving, since it's not a transient problem,
+  //   it's the address itself.
   // ================================================
   Future<Map<String, double>?> _geocode() async {
+    late final dynamic responseData;
+
     try {
       final response = await Supabase.instance.client.functions.invoke(
         'geocode-address',
@@ -127,22 +150,58 @@ class _AddressBottomSheetState extends State<AddressBottomSheet> {
           'zipCode': _zipCodeCtrl.text.trim(),
         },
       );
-
-      final data = response.data;
-      if (data == null || data['lat'] == null || data['lng'] == null) {
-        print('AddressBottomSheet._geocode: no coordinates in response — $data');
-        return null;
-      }
-
-      return {
-        'lat': (data['lat'] as num).toDouble(),
-        'lng': (data['lng'] as num).toDouble(),
-      };
+      responseData = response.data;
     } catch (e) {
-      // Network error, function down, etc. — don't block the save.
+      // Network error, function completely unreachable, etc. — not
+      // an address-quality signal, don't block the save.
       print('AddressBottomSheet._geocode error: $e');
       return null;
     }
+
+    if (responseData == null) {
+      print('AddressBottomSheet._geocode: null response data');
+      return null;
+    }
+
+    final Map<String, dynamic> data = responseData is Map<String, dynamic>
+        ? responseData
+        : {};
+
+    // The edge function returns a body even on 404/422/502 — check
+    // for its 'error' field rather than relying on the client
+    // throwing, since Supabase's functions.invoke doesn't always
+    // throw for non-2xx (same pattern used in LalamoveService).
+    final String? errorText = data['error'] as String?;
+
+    if (errorText != null) {
+      final String lower = errorText.toLowerCase();
+      final bool isAddressQualityIssue =
+          lower.contains('no results found') ||
+          lower.contains('too imprecise') ||
+          lower.contains('no address fields');
+
+      if (isAddressQualityIssue) {
+        throw _AddressQualityException(
+          'We couldn\'t verify this as a real, deliverable address. '
+          'Please check the street, barangay, and city and try again.',
+        );
+      }
+
+      // Some other server-side error (e.g. geocoding provider down,
+      // status 502) — treat like a network hiccup, don't block.
+      print('AddressBottomSheet._geocode: service error — $errorText');
+      return null;
+    }
+
+    if (data['lat'] == null || data['lng'] == null) {
+      print('AddressBottomSheet._geocode: no coordinates in response — $data');
+      return null;
+    }
+
+    return {
+      'lat': (data['lat'] as num).toDouble(),
+      'lng': (data['lng'] as num).toDouble(),
+    };
   }
 
   Future<void> _save() async {
@@ -165,7 +224,10 @@ class _AddressBottomSheetState extends State<AddressBottomSheet> {
     }
 
     if (_isSaving) return;
-    setState(() => _isSaving = true);
+    setState(() {
+      _isSaving = true;
+      _addressErrorMessage = null;
+    });
 
     // Only re-geocode if the address text actually changed (or this
     // is a brand-new address) — no point burning a request re-geocoding
@@ -182,9 +244,21 @@ class _AddressBottomSheetState extends State<AddressBottomSheet> {
     double? lng = existing?.lng;
 
     if (addressTextChanged) {
-      final coords = await _geocode();
-      lat = coords?['lat'];
-      lng = coords?['lng'];
+      try {
+        final coords = await _geocode();
+        lat = coords?['lat'];
+        lng = coords?['lng'];
+      } on _AddressQualityException catch (e) {
+        // BLOCKED — this specifically means the address itself
+        // looks fake/unmatchable, not a transient failure.
+        if (mounted) {
+          setState(() {
+            _isSaving = false;
+            _addressErrorMessage = e.message;
+          });
+        }
+        return;
+      }
     }
 
     if (!mounted) return;
@@ -376,6 +450,39 @@ class _AddressBottomSheetState extends State<AddressBottomSheet> {
                       ),
                     ],
                   ),
+
+                  // ── Address-quality error (blocks save) ─────────
+                  if (_addressErrorMessage != null) ...[
+                    const SizedBox(height: 12),
+                    Container(
+                      width: double.infinity,
+                      padding: const EdgeInsets.all(12),
+                      decoration: BoxDecoration(
+                        color: const Color(0xFFFEF2F2),
+                        border: Border.all(color: const Color(0xFFFCA5A5)),
+                      ),
+                      child: Row(
+                        crossAxisAlignment: CrossAxisAlignment.start,
+                        children: [
+                          const Icon(Icons.error_outline,
+                              size: 16, color: Color(0xFFBA1A1A)),
+                          const SizedBox(width: 8),
+                          Expanded(
+                            child: Text(
+                              _addressErrorMessage!,
+                              style: const TextStyle(
+                                fontFamily: 'Inter',
+                                fontSize: 12,
+                                color: Color(0xFF7A1212),
+                                height: 1.4,
+                              ),
+                            ),
+                          ),
+                        ],
+                      ),
+                    ),
+                  ],
+
                   const SizedBox(height: 24),
 
                   // ── Save button ─────────────────────────────────

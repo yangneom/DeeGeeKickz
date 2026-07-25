@@ -35,8 +35,13 @@ class _ShopScreenState extends ConsumerState<ShopScreen> {
   void initState() {
     super.initState();
     _discountsFuture = DiscountService().fetchActiveDiscounts();
+    // Same reasoning as ProductDetailScreen — stock may have changed
+    // elsewhere (admin approval/rejection, cashier sale, another
+    // customer's checkout) since productsProvider last fetched.
+    WidgetsBinding.instance.addPostFrameCallback((_) {
+      ref.invalidate(productsProvider);
+    });
   }
-
   // ── Derived list ─────────────────────────────────────────────
   List<Product> _applyFilters(List<Product> all) {
     var list = all.where((p) {

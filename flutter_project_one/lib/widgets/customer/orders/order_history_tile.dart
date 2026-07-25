@@ -286,6 +286,13 @@ class OrderHistoryTile extends StatelessWidget {
                                   'Select a reason to cancel your order',
                               confirmLabel: 'Cancel Order',
                               confirmColor: const Color(0xFFEF4444),
+                              reasons: const [
+                                'Changed my mind',
+                                'Ordered by mistake',
+                                'Found a better price elsewhere',
+                                'Delivery is taking too long',
+                                'Item no longer needed',
+                              ],
                               onConfirm: (String reason) async {
                               await PaymentService().cancelOrder(
                                 orderId:     int.parse(order.orderId),

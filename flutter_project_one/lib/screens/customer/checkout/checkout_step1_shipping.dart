@@ -23,7 +23,8 @@ class CheckoutStep1Shipping extends StatefulWidget {
   /// NEW — fired whenever the shipping fee changes: right after an
   /// address is selected (fee = 0, isLoading = true, while the quote
   /// is in flight), then again once the quote resolves (real fee,
-  /// isLoading = false) or fails (fallback fee, isLoading = false).
+  /// isLoading = false). If the quote fails, this is NOT called with
+  /// a fake fallback fee anymore — see _fetchShippingQuote.
   final void Function(double shippingFee, bool isLoading) onShippingFeeChanged;
 
   final void Function({
@@ -70,9 +71,19 @@ class _CheckoutStep1ShippingState extends State<CheckoutStep1Shipping> {
   String? _selectedAddressId;
   CustomerAddress? _selectedAddress;
 
-  // NEW — shipping quote state, shown inline below the selected address.
+  // ── Shipping quote state ──────────────────────────────────────
   bool _isLoadingQuote = false;
+
+  // NEW — replaces the old silent-fallback approach. When non-null,
+  // checkout is BLOCKED — the customer cannot continue to Review
+  // until this clears (either by fixing the address, or by a
+  // successful retry for a service-side failure).
   String? _quoteErrorMessage;
+
+  // Distinguishes "this address is the problem" (needs editing) from
+  // "the pricing service is temporarily unreachable" (worth retrying)
+  // so the UI can offer the right action.
+  bool _isAddressProblem = false;
 
   String _userName  = '';
   String _userPhone = '';
@@ -132,15 +143,20 @@ class _CheckoutStep1ShippingState extends State<CheckoutStep1Shipping> {
 
   // ================================================
   // FETCH SHIPPING QUOTE
-  // Calls Lalamove (via LalamoveService -> get-delivery-quote) for
-  // the newly selected address. Falls back to the old flat rate if
-  // the address has no coordinates yet or the quote call fails, so
-  // checkout never gets stuck — just shows a warning inline.
+  //
+  // UPDATE (Option 1 — block instead of silently falling back):
+  // If Lalamove can't price this address — whether because it has
+  // no coordinates at all, or the quote call itself fails — checkout
+  // is now BLOCKED. No flat-rate fallback fee is charged anymore,
+  // since that fee would be a guess for a delivery we can't actually
+  // confirm is possible. The customer must fix the address (or, for
+  // a service outage, retry) before they can continue.
   // ================================================
   Future<void> _fetchShippingQuote(CustomerAddress address) async {
     setState(() {
       _isLoadingQuote = true;
       _quoteErrorMessage = null;
+      _isAddressProblem = false;
     });
     widget.onShippingFeeChanged(0, true);
 
@@ -150,28 +166,46 @@ class _CheckoutStep1ShippingState extends State<CheckoutStep1Shipping> {
       );
 
       if (!mounted) return;
-      setState(() => _isLoadingQuote = false);
+      setState(() {
+        _isLoadingQuote = false;
+        _quoteErrorMessage = null;
+      });
       widget.onShippingFeeChanged(quote.priceTotal, false);
-    } on MissingCoordinatesException catch (e) {
+    } on MissingCoordinatesException catch (_) {
+      // The address itself is the problem — geocoding failed, or was
+      // rejected as too low-confidence to trust (see geocode-address).
+      // Nothing to charge for a delivery we can't confirm is real.
       if (!mounted) return;
-      _useFallbackShipping(e.toString());
+      setState(() {
+        _isLoadingQuote = false;
+        _isAddressProblem = true;
+        _quoteErrorMessage =
+            'We can\'t calculate shipping for this address — please double-check '
+            'it and make sure the street, barangay, and city are correct, then '
+            'try again.';
+      });
+      widget.onShippingFeeChanged(0, false);
     } catch (e) {
+      // Service-side failure (network, Lalamove API down, etc.) —
+      // not necessarily the address's fault, so offer a retry instead
+      // of steering the customer toward editing an address that may
+      // be perfectly fine.
       print('CheckoutStep1Shipping._fetchShippingQuote error: $e');
       if (!mounted) return;
-      _useFallbackShipping(
-        'Could not reach the delivery pricing service — using an estimated rate instead.',
-      );
+      setState(() {
+        _isLoadingQuote = false;
+        _isAddressProblem = false;
+        _quoteErrorMessage =
+            'We couldn\'t reach the delivery pricing service. Please try again.';
+      });
+      widget.onShippingFeeChanged(0, false);
     }
   }
 
-  void _useFallbackShipping(String message) {
-    final double fallback = widget.subtotal >= 150 ? 0.0 : 10.0;
-    setState(() {
-      _isLoadingQuote = false;
-      _quoteErrorMessage = message;
-    });
-    widget.onShippingFeeChanged(fallback, false);
-  }
+  // Checkout can't proceed while a quote is in flight, or while the
+  // last attempt failed and hasn't been resolved.
+  bool get _canContinue =>
+      _selectedAddress != null && !_isLoadingQuote && _quoteErrorMessage == null;
 
 Future<void> _editAddress(CustomerAddress address) async {
     if (_isSavingAddress) return;
@@ -275,6 +309,24 @@ setState(() => _isSavingAddress = true);
           content: Text(
             'Please wait — calculating your shipping fee.',
             style: TextStyle(fontFamily: 'Inter'),
+          ),
+          backgroundColor: Colors.black,
+        ),
+      );
+      return;
+    }
+
+    // BLOCKED — quote failed (bad address or service error). Do not
+    // let the customer proceed to Review/Payment with no confirmed
+    // shipping fee.
+    if (_quoteErrorMessage != null) {
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(
+          content: Text(
+            _isAddressProblem
+                ? 'Please fix your shipping address before continuing.'
+                : 'Please retry calculating shipping before continuing.',
+            style: const TextStyle(fontFamily: 'Inter'),
           ),
           backgroundColor: Colors.black,
         ),
@@ -413,7 +465,7 @@ setState(() => _isSavingAddress = true);
                       ),
                     ],
 
-                    // ── NEW: shipping fee status row ─────────────
+                    // ── Shipping fee status row ───────────────────
                     const SizedBox(height: 12),
                     const Divider(height: 1, color: Color(0xFFCFC4C5)),
                     const SizedBox(height: 12),
@@ -437,23 +489,58 @@ setState(() => _isSavingAddress = true);
                         ],
                       )
                     else if (_quoteErrorMessage != null)
-                      Row(
-                        crossAxisAlignment: CrossAxisAlignment.start,
-                        children: [
-                          const Icon(Icons.info_outline,
-                              size: 16, color: Color(0xFF9CA3AF)),
-                          const SizedBox(width: 8),
-                          Expanded(
-                            child: Text(
-                              _quoteErrorMessage!,
-                              style: const TextStyle(
-                                fontFamily: 'Inter',
-                                fontSize: 12,
-                                color: Color(0xFF9CA3AF),
+                      // BLOCKED state — bad address or service error.
+                      // Styled as a warning (not a subtle grey hint)
+                      // since it's actively preventing checkout.
+                      Container(
+                        padding: const EdgeInsets.all(12),
+                        decoration: BoxDecoration(
+                          color: const Color(0xFFFEF2F2),
+                          border: Border.all(color: const Color(0xFFFCA5A5)),
+                        ),
+                        child: Column(
+                          crossAxisAlignment: CrossAxisAlignment.start,
+                          children: [
+                            Row(
+                              crossAxisAlignment: CrossAxisAlignment.start,
+                              children: [
+                                const Icon(Icons.error_outline,
+                                    size: 16, color: Color(0xFFBA1A1A)),
+                                const SizedBox(width: 8),
+                                Expanded(
+                                  child: Text(
+                                    _quoteErrorMessage!,
+                                    style: const TextStyle(
+                                      fontFamily: 'Inter',
+                                      fontSize: 12,
+                                      color: Color(0xFF7A1212),
+                                      height: 1.4,
+                                    ),
+                                  ),
+                                ),
+                              ],
+                            ),
+                            const SizedBox(height: 10),
+                            GestureDetector(
+                              onTap: _isAddressProblem
+                                  ? () => _editAddress(_selectedAddress!)
+                                  : () => _fetchShippingQuote(_selectedAddress!),
+                              child: Text(
+                                _isAddressProblem
+                                    ? 'EDIT ADDRESS'
+                                    : 'TRY AGAIN',
+                                style: const TextStyle(
+                                  fontFamily: 'Inter',
+                                  fontSize: 12,
+                                  fontWeight: FontWeight.w700,
+                                  letterSpacing: 1.0,
+                                  color: Color(0xFFBA1A1A),
+                                  decoration: TextDecoration.underline,
+                                ),
                               ),
                             ),
-                          ),
-                        ],
+                          ],
+                        ),
                       )
                     else
                       Text(
@@ -471,7 +558,7 @@ setState(() => _isSavingAddress = true);
               const SizedBox(height: 48),
             ],
 
-            _ContinueButton(onTap: _handleContinue),
+            _ContinueButton(onTap: _handleContinue, enabled: _canContinue),
           ],
         );
 
@@ -495,6 +582,7 @@ setState(() => _isSavingAddress = true);
                   total:          widget.total,
                   showPlaceOrder: false,
                   onPlaceOrder:   () {},
+                  shippingUnavailable: _isLoadingQuote || _quoteErrorMessage != null,
                 ),
               ),
             ],
@@ -509,7 +597,8 @@ setState(() => _isSavingAddress = true);
 
 class _ContinueButton extends StatefulWidget {
   final VoidCallback onTap;
-  const _ContinueButton({required this.onTap});
+  final bool enabled;
+  const _ContinueButton({required this.onTap, this.enabled = true});
 
   @override
   State<_ContinueButton> createState() => _ContinueButtonState();
@@ -521,19 +610,21 @@ class _ContinueButtonState extends State<_ContinueButton> {
   @override
   Widget build(BuildContext context) {
     return GestureDetector(
-      onTapDown: (_) => setState(() => _pressed = true),
-      onTapUp: (_) {
-        setState(() => _pressed = false);
-        widget.onTap();
-      },
-      onTapCancel: () => setState(() => _pressed = false),
+      onTapDown: widget.enabled ? (_) => setState(() => _pressed = true) : null,
+      onTapUp: widget.enabled
+          ? (_) {
+              setState(() => _pressed = false);
+              widget.onTap();
+            }
+          : null,
+      onTapCancel: widget.enabled ? () => setState(() => _pressed = false) : null,
       child: AnimatedScale(
         scale: _pressed ? 0.98 : 1.0,
         duration: const Duration(milliseconds: 80),
         child: Container(
           width: double.infinity,
           padding: const EdgeInsets.symmetric(vertical: 16),
-          color: Colors.black,
+          color: widget.enabled ? Colors.black : const Color(0xFFCFC4C5),
           alignment: Alignment.center,
           child: const Text(
             'CONTINUE TO REVIEW',

@@ -154,18 +154,32 @@ class CashierSaleService {
   }) async {
     final row = await _supabase
         .from('product_variant_size')
-        .select('stock_quantity')
+        .select('stock_quantity, reserved_quantity')
         .eq('size_id', sizeId)
         .single();
 
     final int stock = (row['stock_quantity'] as num?)?.toInt() ?? 0;
+    final int reserved = (row['reserved_quantity'] as num?)?.toInt() ?? 0;
+    final int available = stock - reserved;
+
+    // Someone (online customer or another cashier transaction) may
+    // have reserved this exact unit between the moment this item was
+    // picked in SelectVariantDialog and this sale actually completing.
+    // Re-check true availability right here, at the last possible
+    // moment, instead of trusting what was true when it was selected.
+    if (quantity > available) {
+      throw Exception(
+        'Only $available unit(s) of this item are actually available right now '
+        '(some may have just been reserved by an online order). '
+        'Please adjust the quantity or remove this item.',
+      );
+    }
 
     await _supabase
         .from('product_variant_size')
         .update({'stock_quantity': stock - quantity})
         .eq('size_id', sizeId);
   }
-
   // ================================================
   // GENERATE ORDER NUMBER
   // ================================================
