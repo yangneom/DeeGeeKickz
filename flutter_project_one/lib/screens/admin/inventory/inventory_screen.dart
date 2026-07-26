@@ -2,6 +2,7 @@ import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import '../../../models/product.dart';
 import '../../../services/admin/inventory/inventory_service.dart';
+import '../../../providers/product/product_provider.dart';
 import '../../../widgets/common/tables/expandable_product_table.dart';
 import '../../../widgets/admin/inventory/add_product_dialog.dart';
 import '../../../widgets/admin/inventory/stock_adjustment_dialog.dart';
@@ -158,6 +159,10 @@ class _InventoryScreenState extends ConsumerState<InventoryScreen> {
       }
       return;
     }
+
+    // Same reasoning as restore — archiving hides this product from
+    // cashier/shop, but productsProvider doesn't know yet.
+    ref.invalidate(productsProvider);
 
     // refresh the list
     await _loadProducts();

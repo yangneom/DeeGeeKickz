@@ -46,7 +46,6 @@ class _OrderDetailsDialogState extends State<OrderDetailsDialog> {
 
   late String _currentStatus;
   String?              _paymentStatus;   // tracked so action buttons can react
-  bool                 _isSavingLink  = false;
 
   // NEW — true while create-delivery-order is running (Mark Shipped tap)
   bool                 _isBookingDelivery = false;
@@ -801,89 +800,11 @@ class _OrderDetailsDialogState extends State<OrderDetailsDialog> {
                 ),
               ),
               const SizedBox(height: 8),
-              SizedBox(
-                width: double.infinity,
-                child: OutlinedButton.icon(
-                  onPressed: (_isSavingLink || !_canManageDelivery)
-                      ? null
-                      : () async {
-                          final String link = _lalamoveLinkController.text.trim();
-                          if (link.isEmpty) return;
-
-                          final Uri? parsed = Uri.tryParse(link);
-                          final bool looksValid = parsed != null &&
-                              (parsed.scheme == 'http' || parsed.scheme == 'https') &&
-                              parsed.host.contains('lalamove.com');
-                          if (!looksValid) {
-                            ScaffoldMessenger.of(context).showSnackBar(
-                              const SnackBar(
-                                content: Text(
-                                  'That doesn\'t look like a valid Lalamove tracking link '
-                                  '(expected https://www.lalamove.com/track/...).',
-                                ),
-                                backgroundColor: Color(0xFFDC2626),
-                              ),
-                            );
-                            return;
-                          }
-
-                          final bool? confirmed = await showConfirmDialog(
-                            context:      context,
-                            title:        'Save this tracking link?',
-                            message:      'This saves the link for the customer to view, but does NOT '
-                                          'change the order status or notify them automatically — '
-                                          'you\'ll still need to mark the order Shipped/Completed yourself.',
-                            confirmLabel: 'Save Link',
-                            confirmColor: const Color(0xFF374151),
-                          );
-                          if (confirmed != true) return;
-
-                          setState(() => _isSavingLink = true);
-                          try {
-                            await _orderService.saveTrackingUrl(
-                              orderId:     int.parse(widget.order.orderId),
-                              trackingUrl: link,
-                            );
-                            if (mounted) {
-                              ScaffoldMessenger.of(context).showSnackBar(
-                                const SnackBar(
-                                  content:         Text('Tracking link saved.'),
-                                  backgroundColor: Color(0xFF16A34A),
-                                ),
-                              );
-                            }
-                          } catch (e) {
-                            if (mounted) {
-                              ScaffoldMessenger.of(context).showSnackBar(
-                                SnackBar(
-                                  content:         Text('Failed to save: $e'),
-                                  backgroundColor: const Color(0xFFDC2626),
-                                ),
-                              );
-                            }
-                          } finally {
-                            if (mounted) setState(() => _isSavingLink = false);
-                          }
-                        },
-                  icon: _isSavingLink
-                      ? const SizedBox(
-                          width: 12, height: 12,
-                          child: CircularProgressIndicator(strokeWidth: 2),
-                        )
-                      : const Icon(Icons.save_outlined, size: 14),
-                  label: Text(
-                    _isSavingLink ? 'Saving…' : 'Save Link Manually',
-                    style: const TextStyle(fontSize: 12),
-                  ),
-                  style: OutlinedButton.styleFrom(
-                    foregroundColor: const Color(0xFF374151),
-                    side: const BorderSide(color: Color(0xFFD1D5DB)),
-                    padding: const EdgeInsets.symmetric(vertical: 10),
-                    shape: RoundedRectangleBorder(
-                        borderRadius: BorderRadius.circular(6)),
-                  ),
-                ),
-              ),
+              // "Save Link Manually" removed — redundant with "Mark Shipped",
+              // which already saves whatever's typed here AND advances the
+              // order AND notifies the customer, all in one action. Typing
+              // a link here and tapping Mark Shipped below does everything
+              // this button used to do, minus the extra step.
             ],
           ),
         ),
@@ -1013,21 +934,14 @@ class _OrderDetailsDialogState extends State<OrderDetailsDialog> {
                 );
                 await ReceiptPdfService().generateAndUpload(confirmedOrder);
               } catch (receiptErr) {
+                // Silent/log-only — a receipt failure shouldn't block or
+                // alarm the admin over an already-successful approval.
+                // The payment is approved and the order is confirmed
+                // regardless; the receipt can be regenerated separately
+                // if needed. (Confirmed stable across this session's
+                // testing — cash, online/QR, and admin-approved orders
+                // all generated receipts correctly.)
                 print('Receipt generation failed: $receiptErr');
-                // TEMPORARY — surfacing this visibly so we can see the
-                // real error instead of it vanishing into the console.
-                // Revert to silent once the root cause is fixed, since
-                // a receipt failure shouldn't normally block/alarm the
-                // admin over an already-successful approval.
-                if (mounted) {
-                  ScaffoldMessenger.of(context).showSnackBar(
-                    SnackBar(
-                      content: Text('Receipt generation failed: $receiptErr'),
-                      backgroundColor: const Color(0xFFDC2626),
-                      duration: const Duration(seconds: 10),
-                    ),
-                  );
-                }
               }
               final String resultingPaymentStatus =
                   _isCod ? (_paymentStatus ?? widget.order.paymentStatus) : 'Paid';

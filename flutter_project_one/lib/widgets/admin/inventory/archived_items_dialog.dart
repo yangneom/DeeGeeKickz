@@ -3,6 +3,8 @@ import 'package:flutter_project_one/widgets/common/dialog/confirm_dialog.dart';
 import 'package:flutter_project_one/widgets/common/tables/expandable_product_table.dart';
 import 'package:flutter_project_one/models/product.dart';
 import '../../../services/admin/inventory/archive_service.dart';
+import 'package:flutter_riverpod/flutter_riverpod.dart';
+import '../../../providers/product/product_provider.dart';
 
 void showArchivedItemsDialog(BuildContext context) {
   showDialog(
@@ -14,14 +16,14 @@ void showArchivedItemsDialog(BuildContext context) {
   );
 }
 
-class ArchivedItemsDialog extends StatefulWidget {
+class ArchivedItemsDialog extends ConsumerStatefulWidget {
   const ArchivedItemsDialog({super.key});
 
   @override
-  State<ArchivedItemsDialog> createState() => _ArchivedItemsDialogState();
+  ConsumerState<ArchivedItemsDialog> createState() => _ArchivedItemsDialogState();
 }
 
-class _ArchivedItemsDialogState extends State<ArchivedItemsDialog> {
+class _ArchivedItemsDialogState extends ConsumerState<ArchivedItemsDialog> {
 
   final ArchiveService _service = ArchiveService();
   List<Product> _products = [];
@@ -78,6 +80,12 @@ class _ArchivedItemsDialogState extends State<ArchivedItemsDialog> {
       }
       return;
     }
+
+    // Restore just changed is_archived server-side — the cashier and
+    // shop screens both read productsProvider, which has no idea this
+    // happened. Force them to refetch instead of waiting for someone
+    // to manually reload.
+    ref.invalidate(productsProvider);
 
     await _loadArchived();
 

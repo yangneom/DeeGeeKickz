@@ -3,8 +3,7 @@
 import 'package:flutter/material.dart';
 import '../../../models/notification_model.dart';
 
-// TODO: import the customer chat screen once its file/class name is confirmed, e.g.
-// import '../../../screens/customer/messages/customer_chat_screen.dart';
+import '../../../screens/customer/messages/customer_chat_screen.dart';
 
 /// Notification card for [NotificationType.adminReply].
 /// Shown when support/admin replies to the customer's chat conversation.
@@ -120,14 +119,12 @@ class NotificationTileMessage extends StatelessWidget {
 
                   GestureDetector(
                     onTap: () {
-                      // TODO: replace with real navigation once the
-                      // customer chat screen's class/import path is confirmed:
-                      //
-                      // Navigator.of(context).push(
-                      //   MaterialPageRoute(
-                      //     builder: (_) => const CustomerChatScreen(),
-                      //   ),
-                      // );
+                      onMarkRead();
+                      Navigator.of(context).push(
+                        MaterialPageRoute(
+                          builder: (_) => const CustomerChatScreen(),
+                        ),
+                      );
                     },
                     child: Container(
                       padding: const EdgeInsets.symmetric(

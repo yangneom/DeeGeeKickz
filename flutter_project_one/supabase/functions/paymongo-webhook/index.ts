@@ -31,11 +31,9 @@ serve(async (req) => {
       .map((b) => b.toString(16).padStart(2, "0"))
       .join("");
 
-    // ⚠️ TEMPORARY: signature check disabled for debugging
-    // Re-enable this after confirming PAYMONGO_WEBHOOK_SECRET is correct
     if (computed !== signature) {
       console.error("Signature mismatch — computed:", computed, "received:", signature);
-      // return new Response("Unauthorized", { status: 401 });
+      return new Response("Unauthorized", { status: 401 });
     }
 
     const payload = JSON.parse(rawBody);
@@ -72,6 +70,37 @@ serve(async (req) => {
       return new Response("Not found", { status: 404 });
     }
 
+    // Walk-in QR sales (order_type = 'In-Store') skip admin approval
+    // entirely and complete immediately with stock deducted. Normal
+    // online orders keep going to 'Pending' for the admin to approve.
+    const { data: orderRow, error: orderFetchError } = await supabase
+      .from("orders")
+      .select("order_type, order_status")
+      .eq("order_id", paymentRow.order_id)
+      .single();
+
+    if (orderFetchError || !orderRow) {
+      console.error("Failed to fetch order:", orderFetchError);
+      return new Response("DB error", { status: 500 });
+    }
+
+    // IDEMPOTENCY GUARD: payment gateways routinely redeliver the same
+    // webhook event (timeouts, retry policies, etc.) — this is normal,
+    // expected behavior, not an edge case. If this order has already
+    // moved past 'Awaiting Payment', every side effect below (stock
+    // deduction, payment_status, order_progress log) has already run
+    // for this order. Re-running stock deduction on a duplicate
+    // delivery would silently deduct real stock_quantity a second
+    // time for a single sale. Bail out here, before touching payment
+    // or stock at all.
+    if (orderRow.order_status !== "Awaiting Payment") {
+      console.log(
+        `Duplicate webhook delivery ignored — order ${paymentRow.order_id} ` +
+        `already at status '${orderRow.order_status}'.`
+      );
+      return new Response("OK (already processed)", { status: 200 });
+    }
+
     // NOTE: This only marks the gateway confirmation as "Verified", not
     // "Paid". 'Paid' is reserved exclusively for a sale that has actually
     // been finalized — for In-Store walk-in QR sales that happens
@@ -90,20 +119,6 @@ serve(async (req) => {
 
     if (updateError) {
       console.error("Failed to update payment:", updateError);
-      return new Response("DB error", { status: 500 });
-    }
-
-   // Walk-in QR sales (order_type = 'In-Store') skip admin approval
-    // entirely and complete immediately with stock deducted. Normal
-    // online orders keep going to 'Pending' for the admin to approve.
-    const { data: orderRow, error: orderFetchError } = await supabase
-      .from("orders")
-      .select("order_type")
-      .eq("order_id", paymentRow.order_id)
-      .single();
-
-    if (orderFetchError || !orderRow) {
-      console.error("Failed to fetch order:", orderFetchError);
       return new Response("DB error", { status: 500 });
     }
 

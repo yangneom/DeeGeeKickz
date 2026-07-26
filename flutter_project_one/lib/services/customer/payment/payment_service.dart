@@ -65,32 +65,23 @@ class PaymentService {
     }
   }
 
-  // Add this public method to PaymentService
+  // Reserves stock for every item in this order atomically via the
+  // reserve_stock_for_order Postgres function — row-locks each
+  // product_variant_size row and checks real availability before
+  // incrementing reserved_quantity, so two concurrent checkouts on
+  // the last unit can't both succeed. Throws (and rolls back
+  // everything reserved so far for this order) if any item is no
+  // longer actually available.
   Future<void> reserveStock({required int orderId}) async {
-    final List<dynamic> items = await _supabase
-        .from('order_item')
-        .select('size_id, quantity')
-        .eq('order_id', orderId);
-
-    for (final dynamic item in items) {
-      final int? sizeId = item['size_id'] as int?;
-      final int quantity = (item['quantity'] as num).toInt();
-      if (sizeId == null) continue;
-
-      final row = await _supabase
-          .from('product_variant_size')
-          .select('reserved_quantity')
-          .eq('size_id', sizeId)
-          .single();
-
-      final int current = (row['reserved_quantity'] as num?)?.toInt() ?? 0;
-      await _supabase
-          .from('product_variant_size')
-          .update({'reserved_quantity': current + quantity})
-          .eq('size_id', sizeId);
+    try {
+      await _supabase.rpc('reserve_stock_for_order', params: {
+        'p_order_id': orderId,
+      });
+    } catch (e) {
+      print('PaymentService.reserveStock error: $e');
+      rethrow;
     }
   }
-
   // ================================================
   // SAVE RECEIPT URL
   // ================================================
@@ -187,6 +178,13 @@ class PaymentService {
         'status':     'Confirmed',
         'admin_note': 'Payment verified and approved.',
       });
+
+      // This transition (Pending -> Confirmed) happens entirely in
+      // this method, separate from OrderManagementService.updateOrderStatus()
+      // — which is where every OTHER status transition's customer
+      // notification lives. Without this call, approving an order
+      // was the one action that silently never notified the customer.
+      await _notifyCustomerOrderConfirmed(orderId: orderId);
     } on InsufficientStockException {
       // Let this propagate as-is — the UI shows its message
       // directly and the order is left untouched at Pending.
@@ -249,6 +247,47 @@ class PaymentService {
     } catch (e) {
       print('PaymentService.rejectPayment error: $e');
       rethrow;
+    }
+  }
+
+  // ================================================
+  // NOTIFY CUSTOMER — ORDER REJECTED
+  // Non-critical — a notification failure must never block the
+  // actual rejection, which has already succeeded by this point.
+  // ================================================
+  // ================================================
+  // NOTIFY CUSTOMER — ORDER CONFIRMED
+  // Fires when admin approves payment (Pending -> Confirmed). Every
+  // other status transition's notification lives in
+  // OrderManagementService.updateOrderStatus() — this one has to
+  // live here instead, since approvePayment() sets order_status
+  // directly rather than going through that method. Non-critical —
+  // a notification failure must never block the approval itself,
+  // which has already succeeded by this point.
+  // ================================================
+  Future<void> _notifyCustomerOrderConfirmed({
+    required int orderId,
+  }) async {
+    try {
+      final row = await _supabase
+          .from('orders')
+          .select('user_id')
+          .eq('order_id', orderId)
+          .single();
+
+      final String? customerId = row['user_id'] as String?;
+      if (customerId == null) return;
+
+      await _supabase.from('notifications').insert({
+        'customer_id': customerId,
+        'type': 'order',
+        'title': 'Order confirmed',
+        'body': 'Order #$orderId has been confirmed and is being prepared.',
+        'order_id': orderId,
+        'recipient_role': 'customer',
+      });
+    } catch (error) {
+      print('_notifyCustomerOrderConfirmed error: $error');
     }
   }
 

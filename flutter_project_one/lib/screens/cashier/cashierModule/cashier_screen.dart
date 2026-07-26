@@ -78,8 +78,10 @@ class _CashierScreenState extends ConsumerState<CashierScreen> {
   String _searchQuery = '';
 
   // ── PAYMENT ──
+  // ── PAYMENT ──
   PaymentMethod _paymentMethod = PaymentMethod.online;
   final TextEditingController _cashPaidController = TextEditingController();
+  bool _isCheckingOut = false;
 
   @override
   void dispose() {
@@ -159,12 +161,13 @@ class _CashierScreenState extends ConsumerState<CashierScreen> {
   //   availableQty is already reduced.
   //   requestedQty > availableQty → blocked.
   // ================================================
-  void _addToCart({
+void _addToCart({
     required Product product,
     required String color,
     required String size,
     required int quantity,
     required double price,
+    double? originalPrice,
   }) {
     // Find the color variant
     final ProductVariant? selectedVariant =
@@ -211,7 +214,7 @@ class _CashierScreenState extends ConsumerState<CashierScreen> {
       return;
     }
 
-    ref.read(cashierProvider.notifier).addToCart(
+   ref.read(cashierProvider.notifier).addToCart(
       productId:   product.productId,
       productName: product.productName,
       brand:       product.brand,
@@ -219,6 +222,7 @@ class _CashierScreenState extends ConsumerState<CashierScreen> {
       size:        size,
       sizeId:      selectedSize.sizeId,
       retailPrice: price,
+      originalPrice: originalPrice ?? selectedVariant.retailPrice,
       quantity:    quantity,
     );
   }
@@ -295,8 +299,27 @@ class _CashierScreenState extends ConsumerState<CashierScreen> {
   // ================================================
   // NEW TRANSACTION — clears everything
   // ================================================
+// ================================================
+  // FRIENDLY ERROR MESSAGE
+  // Supabase RPC errors arrive wrapped as
+  // "PostgrestException(message: ..., code: ..., ...)" — this pulls
+  // out just the real message (e.g. "Only 1 unit(s) of Hello are
+  // actually available right now.") so cashiers see plain English
+  // instead of a raw exception dump.
+  // ================================================
+  String _friendlyErrorMessage(Object error) {
+    final String raw = error.toString();
+    final RegExp pattern = RegExp(r'message:\s*(.+?),\s*code:');
+    final Match? match = pattern.firstMatch(raw);
+    return match != null ? match.group(1)!.trim() : raw;
+  }
+
+  // ================================================
+  // NEW TRANSACTION — clears everything
+  // ================================================
   void _newTransaction() {
     ref.read(cashierProvider.notifier).clearCart();
+    ref.invalidate(productsProvider);   // force a refetch — stock just changed server-side
 
     setState(() {
       _cashPaidController.clear();
@@ -329,7 +352,7 @@ class _CashierScreenState extends ConsumerState<CashierScreen> {
   // discount is always 0 here — any admin discount is already
   // reflected in each item's retailPrice/subtotal.
   // ================================================
-    Future<Sale> _saveSale() async {
+   Future<Sale> _saveSale() async {
     final List<SaleItem> saleItems =
         _cartItems.map((CartItem item) {
       return SaleItem(
@@ -338,8 +361,24 @@ class _CashierScreenState extends ConsumerState<CashierScreen> {
         size:        item.size,
         quantity:    item.quantity,
         retailPrice: item.retailPrice,
+        originalPrice: item.originalPrice,
       );
     }).toList();
+
+    // Snapshot every value BEFORE the async DB call below. Reading
+    // _subtotal/_total live after an await is unsafe — if the cart
+    // gets cleared (_newTransaction) by another in-flight checkout
+    // before this call finishes, those getters would recompute
+    // against an empty cart and silently return 0.
+    final double subtotalSnapshot = _subtotal;
+    final double totalDiscount =
+        _cartItems.fold<double>(0, (sum, item) => sum + item.savings);
+    final double totalSnapshot = _total;
+    final double cashPaidSnapshot =
+        _paymentMethod == PaymentMethod.cash ? _cashPaid : 0;
+    final double changeSnapshot =
+        _paymentMethod == PaymentMethod.cash ? _change : 0;
+    final DateTime transactionDateSnapshot = DateTime.now();
 
     // Build cart items map for DB save
     final List<Map<String, dynamic>> cartItemsMap =
@@ -358,14 +397,14 @@ class _CashierScreenState extends ConsumerState<CashierScreen> {
     final Sale sale = Sale(
       orderNumber:     'pending',
       items:           saleItems,
-      subtotal:        _subtotal,
-      discount:        0,
-      total:           _total,
+      subtotal:        subtotalSnapshot,
+      discount:        totalDiscount,
+      total:           totalSnapshot,
       paymentMethod:   _paymentMethod == PaymentMethod.cash ? 'cash' : 'online',
-      cashPaid:        _paymentMethod == PaymentMethod.cash ? _cashPaid : 0,
-      change:          _paymentMethod == PaymentMethod.cash ? _change : 0,
+      cashPaid:        cashPaidSnapshot,
+      change:          changeSnapshot,
       cashierName:     'Cashier DeeGee',
-      transactionDate: DateTime.now(),
+      transactionDate: transactionDateSnapshot,
     );
 
     // Save to DB
@@ -374,18 +413,19 @@ class _CashierScreenState extends ConsumerState<CashierScreen> {
       cartItems: cartItemsMap,
     );
 
-    // Return sale with real order number
+    // Return sale with real order number — using the SAME snapshots
+    // taken before the DB call, never re-reading live cart getters.
     return Sale(
       orderNumber:     orderNumber,
       items:           saleItems,
-      subtotal:        _subtotal,
-      discount:        0,
-      total:           _total,
+      subtotal:        subtotalSnapshot,
+      discount:        totalDiscount,
+      total:           totalSnapshot,
       paymentMethod:   sale.paymentMethod,
-      cashPaid:        sale.cashPaid,
-      change:          sale.change,
+      cashPaid:        cashPaidSnapshot,
+      change:          changeSnapshot,
       cashierName:     'Cashier DeeGee',
-      transactionDate: sale.transactionDate,
+      transactionDate: transactionDateSnapshot,
     );
   }
   // ================================================
@@ -393,13 +433,35 @@ class _CashierScreenState extends ConsumerState<CashierScreen> {
   // cash   → save sale → clear cart → show receipt
   // online → PayMongo placeholder (future)
   // ================================================
-  Future<void> _handleCheckout() async {
+ Future<void> _handleCheckout() async {
     if (_cartItems.isEmpty) return;
+    if (_isCheckingOut) return; // block double-submission from a fast double-tap
+    setState(() => _isCheckingOut = true);
 
    if (_paymentMethod == PaymentMethod.cash) {
-      final Sale sale = await _saveSale();
-      _newTransaction();
-      if (mounted) showReceiptDialog(context: context, sale: sale);
+      try {
+        final Sale sale = await _saveSale();
+        _newTransaction();
+        if (mounted) showReceiptDialog(context: context, sale: sale);
+      } catch (e) {
+        // Cart is deliberately NOT cleared here — the RPC now
+        // guarantees an all-or-nothing sale (see process_cashier_sale),
+        // so nothing was actually deducted on failure. Keeping the
+        // cart intact just lets the cashier see what they were
+        // trying to sell and adjust the quantity, rather than
+        // starting over from scratch.
+        if (mounted) {
+          ScaffoldMessenger.of(context).showSnackBar(
+            SnackBar(
+              content: Text(_friendlyErrorMessage(e)),
+              backgroundColor: Colors.red,
+              duration: const Duration(seconds: 6),
+            ),
+          );
+        }
+      } finally {
+        if (mounted) setState(() => _isCheckingOut = false);
+      }
       return;
     }
 
@@ -418,7 +480,8 @@ class _CashierScreenState extends ConsumerState<CashierScreen> {
         }).toList();
 
     final double subtotalSnapshot = _subtotal;
-    final double discountSnapshot = 0;
+    final double discountSnapshot =
+        _cartItems.fold<double>(0, (sum, item) => sum + item.savings);
     final double totalSnapshot = _total;
     final List<SaleItem> saleItemsSnapshot = _cartItems.map((CartItem item) {
       return SaleItem(
@@ -427,6 +490,7 @@ class _CashierScreenState extends ConsumerState<CashierScreen> {
         size:        item.size,
         quantity:    item.quantity,
         retailPrice: item.retailPrice,
+        originalPrice: item.originalPrice,
       );
     }).toList();
 
@@ -447,8 +511,11 @@ class _CashierScreenState extends ConsumerState<CashierScreen> {
           ),
         );
       }
+      if (mounted) setState(() => _isCheckingOut = false);
       return;
     }
+
+    if (mounted) setState(() => _isCheckingOut = false);
 
     if (!mounted) return;
 
@@ -720,7 +787,6 @@ class _CashierScreenState extends ConsumerState<CashierScreen> {
           return;
         }
 
-        // Not fully reserved → open variant/size picker
         showSelectVariantDialog(
           context: context,
           product: product,
@@ -735,6 +801,12 @@ class _CashierScreenState extends ConsumerState<CashierScreen> {
             );
           },
         );
+        // NOTE: originalPrice isn't available from onAddToCart's
+        // callback signature (it only passes the final discounted
+        // price) — _addToCart already falls back to
+        // selectedVariant.retailPrice internally, so this still
+        // works correctly without changing SelectVariantDialog's
+        // public callback signature.
       },
 
       child: Opacity(
@@ -1286,7 +1358,7 @@ class _CashierScreenState extends ConsumerState<CashierScreen> {
               Expanded(
                 child: ElevatedButton(
                   onPressed:
-                      _canCheckout ? _handleCheckout : null,
+                      (_canCheckout && !_isCheckingOut) ? _handleCheckout : null,
                   style: ElevatedButton.styleFrom(
                     backgroundColor:
                         _paymentMethod == PaymentMethod.online

@@ -1,9 +1,10 @@
+import 'dart:typed_data';
 import 'package:flutter/material.dart';
+import 'package:flutter/services.dart' show rootBundle;
 import 'package:pdf/pdf.dart';
 import 'package:pdf/widgets.dart' as pw;
 import 'package:printing/printing.dart';
 import '../../../models/sale.dart';
-
 // ================================================
 // RECEIPT DIALOG
 //
@@ -120,7 +121,23 @@ class _ReceiptDialogState extends State<ReceiptDialog> {
   // ================================================
   Future<pw.Document> _generatePdf() async {
 
-    final pw.Document pdf = pw.Document();
+    // Same Noto Sans fonts used by ReceiptPdfService (the online-order
+    // receipt) — the default Helvetica has no Unicode support, so ₱
+    // silently fails to render without this.
+    final ByteData regularData =
+        await rootBundle.load('assets/fonts/NotoSans-Regular.ttf');
+    final ByteData boldData =
+        await rootBundle.load('assets/fonts/NotoSans-Bold.ttf');
+    final pw.Font notoRegular = pw.Font.ttf(regularData);
+    final pw.Font notoBold    = pw.Font.ttf(boldData);
+
+    final pw.Document pdf = pw.Document(
+      theme: pw.ThemeData.withFont(
+        base: notoRegular,
+        bold: notoBold,
+        italic: notoRegular,
+      ),
+    );
 
     final Sale sale = widget.sale;
 
@@ -130,6 +147,10 @@ class _ReceiptDialogState extends State<ReceiptDialog> {
         margin: const pw.EdgeInsets.symmetric(
           horizontal: 16,
           vertical: 20,
+        ),
+        theme: pw.ThemeData.withFont(
+          base: notoRegular,
+          bold: notoBold,
         ),
         build: (pw.Context context) {
 

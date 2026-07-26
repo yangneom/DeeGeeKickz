@@ -15,7 +15,7 @@ class CashierNotifier extends Notifier<List<CartItem>> {
   // ==========================================
   // ADD TO CART
   // ==========================================
-  void addToCart({
+void addToCart({
       required String productId,
       required String productName,
       required String brand,
@@ -23,6 +23,7 @@ class CashierNotifier extends Notifier<List<CartItem>> {
       required String size,
       int? sizeId,
       required double retailPrice,
+      double? originalPrice,
       required int quantity,
     }) {
     final updatedCart = [...state];
@@ -46,6 +47,7 @@ class CashierNotifier extends Notifier<List<CartItem>> {
         size:        size,
         sizeId:      sizeId,
         retailPrice: retailPrice,
+        originalPrice: originalPrice,
         quantity:    quantity,
       ),
     );

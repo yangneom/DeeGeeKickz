@@ -12,71 +12,44 @@ class CashierSaleService {
   // SAVE IN-STORE SALE
   // Saves to orders + order_item + payment tables
   // ================================================
-  Future<String> saveSale({
+Future<String> saveSale({
     required Sale sale,
     required List<Map<String, dynamic>> cartItems,
   }) async {
     try {
-      // 1. Generate order number
+      // 1. Generate order number (still needed for the printed
+      // receipt/order number label — the RPC uses its own real
+      // order_id as the DB primary key, this is just the display code)
       final String orderNumber = await _generateOrderNumber();
 
-      // 2. Insert into orders table
       final String cashierId = _supabase.auth.currentUser!.id;
 
-      final orderResponse = await _supabase
-          .from('orders')
-          .insert({
-            'user_id':         cashierId,
-            'subtotal':        sale.subtotal,
-            'shipping':        0,
-            'total_amount':    sale.total,
-            'payment_method':  sale.paymentMethod,
-            'order_status':    'Completed',
-            'order_type':      'In-Store',
-            'discount_amount': sale.discount,
-          })
-          .select()
-          .single();
-
-      final int orderId = orderResponse['order_id'];
-
-      // 3. Insert order items
-      for (final item in cartItems) {
-        final double costPrice = await _getCostPrice(item['sizeId'] as int?);
-
-        await _supabase.from('order_item').insert({
-          'order_id':             orderId,
-          'product_id':           item['productId'],
-          'size_id':              item['sizeId'],
-          'quantity':             item['quantity'],
-          'unit_price':           item['retailPrice'],
-          'subtotal':             item['subtotal'],
-          'cost_price_snapshot':  costPrice,
-          'product_name_snapshot': item['productName'],
-          'brand_snapshot':       item['brand'],
-          'color_snapshot':       item['color'],
-          'size_snapshot':        item['size'],
-        });
-        
-        // Deduct stock immediately for in-store sales
-        if (item['sizeId'] != null) {
-          await _deductStock(
-            sizeId:   item['sizeId'],
-            quantity: item['quantity'],
-          );
-        }
-      }
-
-// 4. Insert payment record
-      await _supabase.from('payment').insert({
-        'order_id':       orderId,
-        'payment_method': sale.paymentMethod,
-        'amount_paid':    sale.total,
-        'payment_status': 'Paid',
-        'payment_date':   DateTime.now().toIso8601String(),
-        'cash_recieved':  sale.cashPaid,
-        'change_given':   sale.change,
-      });
+      // 2-4. Order + items (with stock check) + payment — all done
+      // atomically inside one Postgres transaction via RPC. If any
+      // item fails the availability check, EVERYTHING rolls back:
+      // no order, no order_item rows, no stock deducted, no payment
+      // row. No more risk of a partial sale leaving stock silently
+      // wrong when one item in a multi-item cart fails.
+      final int orderId = await _supabase.rpc('process_cashier_sale', params: {
+        'p_cashier_id':      cashierId,
+        'p_subtotal':        sale.subtotal,
+        'p_discount_amount': sale.discount,
+        'p_total_amount':    sale.total,
+        'p_payment_method':  sale.paymentMethod,
+        'p_cash_received':   sale.cashPaid,
+        'p_change_given':    sale.change,
+        'p_items': cartItems.map((item) => {
+          'productId':   item['productId'],
+          'sizeId':      item['sizeId'],
+          'productName': item['productName'],
+          'brand':       item['brand'],
+          'color':       item['color'],
+          'size':        item['size'],
+          'quantity':    item['quantity'],
+          'retailPrice': item['retailPrice'],
+          'subtotal':    item['subtotal'],
+        }).toList(),
+      }) as int;
 
       // 5. Generate + upload PDF receipt, save receipt_url to the
       // payment row. Reuses the same ReceiptPdfService the online
@@ -143,43 +116,6 @@ class CashierSaleService {
   }
 
 
-
-  // ================================================
-  // DEDUCT STOCK
-  // For in-store sales — deduct immediately
-  // ================================================
-  Future<void> _deductStock({
-    required int sizeId,
-    required int quantity,
-  }) async {
-    final row = await _supabase
-        .from('product_variant_size')
-        .select('stock_quantity, reserved_quantity')
-        .eq('size_id', sizeId)
-        .single();
-
-    final int stock = (row['stock_quantity'] as num?)?.toInt() ?? 0;
-    final int reserved = (row['reserved_quantity'] as num?)?.toInt() ?? 0;
-    final int available = stock - reserved;
-
-    // Someone (online customer or another cashier transaction) may
-    // have reserved this exact unit between the moment this item was
-    // picked in SelectVariantDialog and this sale actually completing.
-    // Re-check true availability right here, at the last possible
-    // moment, instead of trusting what was true when it was selected.
-    if (quantity > available) {
-      throw Exception(
-        'Only $available unit(s) of this item are actually available right now '
-        '(some may have just been reserved by an online order). '
-        'Please adjust the quantity or remove this item.',
-      );
-    }
-
-    await _supabase
-        .from('product_variant_size')
-        .update({'stock_quantity': stock - quantity})
-        .eq('size_id', sizeId);
-  }
   // ================================================
   // GENERATE ORDER NUMBER
   // ================================================

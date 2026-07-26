@@ -96,8 +96,19 @@ class CashierOnlinePaymentService {
     
 
     // 3. Reserve stock so the cashier can't double-sell while the QR
-    //    is on screen.
-    await _paymentService.reserveStock(orderId: orderId);
+    //    is on screen. If this fails (someone else took the last
+    //    unit between add-to-cart and checkout), the order and
+    //    order_item rows already written above must not be left
+    //    behind as an orphaned, un-payable "Awaiting Payment" order
+    //    — delete them and let the exception propagate so the
+    //    cashier sees a clear error.
+    try {
+      await _paymentService.reserveStock(orderId: orderId);
+    } catch (e) {
+      await _supabase.from('order_item').delete().eq('order_id', orderId);
+      await _supabase.from('orders').delete().eq('order_id', orderId);
+      rethrow;
+    }
 
     // 4. Create the Pending payment row FIRST (no session yet) —
     //    matches the same insert -> update pattern PaymentService

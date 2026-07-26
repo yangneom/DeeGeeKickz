@@ -102,6 +102,16 @@ class BannerService {
         metadata: {'status': status},
       );
 
+      // A brand-new banner that's already Active is live to customers
+      // immediately — notify them the same way a new promo would be
+      // announced. Banners created as Draft/Inactive stay silent until
+      // they're actually switched on (see updateBanner below).
+      if (status == 'Active') {
+        await _notifyCustomersBannerActive(
+          bannerId: inserted['banner_id'] as int,
+        );
+      }
+
       return null;
     } catch (error) {
       print('addBanner error: $error');
@@ -122,6 +132,19 @@ class BannerService {
     required String status,
   }) async {
     try {
+      // Fetch the current status BEFORE updating, so we can tell
+      // whether this call is actually the moment the banner turns
+      // on (e.g. Draft -> Active) versus just editing an already-
+      // Active banner's image, or leaving it Inactive. Customers
+      // should only be notified on that first transition, not on
+      // every subsequent edit while it stays Active.
+      final existing = await _supabase
+          .from(_table)
+          .select('status')
+          .eq('banner_id', bannerId)
+          .maybeSingle();
+      final String? previousStatus = existing?['status'] as String?;
+
       final Map<String, dynamic> updateData = {
         'status': status,
       };
@@ -153,6 +176,10 @@ class BannerService {
         targetId: bannerId.toString(),
         metadata: {'status': status},
       );
+
+      if (status == 'Active' && previousStatus != 'Active') {
+        await _notifyCustomersBannerActive(bannerId: bannerId);
+      }
 
       return null;
     } catch (error) {
@@ -198,6 +225,41 @@ class BannerService {
     } catch (error) {
       print('deleteBanner error: $error');
       return error.toString();
+    }
+  }
+
+  // ==========================================
+  // NOTIFY CUSTOMERS — BANNER NOW ACTIVE
+  // Fires when a banner transitions into 'Active' (either created
+  // that way, or flipped on from another status). Non-critical —
+  // a notification failure must never block the actual banner
+  // create/update, which has already succeeded by this point.
+  // ==========================================
+  Future<void> _notifyCustomersBannerActive({
+    required int bannerId,
+  }) async {
+    try {
+      final customers = await _supabase
+          .from('users')
+          .select('id')
+          .eq('role', 'Customer');
+
+      if ((customers as List).isEmpty) return;
+
+      final rows = customers
+          .map((u) => {
+                'customer_id': u['id'],
+                'type': 'promotion',
+                'title': 'New promo just dropped',
+                'body':
+                    "Check out our latest deal — tap to see what's new.",
+                'recipient_role': 'customer',
+              })
+          .toList();
+
+      await _supabase.from('notifications').insert(rows); // NO .select() !
+    } catch (error) {
+      print('_notifyCustomersBannerActive error: $error');
     }
   }
 }
