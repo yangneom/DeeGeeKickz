@@ -1,5 +1,6 @@
 import 'package:flutter/material.dart';
 import '../../../models/customer_account.dart';
+import '../../../services/super/customer_management/customer_account_service.dart';
 
 // ================================================
 // CUSTOMER DISABLE DIALOG
@@ -69,6 +70,32 @@ class _CustomerDisableDialogState extends State<CustomerDisableDialog> {
   // controller for the Others free text
   final TextEditingController _othersController = TextEditingController();
 
+  // ── Evidence summary — read-only, loaded on open ──
+  final CustomerAccountService _accountService = CustomerAccountService();
+  CustomerFlagSummary? _flagSummary;
+  bool _loadingFlags = true;
+
+  @override
+  void initState() {
+    super.initState();
+    _loadFlagSummary();
+  }
+
+  Future<void> _loadFlagSummary() async {
+    try {
+      final CustomerFlagSummary summary =
+          await _accountService.getCustomerFlagSummary(widget.account.id);
+      if (mounted) {
+        setState(() {
+          _flagSummary = summary;
+          _loadingFlags = false;
+        });
+      }
+    } catch (e) {
+      if (mounted) setState(() => _loadingFlags = false);
+    }
+  }
+
   // ================================================
   // DISPOSE
   // ================================================
@@ -76,6 +103,85 @@ class _CustomerDisableDialogState extends State<CustomerDisableDialog> {
   void dispose() {
     _othersController.dispose();
     super.dispose();
+  }
+
+  // ================================================
+  // BUILD ONE STAT CHIP
+  // ================================================
+  Widget _buildStatChip(String label, int count) {
+    final bool hasFlag = count > 0;
+    return Container(
+      padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 6),
+      decoration: BoxDecoration(
+        color: hasFlag ? const Color(0xFFFEF3C7) : const Color(0xFFF3F4F6),
+        borderRadius: BorderRadius.circular(8),
+        border: Border.all(
+          color: hasFlag ? const Color(0xFFFCD34D) : const Color(0xFFE5E7EB),
+        ),
+      ),
+      child: Text(
+        '$label: $count',
+        style: TextStyle(
+          fontSize: 12,
+          fontWeight: FontWeight.w500,
+          color: hasFlag ? const Color(0xFF92400E) : const Color(0xFF6B7280),
+        ),
+      ),
+    );
+  }
+
+  // ================================================
+  // BUILD EVIDENCE PANEL
+  // ================================================
+  Widget _buildEvidencePanel() {
+    if (_loadingFlags) {
+      return const Padding(
+        padding: EdgeInsets.symmetric(vertical: 8),
+        child: SizedBox(
+          height: 16,
+          width: 16,
+          child: CircularProgressIndicator(strokeWidth: 2),
+        ),
+      );
+    }
+
+    final CustomerFlagSummary? summary = _flagSummary;
+    if (summary == null) {
+      return const SizedBox.shrink();
+    }
+
+    return Container(
+      margin: const EdgeInsets.only(bottom: 16),
+      padding: const EdgeInsets.all(12),
+      decoration: BoxDecoration(
+        color: const Color(0xFFF9FAFB),
+        borderRadius: BorderRadius.circular(8),
+        border: Border.all(color: const Color(0xFFE5E7EB)),
+      ),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          const Text(
+            'Account Activity Summary (last 30 days)',
+            style: TextStyle(
+              fontSize: 12,
+              fontWeight: FontWeight.w600,
+              color: Color(0xFF374151),
+            ),
+          ),
+          const SizedBox(height: 8),
+         Wrap(
+            spacing: 8,
+            runSpacing: 8,
+            children: [
+              _buildStatChip('Cancelled Orders', summary.cancelledOrdersCount),
+              _buildStatChip('Payment Issues', summary.failedPaymentCount),
+              _buildStatChip('Flagged Feedback', summary.flaggedFeedbackCount),
+            ],
+          ),
+        ],
+      ),
+    );
   }
 
   // ================================================
@@ -211,6 +317,9 @@ class _CustomerDisableDialogState extends State<CustomerDisableDialog> {
             ),
 
             const SizedBox(height: 20),
+
+            // ── EVIDENCE SUMMARY ──
+            _buildEvidencePanel(),
 
             // ── PRESET REASONS ──
             for (String reason in _presetReasons)

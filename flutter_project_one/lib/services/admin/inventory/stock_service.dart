@@ -25,6 +25,7 @@ class StockService {
           'p_delta': isAddStock ? adjustment : -adjustment,
         },
       );
+
       // Best-effort: fetch a human-readable product/size label for the log.
       String label = 'size #$sizeId';
       try {
@@ -46,14 +47,24 @@ class StockService {
         // fall back to the generic label above
       }
 
-      await _activityLog.log(
-        action: isAddStock
-            ? 'Added $adjustment stock to $label'
-            : 'Removed $adjustment stock from $label',
-        affectedModule: AffectedModule.inventory,
-        targetId: sizeId.toString(),
-        metadata: {'delta': isAddStock ? adjustment : -adjustment},
-      );
+      // IMPORTANT: the stock adjustment itself already succeeded above —
+      // logging and notifications are secondary effects and must never
+      // cause this method to report failure back to the admin. Each is
+      // wrapped in its own try/catch so a logging hiccup can't produce
+      // a false "Failed to adjust stock" message that might prompt a
+      // confused admin to retry and double-adjust.
+      try {
+        await _activityLog.log(
+          action: isAddStock
+              ? 'Added $adjustment stock to $label'
+              : 'Removed $adjustment stock from $label',
+          affectedModule: AffectedModule.inventory,
+          targetId: sizeId.toString(),
+          metadata: {'delta': isAddStock ? adjustment : -adjustment},
+        );
+      } catch (logError) {
+        print('adjustStock: activity log failed (adjustment still succeeded): $logError');
+      }
 
       // Only removals can push stock down into low/out-of-stock —
       // adding stock never needs to trigger this notification.
@@ -88,16 +99,18 @@ class StockService {
       return 'Failed to adjust stock. Please try again.';
     }
   }
+
   // ── Low/out-of-stock notification ────────────────────────────────
   // Fires after a stock removal. Notifies every Admin + Super Admin
-// ── Low/out-of-stock notification ────────────────────────────────
-  // Fires after a stock removal. Notifies every Admin + Super Admin
   // when the new quantity crosses into low-stock or out-of-stock range.
+  //
+  // FIX: previously only queried role = 'Admin', silently excluding
+  // Super Admin accounts despite the comment/intent saying both should
+  // be notified. Now queries both roles.
   Future<void> _checkAndNotifyLowStock({
     required int sizeId,
     required String label,
   }) async {
-    print('LOWSTOCK CHECK: starting for sizeId=$sizeId');
     try {
       final row = await _supabase
           .from('product_variant_size')
@@ -106,10 +119,8 @@ class StockService {
           .single();
 
       final int quantity = (row['stock_quantity'] as num?)?.toInt() ?? 0;
-      print('LOWSTOCK CHECK: quantity=$quantity, threshold=$_lowStockThreshold');
 
       if (quantity > _lowStockThreshold) {
-        print('LOWSTOCK CHECK: quantity above threshold, skipping');
         return;
       }
 
@@ -118,12 +129,9 @@ class StockService {
       final staff = await _supabase
           .from('users')
           .select('id')
-          .eq('role', 'Admin');
-
-      print('LOWSTOCK CHECK: staff found = $staff');
+          .inFilter('role', ['Admin', 'Super Admin']);
 
       if ((staff as List).isEmpty) {
-        print('LOWSTOCK CHECK: no staff found, aborting');
         return;
       }
 
@@ -140,13 +148,9 @@ class StockService {
             'body': body,
           }).toList();
 
-      print('LOWSTOCK CHECK: inserting rows = $rows');
-
       await _supabase.from('notifications').insert(rows);
-
-      print('LOWSTOCK CHECK: insert completed');
     } catch (error) {
-      print('LOWSTOCK CHECK ERROR: $error');
+      print('_checkAndNotifyLowStock error: $error');
     }
   }
 }

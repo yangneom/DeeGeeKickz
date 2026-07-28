@@ -362,6 +362,28 @@ class _AddProductDialogState extends ConsumerState<AddProductDialog> {
   Future<void> _handlePublish() async {
     if (_formKey.currentState!.validate() == false) return;
 
+    // NEW — block duplicate color names within this product. Two
+    // variants sharing a color name makes one invisible to the
+    // cashier (SelectVariantDialog resolves by color via firstWhere,
+    // which only returns the first match), silently locking out that
+    // variant's entire stock with no error anywhere.
+    final Set<String> seenColors = {};
+    for (final variant in _variants) {
+      final String colorKey = variant.colorNameController.text.trim();
+      if (colorKey.isEmpty) continue;
+      if (seenColors.contains(colorKey)) {
+        if (mounted) {
+          ScaffoldMessenger.of(context).showSnackBar(SnackBar(
+            content: Text(
+                'Two variants both use the color "$colorKey". Each color must be unique within a product.'),
+            backgroundColor: Colors.red,
+          ));
+        }
+        return;
+      }
+      seenColors.add(colorKey);
+    }
+
     final bool? confirmed = await showConfirmDialog(
       context: context,
       title: 'Ready to publish this product?',
@@ -963,28 +985,34 @@ class _AddProductDialogState extends ConsumerState<AddProductDialog> {
 
           const SizedBox(height: 14),
 
-          // cost
           _buildLabel('Cost'),
           _buildNumericField(
             controller: variant.costController,
             hint: 'Enter Cost Price',
             allowDecimal: true,
-            validator: (v) =>
-                (v == null || v.isEmpty) ? 'Please enter a cost price' : null,
+            validator: (v) {
+              if (v == null || v.isEmpty) return 'Please enter a cost price';
+              final double? parsed = double.tryParse(v);
+              if (parsed == null) return 'Enter a valid number';
+              if (parsed <= 0) return 'Cost price must be greater than ₱0';
+              return null;
+            },
           ),
 
           const SizedBox(height: 14),
 
-          // retail
           _buildLabel('Retail'),
           _buildNumericField(
             controller: variant.retailController,
             hint: 'Enter Retail Price',
             allowDecimal: true,
-            validator: (v) =>
-                (v == null || v.isEmpty)
-                    ? 'Please enter a retail price'
-                    : null,
+            validator: (v) {
+              if (v == null || v.isEmpty) return 'Please enter a retail price';
+              final double? parsed = double.tryParse(v);
+              if (parsed == null) return 'Enter a valid number';
+              if (parsed <= 0) return 'Retail price must be greater than ₱0';
+              return null;
+            },
           ),
 
           const SizedBox(height: 14),

@@ -7,6 +7,9 @@ import '../../../widgets/common/buttons/export_button.dart';
 import '../../../widgets/common/buttons/filter_panel.dart';
 import '../../../widgets/admin/sales/transaction_details_dialog.dart';
 import '../../../services/admin/sales/sales_management_service.dart';
+import '../../../core/utils/csv_export_helper.dart';
+import '../../../core/utils/excel_export_helper.dart';
+
 
 class SalesScreen extends ConsumerStatefulWidget {
   const SalesScreen({super.key});
@@ -160,6 +163,52 @@ class _SalesScreenState extends ConsumerState<SalesScreen> {
       ],
     );
   }
+static const List<String> _exportHeaders = [
+    'Order ID',
+    'Date & Time',
+    'Subtotal',
+    'Shipping',
+    'Discount',
+    'Total',
+    'Payment Method',
+    'Type',
+    'Status',
+  ];
+
+  List<List<dynamic>> _buildExportRows() {
+    return _filteredSales.map((sale) {
+      return [
+        sale.orderId,
+        sale.dateTime,
+        sale.subtotal,
+        sale.shipping,
+        sale.discountAmount,
+        sale.totalAmount,
+        sale.paymentMethod,
+        sale.orderType == 'In-Store' ? 'In-Store' : 'Online',
+        sale.orderStatus,
+      ];
+    }).toList();
+  }
+
+  void _exportToCsv() {
+    final String today = DateTime.now().toIso8601String().split('T').first;
+    CsvExportHelper.exportToCsv(
+      filename: 'sales_$today',
+      headers: _exportHeaders,
+      rows: _buildExportRows(),
+    );
+  }
+
+  void _exportToExcel() {
+    final String today = DateTime.now().toIso8601String().split('T').first;
+    ExcelExportHelper.exportToExcel(
+      filename: 'sales_$today',
+      headers: _exportHeaders,
+      rows: _buildExportRows(),
+      sheetName: 'Sales',
+    );
+  }
 
   List<List<Widget>> _buildRows() {
     List<List<Widget>> tableRows = [];
@@ -226,8 +275,12 @@ class _SalesScreenState extends ConsumerState<SalesScreen> {
                   FilterButton(
                     isOpen: _showFilterPanel,
                     onTap: () => setState(() => _showFilterPanel = !_showFilterPanel),
-                    selectedValue: _selectedType == 'All' ? null : _selectedType,
-                    onValueChanged: (value) => setState(() => _selectedType = value ?? 'All'),
+                    selectedValues: {
+                      'Type': _selectedType == 'All' ? null : _selectedType,
+                    },
+                    onValueChanged: (String section, String? value) {
+                      setState(() => _selectedType = value ?? 'All');
+                    },
                     onClear: _clearFilters,
                     onApply: () {
                       _loadSales();
@@ -244,7 +297,16 @@ class _SalesScreenState extends ConsumerState<SalesScreen> {
                           ],
                   ),
                   const Spacer(),
-                  ExportButton(onExport: () {}, onDropdown: () {}),
+                  ExportButton(
+                    onExport: _exportToCsv,
+                    onFormatSelected: (format) {
+                      if (format == 'excel') {
+                        _exportToExcel();
+                      } else {
+                        _exportToCsv();
+                      }
+                    },
+                  ),
                 ],
               ),
 

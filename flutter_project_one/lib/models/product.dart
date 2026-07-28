@@ -32,6 +32,23 @@ class SizeEntry {
 }
 
 // ================================================
+// PRODUCT IMAGE
+// One row in product_image — carries the real DB id
+// so deletes can target the correct row.
+// ================================================
+class ProductImage {
+  final int imageId;
+  final String imageUrl;
+  final bool isPrimary;
+
+  ProductImage({
+    required this.imageId,
+    required this.imageUrl,
+    required this.isPrimary,
+  });
+}
+
+// ================================================
 // PRODUCT VARIANT
 // One color, with its own sizes + images + pricing
 // Maps 1-to-1 with product_variant table row
@@ -51,6 +68,11 @@ class ProductVariant {
   final List<String> imageUrls;
   final String? primaryImageUrl;
 
+  // NEW — carries real image_id + is_primary per image.
+  // imageUrls/primaryImageUrl are unchanged and still used
+  // everywhere else (ShopProductCard, cart tiles, etc).
+  final List<ProductImage> images;
+
   ProductVariant({
     this.variantId,
     required this.color,
@@ -59,6 +81,7 @@ class ProductVariant {
     this.sizes = const [],
     this.imageUrls = const [],
     this.primaryImageUrl,
+    this.images = const [], // NEW
   });
 
   // ── Aggregate stock across all sizes ──

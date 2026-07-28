@@ -7,6 +7,9 @@ import '../../../widgets/common/buttons/filter_button.dart';
 import '../../../widgets/common/buttons/filter_panel.dart';
 import '../../../widgets/admin/orders/order_details_dialog.dart';
 import '../../../services/admin/order/order_management_service.dart';
+import '../../../widgets/common/buttons/export_button.dart';
+import '../../../core/utils/csv_export_helper.dart';
+import '../../../core/utils/excel_export_helper.dart';
 
 class OrdersScreen extends ConsumerStatefulWidget {
   const OrdersScreen({super.key});
@@ -262,6 +265,49 @@ class _OrdersScreenState extends ConsumerState<OrdersScreen> {
   // ================================================
   // BUILD TABLE ROWS
   // ================================================
+  static const List<String> _exportHeaders = [
+    'Order ID',
+    'Customer',
+    'Total Amount',
+    'Payment Method',
+    'Payment Status',
+    'Order Status',
+    'Date & Time',
+  ];
+
+  List<List<dynamic>> _buildExportRows() {
+    return _filteredOrders.map((order) {
+      return [
+        order.orderId,
+        order.customerName,
+        order.totalAmount,
+        order.paymentMethod,
+        order.paymentStatus,
+        order.orderStatus,
+        order.dateTime,
+      ];
+    }).toList();
+  }
+
+  void _exportToCsv() {
+    final String today = DateTime.now().toIso8601String().split('T').first;
+    CsvExportHelper.exportToCsv(
+      filename: 'orders_$today',
+      headers: _exportHeaders,
+      rows: _buildExportRows(),
+    );
+  }
+
+  void _exportToExcel() {
+    final String today = DateTime.now().toIso8601String().split('T').first;
+    ExcelExportHelper.exportToExcel(
+      filename: 'orders_$today',
+      headers: _exportHeaders,
+      rows: _buildExportRows(),
+      sheetName: 'Orders',
+    );
+  }
+
   List<List<Widget>> _buildRows() {
 
     List<List<Widget>> tableRows = [];
@@ -433,6 +479,7 @@ class _OrdersScreenState extends ConsumerState<OrdersScreen> {
                   const SizedBox(width: 8),
 
                   // filter button — reusable common widget
+                  // filter button — reusable common widget
                   FilterButton(
                     isOpen: _showFilterPanel,
                     onTap: () {
@@ -440,10 +487,14 @@ class _OrdersScreenState extends ConsumerState<OrdersScreen> {
                         _showFilterPanel = !_showFilterPanel;
                       });
                     },
-                    selectedValue: _selectedOrderStatus,
-                    onValueChanged: (String? value) {
+                    selectedValues: {
+                      'Order Status': _selectedOrderStatus,
+                      'Payment Status': _selectedPaymentStatus,
+                    },
+                    onValueChanged: (String section, String? value) {
                       setState(() {
-                        _selectedOrderStatus = value;
+                        if (section == 'Order Status') _selectedOrderStatus = value;
+                        if (section == 'Payment Status') _selectedPaymentStatus = value;
                       });
                     },
                     onClear: _clearFilters,
@@ -473,6 +524,20 @@ class _OrdersScreenState extends ConsumerState<OrdersScreen> {
                         ],
                       ),
                     ],
+                  ),
+
+                  const Spacer(),
+
+                  // export button
+                  ExportButton(
+                    onExport: _exportToCsv,
+                    onFormatSelected: (format) {
+                      if (format == 'excel') {
+                        _exportToExcel();
+                      } else {
+                        _exportToCsv();
+                      }
+                    },
                   ),
                 ],
               ),

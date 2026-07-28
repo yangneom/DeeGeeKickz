@@ -23,6 +23,13 @@ class ArchiveService {
               color_name,
               cost_price,
               retail_price,
+
+              product_image (
+                image_id,
+                image_url,
+                is_primary
+              ),
+
               product_variant_size (
                 size_id,
                 size,

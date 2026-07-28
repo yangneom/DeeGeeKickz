@@ -29,6 +29,12 @@ class _AdminManagementScreenState
   String? _selectedRole;
   String? _selectedStatus;
 
+  // Staged selections — chip taps only touch these until Apply commits
+  // them into _selectedRole/_selectedStatus (which _filteredAccounts
+  // actually reads). Without this, the table refiltered the instant a
+  // chip was tapped since build() reads _selectedRole/_selectedStatus live.
+  String? _pendingRole;
+  String? _pendingStatus;
   // ================================================
   // INIT STATE
   // ================================================
@@ -53,8 +59,34 @@ class _AdminManagementScreenState
   // ================================================
   // APPLY FILTERS
   // ================================================
-  void _applyFilters() {}
+void _applyFilters() {
+    setState(() {});
+  }
 
+  List<AdminAccount> _filteredAccounts(List<AdminAccount> accounts) {
+    final String query = _searchController.text.toLowerCase();
+
+    return accounts.where((account) {
+      if (query.isNotEmpty) {
+        final bool nameMatch = '${account.firstName} ${account.lastName}'
+            .toLowerCase()
+            .contains(query);
+        final bool emailMatch = account.email.toLowerCase().contains(query);
+        if (!nameMatch && !emailMatch) return false;
+      }
+
+      if (_selectedRole != null && account.role != _selectedRole) {
+        return false;
+      }
+
+      if (_selectedStatus != null) {
+        final String status = account.isDisabled ? 'Inactive' : 'Active';
+        if (status != _selectedStatus) return false;
+      }
+
+      return true;
+    }).toList();
+  }
   // ================================================
   // CLEAR FILTERS
   // ================================================
@@ -62,6 +94,8 @@ class _AdminManagementScreenState
     setState(() {
       _selectedRole = null;
       _selectedStatus = null;
+      _pendingRole = null;
+      _pendingStatus = null;
       _searchController.clear();
       _showFilterPanel = false;
     });
@@ -390,21 +424,32 @@ class _AdminManagementScreenState
                   const SizedBox(width: 8),
 
                   // filter button
-                  FilterButton(
+                 FilterButton(
                     isOpen: _showFilterPanel,
                     onTap: () {
                       setState(() {
+                        // seed staged values with whatever's committed
+                        _pendingRole = _selectedRole;
+                        _pendingStatus = _selectedStatus;
                         _showFilterPanel = !_showFilterPanel;
                       });
                     },
-                    selectedValue: _selectedRole,
-                    onValueChanged: (String? value) {
+                    selectedValues: {
+                      'Role': _pendingRole,
+                      'Status': _pendingStatus,
+                    },
+                    onValueChanged: (String section, String? value) {
                       setState(() {
-                        _selectedRole = value;
+                        if (section == 'Role') _pendingRole = value;
+                        if (section == 'Status') _pendingStatus = value;
                       });
                     },
                     onClear: _clearFilters,
                     onApply: () {
+                      setState(() {
+                        _selectedRole = _pendingRole;
+                        _selectedStatus = _pendingStatus;
+                      });
                       _applyFilters();
                       setState(() {
                         _showFilterPanel = false;
@@ -539,13 +584,15 @@ class _AdminManagementScreenState
                       'Action',
                     ],
                     rows: _buildRows(
-                      accounts
-                          .where((a) =>
-                              !a.isDisabled &&
-                              (a.role == 'Admin' ||
-                              a.role == 'Cashier' ||
-                              a.role == 'Super Admin'))
-                          .toList(),
+                      _filteredAccounts(
+                        accounts
+                            .where((a) =>
+                                !a.isDisabled &&
+                                (a.role == 'Admin' ||
+                                a.role == 'Cashier' ||
+                                a.role == 'Super Admin'))
+                            .toList(),
+                      ),
                     ),
                   ),
                 ),

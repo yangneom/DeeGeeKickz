@@ -18,7 +18,7 @@ class MonthlyReport {
   final double cogs;
   final double grossProfit;
   final String bestSeller;
-  final double growthPercent;
+  final double? growthPercent; // null = no real comparison available (first month, or previous month had ₱0)
 
   MonthlyReport({
     required this.month,
@@ -112,7 +112,7 @@ class SalesReportService {
     final Map<String, double> monthlyRevenue = {};
     final Map<String, DateTime> monthStartMap = {};
 
-    for (final row in orders) {
+      for (final row in orders) {
       final int orderId = (row['order_id'] as num).toInt();
       final DateTime created =
           DateTime.parse(row['created_at'].toString()).toLocal();
@@ -120,9 +120,11 @@ class SalesReportService {
 
       final String key =
           '${created.year}-${created.month.toString().padLeft(2, '0')}';
-      final double total = (row['total_amount'] as num?)?.toDouble() ?? 0;
 
-      monthlyRevenue[key] = (monthlyRevenue[key] ?? 0) + total;
+      // Total Sales is now built from item subtotals below (the shoes
+      // themselves), not orders.total_amount — that field includes the
+      // shipping fee, which was never earned from selling a product
+      // and was never subtracted anywhere on the cost side either.
       monthStartMap[key] = DateTime(created.year, created.month);
     }
 
@@ -140,12 +142,16 @@ class SalesReportService {
           '${created.year}-${created.month.toString().padLeft(2, '0')}';
       final String productName = row['product_name_snapshot'] ?? 'Unknown';
       final int qty = (row['quantity'] as num?)?.toInt() ?? 0;
+      final double itemSubtotal = (row['subtotal'] as num?)?.toDouble() ?? 0;
       final double costEach =
           (row['cost_price_snapshot'] as num?)?.toDouble() ?? 0;
 
       monthlyProductQty.putIfAbsent(key, () => {});
       monthlyProductQty[key]![productName] =
           (monthlyProductQty[key]![productName] ?? 0) + qty;
+
+      // Product revenue only — shipping is excluded (see note above).
+      monthlyRevenue[key] = (monthlyRevenue[key] ?? 0) + itemSubtotal;
 
       monthlyCogs[key] = (monthlyCogs[key] ?? 0) + (costEach * qty);
     }
@@ -155,7 +161,10 @@ class SalesReportService {
     // 0 row instead of being silently skipped. Skipping was causing
     // the NEXT month with sales to compute growth % against a stale
     // earlier month instead of against the true (zero) previous month.
-    final List<String> presentKeys = monthlyRevenue.keys.toList()..sort();
+    // Uses monthStartMap (built from every qualifying order) instead of
+    // monthlyRevenue, so a month never gets silently dropped even if an
+    // order somehow had no line items.
+    final List<String> presentKeys = monthStartMap.keys.toList()..sort();
     final DateTime firstMonth = monthStartMap[presentKeys.first]!;
     final DateTime lastMonth = monthStartMap[presentKeys.last]!;
 
@@ -189,7 +198,7 @@ class SalesReportService {
               });
         bestSeller = sortedProducts.first.key;
       }
-      double growth = 0;
+      double? growth;
       if (previousTotal != null && previousTotal != 0) {
         growth = ((total - previousTotal!) / previousTotal!) * 100;
       }
@@ -254,14 +263,18 @@ class SalesReportService {
       final DateTime created =
           DateTime.parse(row['created_at'].toString()).toLocal();
       final double total = (row['total_amount'] as num?)?.toDouble() ?? 0;
+      final bool isThisMonth =
+          created.year == now.year && created.month == now.month;
 
-      if (created.year == now.year && created.month == now.month) {
+      if (isThisMonth) {
         monthlyRevenue += total;
       }
       if (created.year == lastMonth.year && created.month == lastMonth.month) {
         lastMonthRevenue += total;
       }
-      if (row['user_id'] != null) {
+      // Only counts as "active" if they bought something THIS month —
+      // previously this counted every customer who ever bought anything.
+      if (isThisMonth && row['user_id'] != null) {
         activeCustomerIds.add(row['user_id'].toString());
       }
     }

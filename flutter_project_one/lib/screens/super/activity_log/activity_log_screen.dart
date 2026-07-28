@@ -4,6 +4,8 @@ import '../../../widgets/common/tables/common_table.dart';
 import '../../../widgets/common/buttons/export_button.dart';
 import '../../../widgets/super/activity_log/activity_log_filter_panel.dart';
 import '../../../providers/super/activity_log_provider.dart';
+import '../../../core/utils/csv_export_helper.dart';
+import '../../../core/utils/excel_export_helper.dart';
 
 // ================================================
 // ACTIVITY LOG SCREEN
@@ -134,6 +136,58 @@ class _ActivityLogScreenState extends ConsumerState<ActivityLogScreen> {
   // ================================================
   // BUILD TABLE ROWS
   // ================================================
+  // ================================================
+  // EXPORT TO CSV
+  // Exports exactly what's currently visible — i.e. respects
+  // whatever filters are active, not the full unfiltered log.
+  // ================================================
+ static const List<String> _exportHeaders = [
+    'Name',
+    'Role',
+    'Action',
+    'Affected Module',
+    'Date & Time',
+  ];
+
+  List<List<dynamic>> _buildExportRows(List<Map<String, dynamic>> logs) {
+    return logs.map((item) {
+      final DateTime? dateTime = _parseDateTime(item['created_at']);
+      return [
+        item['admin_name']?.toString() ?? '-',
+        item['role']?.toString() ?? '-',
+        item['action']?.toString() ?? '-',
+        item['affected_module']?.toString() ?? '-',
+        dateTime != null ? _formatDateTime(dateTime) : '-',
+      ];
+    }).toList();
+  }
+
+  void _exportToCsv(List<Map<String, dynamic>> logs) {
+    final String today =
+        DateTime.now().toIso8601String().split('T').first; // YYYY-MM-DD
+
+    CsvExportHelper.exportToCsv(
+      filename: 'activity_log_$today',
+      headers: _exportHeaders,
+      rows: _buildExportRows(logs),
+    );
+  }
+
+  void _exportToExcel(List<Map<String, dynamic>> logs) {
+    final String today =
+        DateTime.now().toIso8601String().split('T').first; // YYYY-MM-DD
+
+    ExcelExportHelper.exportToExcel(
+      filename: 'activity_log_$today',
+      headers: _exportHeaders,
+      rows: _buildExportRows(logs),
+      sheetName: 'Activity Log',
+    );
+  }
+
+  // ================================================
+  // BUILD TABLE ROWS
+  // ================================================
   List<List<Widget>> _buildRows(List<Map<String, dynamic>> logs) {
     List<List<Widget>> tableRows = [];
 
@@ -235,9 +289,19 @@ class _ActivityLogScreenState extends ConsumerState<ActivityLogScreen> {
                 children: [
 
                   // export button
+                  // export button — clicking "Export" itself is the
+                  // quick-default CSV path; the dropdown arrow offers
+                  // an explicit CSV/Excel choice via ExportButton's
+                  // built-in PopupMenuButton.
                   ExportButton(
-                    onExport: () => print('Export clicked'),
-                    onDropdown: () => print('Dropdown clicked'),
+                    onExport: () => _exportToCsv(filteredLogs),
+                    onFormatSelected: (format) {
+                      if (format == 'excel') {
+                        _exportToExcel(filteredLogs);
+                      } else {
+                        _exportToCsv(filteredLogs);
+                      }
+                    },
                   ),
 
                   const SizedBox(width: 8),

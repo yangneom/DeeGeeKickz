@@ -34,6 +34,11 @@ class _CustomerManagementScreenState
   bool _showFilterPanel = false;
   String? _selectedStatus;
 
+  // Staged — same reasoning as Admin Management: build() reads
+  // _selectedStatus directly, so a chip tap alone would refilter
+  // instantly without this.
+  String? _pendingStatus;
+
   @override
   void initState() {
     super.initState();
@@ -77,6 +82,7 @@ class _CustomerManagementScreenState
   void _clearFilters() {
     setState(() {
       _selectedStatus = null;
+      _pendingStatus = null;
       _searchController.clear();
       _showFilterPanel = false;
     });
@@ -259,11 +265,20 @@ class _CustomerManagementScreenState
 
                   FilterButton(
                     isOpen: _showFilterPanel,
-                    onTap: () => setState(() => _showFilterPanel = !_showFilterPanel),
-                    selectedValue: _selectedStatus,
-                    onValueChanged: (String? value) => setState(() => _selectedStatus = value),
+                    onTap: () => setState(() {
+                      _pendingStatus = _selectedStatus;
+                      _showFilterPanel = !_showFilterPanel;
+                    }),
+                    selectedValues: {
+                      'Status': _pendingStatus,
+                    },
+                    onValueChanged: (String section, String? value) =>
+                        setState(() => _pendingStatus = value),
                     onClear: _clearFilters,
-                    onApply: () => setState(() => _showFilterPanel = false),
+                    onApply: () => setState(() {
+                      _selectedStatus = _pendingStatus;
+                      _showFilterPanel = false;
+                    }),
                     sections: [
                       FilterSection(
                         title: 'Status',

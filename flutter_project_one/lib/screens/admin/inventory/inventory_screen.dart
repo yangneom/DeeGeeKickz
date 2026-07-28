@@ -13,6 +13,8 @@ import '../../../widgets/common/buttons/filter_button.dart';
 import '../../../widgets/common/buttons/export_button.dart';
 import '../../../widgets/common/dialog/confirm_dialog.dart';
 import '../../../widgets/admin/inventory/edit_product_dialog.dart'; 
+import '../../../core/utils/csv_export_helper.dart';
+import '../../../core/utils/excel_export_helper.dart';
 
 class InventoryScreen extends ConsumerStatefulWidget {
   const InventoryScreen({super.key});
@@ -126,6 +128,66 @@ class _InventoryScreenState extends ConsumerState<InventoryScreen> {
       _filteredProducts = _allProducts;
       _showFilterPanel = false;
     });
+  }
+
+ // ================================================
+  // EXPORT — one row per size/variant, not aggregated per
+  // product, since a stock snapshot for suppliers or a physical
+  // count is more useful broken down to the actual sellable unit.
+  // ================================================
+  static const List<String> _exportHeaders = [
+    'Product Name',
+    'Brand',
+    'Category',
+    'Color',
+    'Size',
+    'Stock Qty',
+    'Reserved',
+    'Available',
+    'Cost Price',
+    'Retail Price',
+  ];
+
+  List<List<dynamic>> _buildExportRows() {
+    final List<List<dynamic>> rows = [];
+    for (final Product product in _filteredProducts) {
+      for (final ProductVariant variant in product.variants) {
+        for (final SizeEntry size in variant.sizes) {
+          rows.add([
+            product.productName,
+            product.brand,
+            product.category,
+            variant.color,
+            size.size,
+            size.stockQty,
+            size.reservedQty,
+            size.availableQty,
+            variant.costPrice,
+            variant.retailPrice,
+          ]);
+        }
+      }
+    }
+    return rows;
+  }
+
+  void _exportToCsv() {
+    final String today = DateTime.now().toIso8601String().split('T').first;
+    CsvExportHelper.exportToCsv(
+      filename: 'inventory_$today',
+      headers: _exportHeaders,
+      rows: _buildExportRows(),
+    );
+  }
+
+  void _exportToExcel() {
+    final String today = DateTime.now().toIso8601String().split('T').first;
+    ExcelExportHelper.exportToExcel(
+      filename: 'inventory_$today',
+      headers: _exportHeaders,
+      rows: _buildExportRows(),
+      sheetName: 'Inventory',
+    );
   }
 
   // ================================================
@@ -351,13 +413,15 @@ class _InventoryScreenState extends ConsumerState<InventoryScreen> {
 
                   const SizedBox(width: 8),
 
-                  // export button
+                 // export button
                   ExportButton(
-                    onExport: () {
-                      // TODO: export logic
-                    },
-                    onDropdown: () {
-                      // TODO: dropdown logic
+                    onExport: _exportToCsv,
+                    onFormatSelected: (format) {
+                      if (format == 'excel') {
+                        _exportToExcel();
+                      } else {
+                        _exportToCsv();
+                      }
                     },
                   ),
                 ],
@@ -391,10 +455,14 @@ class _InventoryScreenState extends ConsumerState<InventoryScreen> {
                         _showFilterPanel = !_showFilterPanel;
                       });
                     },
-                    selectedValue: _selectedStatus,
-                    onValueChanged: (String? value) {
+                    selectedValues: {
+                      'Status': _selectedStatus,
+                      'Category': _selectedCategory,
+                    },
+                    onValueChanged: (String section, String? value) {
                       setState(() {
-                        _selectedStatus = value;
+                        if (section == 'Status') _selectedStatus = value;
+                        if (section == 'Category') _selectedCategory = value;
                       });
                     },
                     onClear: _clearFilters,

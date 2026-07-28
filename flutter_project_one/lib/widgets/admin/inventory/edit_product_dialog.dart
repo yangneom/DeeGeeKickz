@@ -57,8 +57,13 @@ class SizeStockRow {
 class ExistingImage {
   final int imageId;
   final String imageUrl;
+  final bool isPrimary; // NEW — needed to detect Main-image removal
 
-  ExistingImage({required this.imageId, required this.imageUrl});
+  ExistingImage({
+    required this.imageId,
+    required this.imageUrl,
+    this.isPrimary = false, // NEW
+  });
 }
 
 // ================================================
@@ -141,6 +146,10 @@ class _EditProductDialogState extends ConsumerState<EditProductDialog> {
   // Tracks which existing image IDs to delete on save
   final List<int> _imageIdsToDelete = [];
 
+  // NEW (fix: primary-image orphan) — tracks the image_id that should
+  // become the new Main image on save, if the old Main was removed.
+  final List<int> _imageIdsToPromote = [];
+
   bool _isLoading = false;
 
   // ================================================
@@ -167,14 +176,15 @@ class _EditProductDialogState extends ConsumerState<EditProductDialog> {
       variantData.retailController.text =
           variant.retailPrice.toStringAsFixed(2);
 
-      // ── Load existing images ──  (fix #7, #8)
-      // We need image IDs to delete them later.
-      // The Product model only carries URLs right now, so we
-      // reconstruct ExistingImage with a placeholder id=-1.
-      // If you add imageId to the model you can use the real id.
-      // For delete to work properly, add image_id to the mapper.
-      variantData.existingImages = variant.imageUrls
-          .map((url) => ExistingImage(imageId: -1, imageUrl: url))
+      // ── Load existing images ──  (fix #2)
+      // Real image_ids now available from ProductMapper — no more
+      // placeholder id=-1. Deletes will actually hit the right row.
+      variantData.existingImages = variant.images
+          .map((img) => ExistingImage(
+                imageId: img.imageId,
+                imageUrl: img.imageUrl,
+                isPrimary: img.isPrimary, // NEW
+              ))
           .toList();
 
       // ── Load sizes ──
@@ -323,6 +333,7 @@ class _EditProductDialogState extends ConsumerState<EditProductDialog> {
   void _removeExistingImage(int variantIndex, int imageIndex) {
     final ExistingImage img =
         _variants[variantIndex].existingImages[imageIndex];
+    final bool wasPrimary = img.isPrimary; // NEW
 
     setState(() {
       // Queue for deletion (only if we have a real id)
@@ -330,6 +341,24 @@ class _EditProductDialogState extends ConsumerState<EditProductDialog> {
         _imageIdsToDelete.add(img.imageId);
       }
       _variants[variantIndex].existingImages.removeAt(imageIndex);
+
+      // NEW — if the removed image was Main and other images remain,
+      // promote the next one so the variant never ends up with zero
+      // primary images (fix: primary-image orphan on delete).
+      if (wasPrimary &&
+          _variants[variantIndex].existingImages.isNotEmpty) {
+        final ExistingImage next =
+            _variants[variantIndex].existingImages.removeAt(0);
+        final ExistingImage promoted = ExistingImage(
+          imageId: next.imageId,
+          imageUrl: next.imageUrl,
+          isPrimary: true,
+        );
+        _variants[variantIndex].existingImages.insert(0, promoted);
+        if (promoted.imageId != -1) {
+          _imageIdsToPromote.add(promoted.imageId);
+        }
+      }
     });
   }
 
@@ -399,11 +428,30 @@ class _EditProductDialogState extends ConsumerState<EditProductDialog> {
     });
   }
 
-  // ================================================
-  // SAVE FLOW
-  // ================================================
   Future<void> _handlePublish() async {
     if (!_formKey.currentState!.validate()) return;
+
+    // NEW — block duplicate color names within this product. Two
+    // variants sharing a color name makes one invisible to the
+    // cashier (SelectVariantDialog resolves by color via firstWhere,
+    // which only returns the first match), silently locking out that
+    // variant's entire stock with no error anywhere.
+    final Set<String> seenColors = {};
+    for (final variant in _variants) {
+      final String colorKey = variant.colorNameController.text.trim();
+      if (colorKey.isEmpty) continue;
+      if (seenColors.contains(colorKey)) {
+        if (mounted) {
+          ScaffoldMessenger.of(context).showSnackBar(SnackBar(
+            content: Text(
+                'Two variants both use the color "$colorKey". Each color must be unique within a product.'),
+            backgroundColor: Colors.red,
+          ));
+        }
+        return;
+      }
+      seenColors.add(colorKey);
+    }
 
     final bool? confirmed = await showConfirmDialog(
       context: context,
@@ -476,6 +524,20 @@ class _EditProductDialogState extends ConsumerState<EditProductDialog> {
               .eq('image_id', imageId);
         } catch (e) {
           print('Failed to delete image $imageId: $e');
+        }
+      }
+
+      // ── Promote new primary image, if the old Main was removed ──
+      // NEW — without this, deleting Main leaves zero is_primary=true
+      // rows even though other valid images remain.
+      for (final imageId in _imageIdsToPromote) {
+        try {
+          await _supabase
+              .from('product_image')
+              .update({'is_primary': true})
+              .eq('image_id', imageId);
+        } catch (e) {
+          print('Failed to promote image $imageId to primary: $e');
         }
       }
 
@@ -987,14 +1049,18 @@ class _EditProductDialogState extends ConsumerState<EditProductDialog> {
           const SizedBox(height: 6),
           _buildImageUploadBox(variantIndex),
           const SizedBox(height: 14),
-          _buildLabel('Cost'),
+         _buildLabel('Cost'),
           _buildNumericField(
             controller: variant.costController,
             hint: 'Enter Cost Price',
             allowDecimal: true,
-            validator: (v) => (v == null || v.isEmpty)
-                ? 'Please enter a cost price'
-                : null,
+            validator: (v) {
+              if (v == null || v.isEmpty) return 'Please enter a cost price';
+              final double? parsed = double.tryParse(v);
+              if (parsed == null) return 'Enter a valid number';
+              if (parsed <= 0) return 'Cost price must be greater than ₱0';
+              return null;
+            },
           ),
           const SizedBox(height: 14),
           _buildLabel('Retail'),
@@ -1002,9 +1068,13 @@ class _EditProductDialogState extends ConsumerState<EditProductDialog> {
             controller: variant.retailController,
             hint: 'Enter Retail Price',
             allowDecimal: true,
-            validator: (v) => (v == null || v.isEmpty)
-                ? 'Please enter a retail price'
-                : null,
+            validator: (v) {
+              if (v == null || v.isEmpty) return 'Please enter a retail price';
+              final double? parsed = double.tryParse(v);
+              if (parsed == null) return 'Enter a valid number';
+              if (parsed <= 0) return 'Retail price must be greater than ₱0';
+              return null;
+            },
           ),
           const SizedBox(height: 14),
           _buildLabel('Size & Stock'),

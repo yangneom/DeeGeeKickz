@@ -6,6 +6,8 @@ import '../../../widgets/common/buttons/filter_button.dart';
 import '../../../widgets/common/buttons/filter_panel.dart';
 import '../../../widgets/common/buttons/export_button.dart';
 import '../../../services/super/sales/sales_report_service.dart';
+import '../../../core/utils/csv_export_helper.dart';
+import '../../../core/utils/excel_export_helper.dart';
 
 // ================================================
 // SALES REPORT SCREEN
@@ -101,10 +103,10 @@ class _SalesReportScreenState extends ConsumerState<SalesReportScreen> {
 
       bool matchesFilter = true;
       if (_selectedFilter == 'Positive') {
-        matchesFilter = report.growthPercent >= 0;
+        matchesFilter = report.growthPercent != null && report.growthPercent! >= 0;
       }
       if (_selectedFilter == 'Negative') {
-        matchesFilter = report.growthPercent < 0;
+        matchesFilter = report.growthPercent != null && report.growthPercent! < 0;
       }
 
       if (!matchesFilter) continue;
@@ -146,7 +148,28 @@ class _SalesReportScreenState extends ConsumerState<SalesReportScreen> {
   // ================================================
   // BUILD GROWTH BADGE
   // ================================================
-  Widget _buildGrowthBadge(double growth) {
+  Widget _buildGrowthBadge(double? growth) {
+    if (growth == null) {
+      return Align(
+        alignment: Alignment.centerLeft,
+        child: Container(
+          padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 4),
+          decoration: BoxDecoration(
+            color: const Color(0xFFF3F4F6),
+            borderRadius: BorderRadius.circular(20),
+          ),
+          child: const Text(
+            'New',
+            style: TextStyle(
+              fontSize: 12,
+              fontWeight: FontWeight.w500,
+              color: Color(0xFF6B7280),
+            ),
+          ),
+        ),
+      );
+    }
+
     final bool isPositive = growth >= 0;
 
     final Color backgroundColor =
@@ -181,6 +204,50 @@ class _SalesReportScreenState extends ConsumerState<SalesReportScreen> {
     return Text(
       amount,
       style: TextStyle(fontSize: 13, color: color ?? const Color(0xFF111827)),
+    );
+  }
+
+// ================================================
+  // EXPORT
+  // ================================================
+  static const List<String> _exportHeaders = [
+    'Month',
+    'Total Sales',
+    'COGS',
+    'Gross Profit',
+    'Best Seller',
+    'Growth %',
+  ];
+
+  List<List<dynamic>> _buildExportRows() {
+    return _filteredReports.map((report) {
+      return [
+        report.month,
+        report.totalSales,
+        report.cogs,
+        report.grossProfit,
+        report.bestSeller,
+        report.growthPercent ?? 'New',
+      ];
+    }).toList();
+  }
+
+  void _exportToCsv() {
+    final String today = DateTime.now().toIso8601String().split('T').first;
+    CsvExportHelper.exportToCsv(
+      filename: 'sales_report_$today',
+      headers: _exportHeaders,
+      rows: _buildExportRows(),
+    );
+  }
+
+  void _exportToExcel() {
+    final String today = DateTime.now().toIso8601String().split('T').first;
+    ExcelExportHelper.exportToExcel(
+      filename: 'sales_report_$today',
+      headers: _exportHeaders,
+      rows: _buildExportRows(),
+      sheetName: 'Sales Report',
     );
   }
 
@@ -262,9 +329,12 @@ class _SalesReportScreenState extends ConsumerState<SalesReportScreen> {
                     isOpen: _showFilterPanel,
                     onTap: () =>
                         setState(() => _showFilterPanel = !_showFilterPanel),
-                    selectedValue: _selectedFilter,
-                    onValueChanged: (value) =>
-                        setState(() => _selectedFilter = value),
+                    selectedValues: {
+                      'Growth': _selectedFilter,
+                    },
+                    onValueChanged: (String section, String? value) {
+                      if (section == 'Growth') setState(() => _selectedFilter = value);
+                    },
                     onClear: _clearFilters,
                     onApply: () {
                       _applyFilters();
@@ -281,7 +351,16 @@ class _SalesReportScreenState extends ConsumerState<SalesReportScreen> {
                     ],
                   ),
                   const Spacer(),
-                  ExportButton(onExport: () {}, onDropdown: () {}),
+                  ExportButton(
+                    onExport: _exportToCsv,
+                    onFormatSelected: (format) {
+                      if (format == 'excel') {
+                        _exportToExcel();
+                      } else {
+                        _exportToCsv();
+                      }
+                    },
+                  ),
                 ],
               ),
 

@@ -134,7 +134,9 @@ class _CheckoutScreenState extends ConsumerState<CheckoutScreen> {
     final user = Supabase.instance.client.auth.currentUser;
 
     if (user == null) {
-      throw Exception('User not logged in');
+      throw SessionExpiredException(
+        'Your session has expired. Please log in again to continue.',
+      );
     }
 
     final items = ref.read(customerCartProvider);

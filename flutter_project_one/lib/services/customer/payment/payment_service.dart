@@ -65,23 +65,27 @@ class PaymentService {
     }
   }
 
-  // Reserves stock for every item in this order atomically via the
-  // reserve_stock_for_order Postgres function — row-locks each
-  // product_variant_size row and checks real availability before
-  // incrementing reserved_quantity, so two concurrent checkouts on
-  // the last unit can't both succeed. Throws (and rolls back
-  // everything reserved so far for this order) if any item is no
-  // longer actually available.
   Future<void> reserveStock({required int orderId}) async {
     try {
       await _supabase.rpc('reserve_stock_for_order', params: {
         'p_order_id': orderId,
       });
+    } on PostgrestException catch (e) {
+      print('PaymentService.reserveStock error: $e');
+      // P0001 is a plain RAISE EXCEPTION from the reserve_stock_for_order
+      // function itself — its message is already customer-friendly
+      // ("Only N unit(s) of X available right now."), it just needs to
+      // arrive as the exception type the UI actually watches for.
+      if (e.code == 'P0001') {
+        throw InsufficientStockException(e.message);
+      }
+      rethrow;
     } catch (e) {
       print('PaymentService.reserveStock error: $e');
       rethrow;
     }
   }
+
   // ================================================
   // SAVE RECEIPT URL
   // ================================================

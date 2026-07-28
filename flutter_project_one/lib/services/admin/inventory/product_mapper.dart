@@ -45,6 +45,7 @@ class ProductMapper {
             (vd['product_image'] as List<dynamic>?) ?? [];
 
         final List<String> imageUrls = [];
+        final List<ProductImage> images = []; // NEW
         String? primaryImageUrl;
 
         for (final rawImage in rawImages) {
@@ -55,6 +56,16 @@ class ProductMapper {
 
           imageUrls.add(url);
           if (img['is_primary'] == true) primaryImageUrl = url;
+
+          // NEW — carry the real image_id through
+          final int? imageId = img['image_id'] as int?;
+          if (imageId != null) {
+            images.add(ProductImage(
+              imageId: imageId,
+              imageUrl: url,
+              isPrimary: img['is_primary'] == true,
+            ));
+          }
         }
 
         // Fallback: first image becomes primary
@@ -89,6 +100,7 @@ class ProductMapper {
           sizes: sizes,
           imageUrls: imageUrls,
           primaryImageUrl: primaryImageUrl,
+          images: images, // NEW
         ));
       }
 

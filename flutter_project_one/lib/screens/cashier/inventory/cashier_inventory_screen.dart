@@ -185,16 +185,19 @@ class _CashierInventoryScreenState
                       });
                     },
 
-                    // pass current selected value
-                    selectedValue: _selectedStatus,
+                    // pass current selected values
+                        selectedValues: {
+                          'Status': _selectedStatus,
+                          'Category': _selectedCategory,
+                        },
 
-                    // when user picks an option
-                    onValueChanged: (String? value) {
-                      setState(() {
-                        _selectedStatus = value;
-                      });
-                    },
-
+                        // when user picks an option
+                        onValueChanged: (String section, String? value) {
+                          setState(() {
+                            if (section == 'Status') _selectedStatus = value;
+                            if (section == 'Category') _selectedCategory = value;
+                          });
+                        },
                     // when user clicks clear
                     onClear: _clearFilters,
 

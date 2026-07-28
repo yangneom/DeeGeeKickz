@@ -175,11 +175,21 @@ class InventoryService {
       );
 
       return null;
+    } on PostgrestException catch (error) {
+      print('addProduct error: $error');
+
+      if (error.code == '23505' &&
+          error.message.contains('product_active_name_unique')) {
+        return 'A product named "$productName" already exists. Please choose a different name.';
+      }
+
+      return 'Failed to add product. Please try again.';
     } catch (error) {
       print('addProduct error: $error');
-      return error.toString();
+      return 'Failed to add product. Please try again.';
     }
   }
+  
 
   // ==========================================
   // UPDATE PRODUCT
@@ -372,10 +382,19 @@ class InventoryService {
         targetId: productId,
       );
 
-      return null;
+     return null;
+    } on PostgrestException catch (error) {
+      print('updateProduct error: $error');
+
+      if (error.code == '23505' &&
+          error.message.contains('product_active_name_unique')) {
+        return 'A product named "$productName" already exists. Please choose a different name.';
+      }
+
+      return 'Failed to update product. Please try again.';
     } catch (error) {
       print('updateProduct error: $error');
-      return error.toString();
+      return 'Failed to update product. Please try again.';
     }
   }
 

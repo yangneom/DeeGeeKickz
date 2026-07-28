@@ -1,157 +1,118 @@
 import 'package:supabase_flutter/supabase_flutter.dart';
- 
+
 import '../../models/customer_cart_item.dart';
 import '../../services/customer/payment/payment_service.dart';
- 
+
+class ArchivedProductException implements Exception {
+  final String message;
+  ArchivedProductException(this.message);
+
+  @override
+  String toString() => message;
+}
+
+class SessionExpiredException implements Exception {
+  final String message;
+  SessionExpiredException(this.message);
+
+  @override
+  String toString() => message;
+}
+
 class OrderService {
   final SupabaseClient _supabase = Supabase.instance.client;
- 
-Future<int> createOrder({
-  required String userId,
-  String? addressId,
 
-    // Shipping address from checkout
+  // ───────────────────────────────────────────
+  // CREATE ORDER
+  //
+  // This used to be 5+ separate network calls (address, order,
+  // order_item × N, reserveStock, order_progress, payment) — if any
+  // step failed partway, everything before it stayed in the
+  // database as orphaned rows (confirmed happening live during
+  // testing: failed stock reservation left behind a real order and
+  // order_item rows with no successful reservation behind them).
+  //
+  // Now it's a single call to create_order_full, a Postgres function
+  // that does the entire sequence as one atomic unit — if ANY step
+  // inside it fails (including the stock check), every write it made
+  // rolls back automatically. Nothing partial can ever be left
+  // behind again.
+  // ───────────────────────────────────────────
+  Future<int> createOrder({
+    required String userId,
+    String? addressId,
     required String street,
     required String city,
     required String postal,
     required String country,
-
-    // Geocoded coordinates for a fresh manual address — pass these
-    // through from checkout (call geocode-address before this, same
-    // as AddressBottomSheet does). Nullable: geocoding may fail, or
-    // this may be a saved address (addressId != null) whose row
-    // already has its own coordinates.
     double? lat,
     double? lng,
-
     required List<CustomerCartItem> items,
     required double subtotal,
     required double shipping,
     required double total,
-
     required String paymentMethod,
   }) async {
-    // ───────────────────────────────────────────
-    // 1. Resolve shipping address — reuse the existing row if the
-    //    customer selected a saved address (addressId provided);
-    //    only insert a new row when they added one fresh at checkout.
-    // ───────────────────────────────────────────
-
-    final int resolvedAddressId;
-    if (addressId != null) {
-      resolvedAddressId = int.parse(addressId);
-    } else {
-      final addressResponse = await _supabase
-          .from('address')
-          .insert({
-            'user_id': userId,
-            'street': street,
-            'city': city,
-            'zip_code': postal,
-            'landmark': null,
-            'lat': lat,
-            'lng': lng,
-          })
-          .select()
-          .single();
-      resolvedAddressId = addressResponse['address_id'];
-    }
- 
-    // ───────────────────────────────────────────
-    // 2. Create order
-    // ───────────────────────────────────────────
-// Sum each item's real per-unit discount × quantity. Handles
-    // multiple products with different discount rates correctly,
-    // since each item already carries its own originalPrice vs
-    // retailPrice — nothing here assumes a single flat discount.
     final double discountAmount = items.fold<double>(
       0,
       (sum, item) => sum + item.discountSubtotal,
     );
 
-    final orderResponse = await _supabase
-        .from('orders')
-        .insert({
-          'user_id': userId,
-          'address_id': resolvedAddressId,
+    final List<Map<String, dynamic>> itemsPayload = items
+        .map((item) => {
+              'product_id': item.productId,
+              'size_id': item.sizeId,
+              'quantity': item.quantity,
+              'unit_price': item.retailPrice,
+              'subtotal': item.subtotal,
+              'product_name': item.productName,
+              'brand': item.brand,
+              'color': item.color,
+              'size': item.size,
+            })
+        .toList();
 
-          'subtotal': subtotal,
-          'shipping': shipping,
-          'discount_amount': discountAmount,
-          'total_amount': total,
-
-          'payment_method': paymentMethod,
-          'order_status': 'Awaiting Payment',
-          'order_type': 'Online',
-        })
-        .select()
-        .single();
- 
-    final int orderId = orderResponse['order_id'];
- 
-    // ───────────────────────────────────────────
-    // 3. Create order items + reserve stock
-    // ───────────────────────────────────────────
- 
-for (final item in items) {
-      final double costPrice = await _getCostPrice(item.sizeId);
-
-      await _supabase.from('order_item').insert({
-        'order_id': orderId,
- 
-        // Product reference
-        'product_id': item.productId,
- 
-        // Size relationship — now saved
-        'size_id': item.sizeId,
- 
-        'quantity': item.quantity,
-        'unit_price': item.retailPrice,
-        'subtotal': item.subtotal,
-        'cost_price_snapshot': costPrice,
- 
-        // Snapshots
-        'product_name_snapshot': item.productName,
-        'brand_snapshot': item.brand,
-        'color_snapshot': item.color,
-        'size_snapshot': item.size,
+    try {
+      final dynamic result = await _supabase.rpc('create_order_full', params: {
+        'p_user_id': userId,
+        'p_address_id': addressId != null ? int.parse(addressId) : null,
+        'p_street': street,
+        'p_city': city,
+        'p_zip_code': postal,
+        'p_lat': lat,
+        'p_lng': lng,
+        'p_subtotal': subtotal,
+        'p_shipping': shipping,
+        'p_discount_amount': discountAmount,
+        'p_total': total,
+        'p_payment_method': paymentMethod,
+        'p_items': itemsPayload,
       });
- 
-      // Reserve stock for this item so it can't be oversold
-      // while this order is awaiting payment/approval.
-      if (item.sizeId != null) {
-        await _reserveStock(sizeId: item.sizeId!, quantity: item.quantity);
-      }
-    }
- 
-    // ───────────────────────────────────────────
-    // 4. Initial order progress
-    // ───────────────────────────────────────────
- 
-    await _supabase.from('order_progress').insert({
-      'order_id': orderId,
-      'status': 'Pending',
-    });
- 
-    // ───────────────────────────────────────────
-    // 5. Create payment row
-    // So admin can see/approve payment status.
-    // payment_method is temporary until real
-    // PayMongo method is passed in.
-    // ───────────────────────────────────────────
-    await PaymentService().createPayment(
-      orderId: orderId,
-      paymentMethod: paymentMethod,
-      amountPaid: total,
-    );
 
-    await _notifyStaffNewOrder(
-      orderId: orderId,
-      total: total,
-      paymentMethod: paymentMethod,
-    );
- 
-    return orderId;
+      final int orderId = (result as num).toInt();
+
+      // Non-critical — must never fail the order itself, which has
+      // already fully committed by this point.
+      await _notifyStaffNewOrder(
+        orderId: orderId,
+        total: total,
+        paymentMethod: paymentMethod,
+      );
+
+      return orderId;
+    } on PostgrestException catch (e) {
+      print('OrderService.createOrder error: $e');
+      if (e.code == 'P1001') {
+        throw ArchivedProductException(e.message);
+      }
+      if (e.code == 'P1002' || e.code == 'P1003') {
+        throw ArchivedProductException(e.message);
+      }
+      if (e.code == 'P0001') {
+        throw InsufficientStockException(e.message);
+      }
+      rethrow;
+    }
   }
 
   // ───────────────────────────────────────────
@@ -181,71 +142,21 @@ for (final item in items) {
         _ => paymentMethod,
       };
 
-     final rows = staff.map((u) => {
-            'customer_id': u['id'],
-            'type': 'order',
-            'title': 'New order placed',
-            'body': 'Order #$orderId — ₱${total.toStringAsFixed(2)} via $methodLabel.',
-            'order_id': orderId,
-            'recipient_role': 'admin',
-          }).toList();
+      final rows = staff
+          .map((u) => {
+                'customer_id': u['id'],
+                'type': 'order',
+                'title': 'New order placed',
+                'body':
+                    'Order #$orderId — ₱${total.toStringAsFixed(2)} via $methodLabel.',
+                'order_id': orderId,
+                'recipient_role': 'admin',
+              })
+          .toList();
 
       await _supabase.from('notifications').insert(rows);
     } catch (error) {
       print('_notifyStaffNewOrder error: $error');
     }
   }
- 
-  // ───────────────────────────────────────────
-  // RESERVE STOCK
-  // Increments reserved_quantity so this stock
-  // can't be sold to someone else while this
-  // order is pending payment/approval.
-  // ───────────────────────────────────────────
-  Future<void> _reserveStock({
-    required int sizeId,
-    required int quantity,
-  }) async {
-    final row = await _supabase
-        .from('product_variant_size')
-        .select('reserved_quantity')
-        .eq('size_id', sizeId)
-        .single();
- 
-    final int currentReserved =
-        (row['reserved_quantity'] as num?)?.toInt() ?? 0;
- 
-    await _supabase
-        .from('product_variant_size')
-        .update({'reserved_quantity': currentReserved + quantity})
-        .eq('size_id', sizeId);
-  }
-
-Future<double> _getCostPrice(int? sizeId) async {
-    if (sizeId == null) return 0;
-    try {
-      final row = await _supabase
-          .from('product_variant_size')
-          .select('product_variant(cost_price)')
-          .eq('size_id', sizeId)
-          .single();
-      final variant = row['product_variant'];
-      final double? costPrice = (variant?['cost_price'] as num?)?.toDouble();
-
-      // A null cost_price isn't a query failure — it means this
-      // product variant genuinely has no cost recorded. Log it so
-      // it's visible (Gross Profit in Sales Report will silently
-      // read as inflated for this item otherwise), but still return
-      // 0 so order creation isn't blocked over a data-entry gap.
-      if (costPrice == null) {
-        print('_getCostPrice warning: cost_price is null for sizeId=$sizeId — Gross Profit will undercount this item\'s COGS.');
-      }
-
-      return costPrice ?? 0;
-    } catch (e) {
-      print('_getCostPrice error: $e');
-      return 0;
-    }
-  }
-
 }

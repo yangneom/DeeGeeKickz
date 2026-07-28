@@ -7,13 +7,13 @@ import 'package:flutter/material.dart';
 class ExportButton extends StatelessWidget {
 
   // things this widget needs from parent screen
-  final VoidCallback onExport;    // when user clicks export
-  final VoidCallback onDropdown;  // when user clicks dropdown arrow
+  final VoidCallback onExport;               // clicking "Export" itself = quick CSV export
+  final void Function(String format) onFormatSelected; // dropdown pick: 'csv' or 'excel'
 
   const ExportButton({
     super.key,
     required this.onExport,
-    required this.onDropdown,
+    required this.onFormatSelected,
   });
 
   @override
@@ -54,15 +54,19 @@ class ExportButton extends StatelessWidget {
           ),
 
           // dropdown arrow button
-          IconButton(
-            onPressed: onDropdown,
+          // dropdown arrow — shows format choice menu
+          PopupMenuButton<String>(
+            onSelected: onFormatSelected,
             icon: const Icon(
               Icons.keyboard_arrow_down,
               size: 18,
               color: Color(0xFF6B7280),
             ),
             padding: const EdgeInsets.symmetric(horizontal: 8),
-            constraints: const BoxConstraints(),
+            itemBuilder: (context) => const [
+              PopupMenuItem(value: 'csv', child: Text('Export as CSV')),
+              PopupMenuItem(value: 'excel', child: Text('Export as Excel (.xlsx)')),
+            ],
           ),
         ],
       ),

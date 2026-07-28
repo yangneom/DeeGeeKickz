@@ -21,6 +21,13 @@ class _FeedbackScreenState extends ConsumerState<FeedbackScreen> {
       TextEditingController();
   bool _showFilterPanel = false;
 
+  // Pending selection — mirrors the pattern every other screen uses
+  // (_selectedStatus/_selectedCategory etc.), so a chip tap only
+  // stages a choice locally. It's pushed into feedbackFilterProvider
+  // (which filteredFeedbackProvider watches live) only on Apply —
+  // otherwise the list refiltered the instant a chip was tapped,
+  // with no Apply needed, unlike every other screen.
+  String? _pendingStatus;
   @override
   void dispose() {
     _searchController.dispose();
@@ -77,21 +84,34 @@ class _FeedbackScreenState extends ConsumerState<FeedbackScreen> {
                   const SizedBox(width: 8),
                   FilterButton(
                     isOpen: _showFilterPanel,
-                    onTap: () => setState(
-                        () => _showFilterPanel = !_showFilterPanel),
-                    selectedValue: filterState.selectedStatus,
-                    onValueChanged: (value) => ref
-                        .read(feedbackFilterProvider.notifier)
-                        .setStatus(value),
+                    onTap: () => setState(() {
+                      // seed pending state with whatever's already
+                      // committed, each time the panel opens
+                      _pendingStatus = filterState.selectedStatus;
+                      _showFilterPanel = !_showFilterPanel;
+                    }),
+                    selectedValues: {
+                      'Status': _pendingStatus,
+                    },
+                    onValueChanged: (String section, String? value) {
+                      if (section == 'Status') {
+                        setState(() => _pendingStatus = value);
+                      }
+                    },
                     onClear: () {
                       _searchController.clear();
+                      setState(() => _pendingStatus = null);
                       ref
                           .read(feedbackFilterProvider.notifier)
                           .clear();
                       setState(() => _showFilterPanel = false);
                     },
-                    onApply: () =>
-                        setState(() => _showFilterPanel = false),
+                    onApply: () {
+                      ref
+                          .read(feedbackFilterProvider.notifier)
+                          .setStatus(_pendingStatus);
+                      setState(() => _showFilterPanel = false);
+                    },
                     sections: [
                       FilterSection(
                         title: 'Status',
