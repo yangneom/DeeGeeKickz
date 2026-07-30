@@ -24,10 +24,12 @@ import '../../../screens/auth/login_screen.dart';
 /// running total-so-far, not a repeated line.
 class CartSummaryCard extends StatelessWidget {
   final double subtotal;
+  final bool isCartEmpty;
 
   const CartSummaryCard({
     super.key,
     required this.subtotal,
+    required this.isCartEmpty,
   });
 
   @override
@@ -142,6 +144,16 @@ class CartSummaryCard extends StatelessWidget {
             width: double.infinity,
             child: _CheckoutButton(
               onTap: () {
+                if (isCartEmpty) {
+                  ScaffoldMessenger.of(context).showSnackBar(
+                    const SnackBar(
+                      content: Text('Your bag is empty. Add an item before checking out.'),
+                      backgroundColor: Colors.red,
+                    ),
+                  );
+                  return;
+                }
+
                 final user =
                     Supabase.instance.client.auth.currentUser;
 

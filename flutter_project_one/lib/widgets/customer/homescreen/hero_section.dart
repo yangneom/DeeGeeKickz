@@ -103,21 +103,14 @@ if (_banners.length > 1) {
     });
   }
   Widget _buildGrayscaleImage(String url) {
-    return Opacity(
-      opacity: 0.8,
-      child: ColorFiltered(
-        colorFilter: const ColorFilter.matrix(<double>[
-          0.2126, 0.7152, 0.0722, 0, 0,
-          0.2126, 0.7152, 0.0722, 0, 0,
-          0.2126, 0.7152, 0.0722, 0, 0,
-          0, 0, 0, 1, 0,
-        ]),
-        child: Image.network(
-          url,
-          fit: BoxFit.cover,
-          errorBuilder: (_, __, ___) => Container(color: Colors.black),
-        ),
-      ),
+    // Renders the banner exactly as uploaded — no grayscale filter,
+    // no opacity reduction. Previously forced every uploaded banner
+    // through a grayscale + 80% opacity effect regardless of what
+    // the admin actually uploaded.
+    return Image.network(
+      url,
+      fit: BoxFit.cover,
+      errorBuilder: (_, __, ___) => Container(color: Colors.black),
     );
   }
 
@@ -194,78 +187,6 @@ if (_banners.length > 1) {
           _buildBackground(),
 
           // Foreground text content
-          LayoutBuilder(
-            builder: (context, constraints) {
-              final isDesktop = constraints.maxWidth >= _mdBreakpoint;
-              final horizontalPadding = isDesktop ? 48.0 : 16.0;
-
-              return Align(
-                alignment: Alignment.centerLeft,
-                child: Center(
-                  child: ConstrainedBox(
-                    constraints: const BoxConstraints(maxWidth: 1440),
-                    child: Padding(
-                      padding: EdgeInsets.symmetric(horizontal: horizontalPadding),
-                      child: Align(
-                        alignment: Alignment.centerLeft,
-                        child: ConstrainedBox(
-                          constraints: const BoxConstraints(maxWidth: 672), // max-w-2xl
-                          child: Column(
-                            crossAxisAlignment: CrossAxisAlignment.start,
-                            mainAxisSize: MainAxisSize.min,
-                            children: [
-                              // NEW SEASON ARRIVAL
-                              const Text(
-                                'NEW SEASON ARRIVAL',
-                                style: TextStyle(
-                                  fontFamily: 'Inter',
-                                  fontSize: 14, // label-lg
-                                  fontWeight: FontWeight.w600,
-                                  letterSpacing: 2.8, // tracking-[0.2em]
-                                  color: Colors.white,
-                                ),
-                              ),
-                              const SizedBox(height: 16), // mb-4
-
-                              // ENGINEERED FOR SPEED
-                              Text(
-                                'ENGINEERED\nFOR SPEED',
-                                style: TextStyle(
-                                  fontFamily: 'Archivo Narrow',
-                                  fontSize: isDesktop ? 80 : 32,
-                                  height: isDesktop ? 88 / 80 : 36 / 32,
-                                  letterSpacing: -0.02 * (isDesktop ? 80 : 32),
-                                  fontWeight: FontWeight.w700,
-                                  color: Colors.white,
-                                ),
-                              ),
-                              const SizedBox(height: 8), // mb-base
-
-                              // Body copy
-                              ConstrainedBox(
-                                constraints: const BoxConstraints(maxWidth: 448), // max-w-md
-                                child: const Text(
-                                  'Discover the next generation of performance footwear. '
-                                  'Precision crafted for those who demand more from every step.',
-                                  style: TextStyle(
-                                    fontFamily: 'Inter',
-                                    fontSize: 18, // body-lg
-                                    height: 28 / 18,
-                                    color: Colors.white,
-                                  ),
-                                ),
-                              ),
-                              const SizedBox(height: 48), // mb-lg
-                            ],
-                          ),
-                        ),
-                      ),
-                    ),
-                  ),
-                ),
-              );
-            },
-          ),
         ],
       ),
     );

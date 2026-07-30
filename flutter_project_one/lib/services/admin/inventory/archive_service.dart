@@ -54,7 +54,8 @@ class ArchiveService {
     }
   }
 
-  Future<String?> restoreProduct({required String productId}) async {
+ Future<String?> restoreProduct({required String productId}) async {
+    String productName = 'this product';
     try {
       final product = await _supabase
           .from('product')
@@ -62,7 +63,7 @@ class ArchiveService {
           .eq('product_id', int.parse(productId))
           .single();
 
-      final productName = product['product_name'] as String? ?? 'Unknown';
+      productName = product['product_name'] as String? ?? 'Unknown';
 
       await _supabase
           .from('product')
@@ -79,6 +80,15 @@ class ArchiveService {
       );
 
       return null;
+    } on PostgrestException catch (error) {
+      print('restoreProduct error: $error');
+
+      if (error.code == '23505' &&
+          error.message.contains('product_active_name_unique')) {
+        return 'Can\'t restore "$productName" — an active product with this name already exists. Rename or archive the other one first.';
+      }
+
+      return 'Failed to restore product. Please try again.';
     } catch (error) {
       print('restoreProduct error: $error');
       return 'Failed to restore product. Please try again.';

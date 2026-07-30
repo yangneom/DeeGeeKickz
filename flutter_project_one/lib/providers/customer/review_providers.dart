@@ -1,16 +1,36 @@
 // ================================================
 // REVIEW & FEEDBACK PROVIDERS
-// Drop-in replacements for the fake data.
+//
+// BUG FIX this round — Photo upload pipeline (bug #2 from the review):
+// ReviewSubmitNotifier.submit() now accepts `photos` and uploads them
+// to Supabase Storage BEFORE calling ReviewService.submitReview(),
+// converting PlatformFile -> public URL. This closes the gap where
+// photos were collected in the form UI but silently discarded.
+//
+// IMPORTANT — two things you need to confirm/adjust on your end:
+//   1. Storage bucket name: this assumes a bucket called
+//      'review-photos'. Create it in Supabase Storage (Dashboard ->
+//      Storage -> New bucket, mark it Public so getPublicUrl() works),
+//      or change BUCKET_NAME below to match your existing bucket.
+//   2. ReviewService.submitReview() must accept and persist an
+//      `imageUrls` param, and ReviewModel.fromSupabase() must read it
+//      back out (not hardcode `imageUrls: const []`). I don't have
+//      the current content of review_service.dart / review_model.dart
+//      in this pass — send them over and I'll patch those two spots
+//      precisely instead of guessing at your column names.
 //
 // File location:
 //   lib/providers/review/review_providers.dart
 // ================================================
 
+import 'package:file_picker/file_picker.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
+import 'package:supabase_flutter/supabase_flutter.dart';
+
 import '../../models/review_model.dart';
 import '../../models/feedback_model.dart';
 import '../../services/customer/review/review_service.dart';
-import '../../../services/customer/review/feedback_service.dart';
+import '../../services/customer/review/feedback_service.dart';
 
 // ============================================================
 // SERVICE SINGLETONS
@@ -83,6 +103,9 @@ class ReviewSubmitState {
 }
 
 class ReviewSubmitNotifier extends Notifier<ReviewSubmitState> {
+  // Change this if your Supabase Storage bucket has a different name.
+  static const String _photosBucket = 'review-photos';
+
   @override
   ReviewSubmitState build() => const ReviewSubmitState();
 
@@ -90,14 +113,41 @@ class ReviewSubmitNotifier extends Notifier<ReviewSubmitState> {
     required int productId,
     required double rating,
     required String reviewText,
+    List<PlatformFile> photos = const [],
   }) async {
     state = state.copyWith(isLoading: true, submitted: false);
+
+    // ── Upload photos first, if any ──
+    // A review with a broken/missing photo silently disappoints the
+    // customer (see bug report), so we fail the whole submission with
+    // a clear error rather than posting a review that "loses" photos.
+    List<String> imageUrls = const [];
+    if (photos.isNotEmpty) {
+      try {
+        imageUrls = await _uploadPhotos(productId, photos);
+      } catch (e, st) {
+        // TEMP DIAGNOSTIC: print the real cause instead of swallowing it.
+        // Remove or replace with proper logging once the pipeline is
+        // confirmed working end to end.
+        // ignore: avoid_print
+        print('Photo upload failed: $e');
+        // ignore: avoid_print
+        print(st);
+        state = state.copyWith(
+          isLoading: false,
+          errorMessage:
+              'Could not upload your photos. Please try again.',
+        );
+        return;
+      }
+    }
 
     final service = ref.read(reviewServiceProvider);
     final String? error = await service.submitReview(
       productId:  productId,
       rating:     rating,
       reviewText: reviewText,
+      imageUrls:  imageUrls,
     );
 
     if (error != null) {
@@ -109,6 +159,64 @@ class ReviewSubmitNotifier extends Notifier<ReviewSubmitState> {
       ref.invalidate(productRatingStatsProvider(productId));
       ref.invalidate(hasUserReviewedProvider(productId));
     }
+  }
+
+  // Extension -> Content-Type. Without this, Storage defaults to
+  // application/octet-stream, which some browsers/players refuse to
+  // stream as video — this map ensures playback works once the read
+  // side (review card) adds a video player.
+  static const Map<String, String> _mimeTypes = {
+    'jpg':  'image/jpeg',
+    'jpeg': 'image/jpeg',
+    'png':  'image/png',
+    'webp': 'image/webp',
+    'mp4':  'video/mp4',
+    'mov':  'video/quicktime',
+    'm4v':  'video/x-m4v',
+    'webm': 'video/webm',
+    '3gp':  'video/3gpp',
+  };
+
+  /// Uploads each picked photo or video to Supabase Storage and returns
+  /// the list of public URLs, in the same order as [photos].
+  Future<List<String>> _uploadPhotos(
+    int productId,
+    List<PlatformFile> photos,
+  ) async {
+    final supabase = Supabase.instance.client;
+    final String? userId = supabase.auth.currentUser?.id;
+    if (userId == null) {
+      throw StateError('No authenticated user — cannot upload photos.');
+    }
+
+    final storage = supabase.storage.from(_photosBucket);
+    final urls = <String>[];
+
+    for (int i = 0; i < photos.length; i++) {
+      final file = photos[i];
+      final bytes = file.bytes;
+      if (bytes == null) {
+        // Shouldn't happen now that the picker always requests
+        // withData: true, but skip defensively rather than crash.
+        continue;
+      }
+
+      final String ext = (file.extension ?? 'jpg').toLowerCase();
+      final String path =
+          '$userId/${productId}_${DateTime.now().millisecondsSinceEpoch}_$i.$ext';
+      final String contentType =
+          _mimeTypes[ext] ?? 'application/octet-stream';
+
+      await storage.uploadBinary(
+        path,
+        bytes,
+        fileOptions: FileOptions(upsert: false, contentType: contentType),
+      );
+
+      urls.add(storage.getPublicUrl(path));
+    }
+
+    return urls;
   }
 
   void clearError() {

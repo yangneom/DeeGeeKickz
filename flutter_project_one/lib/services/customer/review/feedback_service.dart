@@ -3,6 +3,16 @@
 // Admin-facing Supabase operations.
 // Operates on the same `feedback` table but exposes
 // ALL rows (not just Visible) and adds moderation tools.
+//
+// BUG FIX this round — saveReply():
+//   The activity-log branch was `if (reply) {...} else if (status
+//   changed) {...}`, so a save that included BOTH a new reply AND
+//   a status change only ever logged the reply — the status change
+//   was silently dropped from the human-readable Activity Log feed
+//   (the feedback_moderation audit table still had both, so nothing
+//   was lost functionally, just under-reported in the log). The two
+//   conditions are now independent `if` blocks so both log entries
+//   fire when both things happened.
 // ================================================
 
 import 'package:supabase_flutter/supabase_flutter.dart';
@@ -187,6 +197,7 @@ class FeedbackService {
       final String? adminId = _supabase.auth.currentUser?.id;
       final String resolvedStatus = newStatus ?? currentStatus;
       final String trimmedReply = adminReply.trim();
+      final bool statusChanged = resolvedStatus != currentStatus;
 
       // 1. Update feedback row
       await _supabase
@@ -221,12 +232,15 @@ class FeedbackService {
         });
       }
 
-      // 3. Write to the global Activity Log — include the actual
-      // reply text in the action string (truncated) and the full
-      // text in metadata, so Super Admin can see exactly what was
-      // said without opening a separate table.
+      // 3. Write to the global Activity Log.
+      // BUG FIX: these are now independent `if` blocks instead of
+      // if/else-if, so a save that both replies AND changes status
+      // logs BOTH entries instead of only the reply.
+      final String label = (trimmedReply.isNotEmpty || statusChanged)
+          ? await _labelForFeedback(feedbackId)
+          : '';
+
       if (trimmedReply.isNotEmpty) {
-        final label = await _labelForFeedback(feedbackId);
         final preview = trimmedReply.length > 80
             ? '${trimmedReply.substring(0, 80)}...'
             : trimmedReply;
@@ -240,11 +254,12 @@ class FeedbackService {
             'status': resolvedStatus,
           },
         );
-      } else if (resolvedStatus != currentStatus) {
-        // status changed but reply was cleared/empty — still log the status change
-        final label = await _labelForFeedback(feedbackId);
+      }
+
+      if (statusChanged) {
         await _activityLog.log(
-          action: 'Changed status of $label from $currentStatus to $resolvedStatus',
+          action:
+              'Changed status of $label from $currentStatus to $resolvedStatus',
           affectedModule: AffectedModule.feedback,
           targetId: feedbackId.toString(),
           metadata: {

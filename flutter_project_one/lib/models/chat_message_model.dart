@@ -72,6 +72,8 @@ class Message {
   final String text;
   final bool isRead;
   final DateTime createdAt;
+  final String? imageUrl;
+  final String? productId;
 
   const Message({
     required this.id,
@@ -81,7 +83,12 @@ class Message {
     required this.text,
     required this.isRead,
     required this.createdAt,
+    this.imageUrl,
+    this.productId,
   });
+
+  bool get hasImage => imageUrl != null && imageUrl!.isNotEmpty;
+  bool get hasProductRef => productId != null;
 
   bool get isFromCustomer => senderRole == SenderRole.customer;
 
@@ -94,7 +101,7 @@ class Message {
     return '$hour:$m $period';
   }
 
-  factory Message.fromMap(Map<String, dynamic> map) {
+ factory Message.fromMap(Map<String, dynamic> map) {
     final roleStr = (map['sender_role'] as String).toLowerCase();
     final role = roleStr == 'customer'
         ? SenderRole.customer
@@ -111,7 +118,13 @@ class Message {
       senderRole:     role,
       text:           map['message_text'] as String,
       isRead:         map['is_read'] as bool? ?? false,
-      createdAt:      DateTime.parse(map['created_at'] as String),
+      // FIX: created_at is stored UTC by Supabase — .toLocal() converts
+      // it to the device's local timezone before formattedTime reads
+      // .hour/.minute off it. Without this, every timestamp shown was
+      // off by the local UTC offset (e.g. PH time was 8 hours behind).
+      createdAt:      DateTime.parse(map['created_at'] as String).toLocal(),
+      imageUrl:       map['image_url'] as String?,
+      productId:      map['product_id']?.toString(),
     );
   }
 }

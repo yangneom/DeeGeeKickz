@@ -438,7 +438,7 @@ class _EditProductDialogState extends ConsumerState<EditProductDialog> {
     // variant's entire stock with no error anywhere.
     final Set<String> seenColors = {};
     for (final variant in _variants) {
-      final String colorKey = variant.colorNameController.text.trim();
+      final String colorKey = variant.colorNameController.text.trim().toLowerCase();
       if (colorKey.isEmpty) continue;
       if (seenColors.contains(colorKey)) {
         if (mounted) {
@@ -451,6 +451,26 @@ class _EditProductDialogState extends ConsumerState<EditProductDialog> {
         return;
       }
       seenColors.add(colorKey);
+    }
+
+    for (final variant in _variants) {
+      final Set<String> seenSizes = {};
+      final String colorLabel = variant.colorNameController.text.trim();
+      for (final row in variant.sizeRows) {
+        final String sizeKey = row.sizeController.text.trim().toLowerCase();
+        if (sizeKey.isEmpty) continue;
+        if (seenSizes.contains(sizeKey)) {
+          if (mounted) {
+            ScaffoldMessenger.of(context).showSnackBar(SnackBar(
+              content: Text(
+                  'The size "${row.sizeController.text.trim()}" is entered twice for color "$colorLabel". Each size should only appear once per color.'),
+              backgroundColor: Colors.red,
+            ));
+          }
+          return;
+        }
+        seenSizes.add(sizeKey);
+      }
     }
 
     final bool? confirmed = await showConfirmDialog(
@@ -999,47 +1019,26 @@ class _EditProductDialogState extends ConsumerState<EditProductDialog> {
             ],
           ),
           const SizedBox(height: 14),
-          _buildLabel('Color Name'),
+         _buildLabel('Color Name'),
           _buildTextField(
             controller: variant.colorNameController,
             hint: 'e.g. White, Black, Red',
-            validator: (v) => (v == null || v.isEmpty)
-                ? 'Please enter a color name'
-                : null,
+            validator: (v) {
+              if (v == null || v.trim().isEmpty) {
+                return 'Please enter a color name';
+              }
+              final String trimmed = v.trim();
+              if (trimmed.length < 2) {
+                return 'Color name is too short';
+              }
+              if (!RegExp(r'^[a-zA-Z\s\-]+$').hasMatch(trimmed)) {
+                return 'Color name can only have letters, spaces, and hyphens';
+              }
+              return null;
+            },
           ),
           const SizedBox(height: 14),
-          _buildLabel('Color Picker'),
-          Row(
-            children: [
-              Container(
-                width: 36,
-                height: 36,
-                decoration: BoxDecoration(
-                  color: variant.selectedColor,
-                  shape: BoxShape.circle,
-                  border: Border.all(
-                      color: const Color(0xFFD1D5DB)),
-                ),
-              ),
-              const SizedBox(width: 12),
-              OutlinedButton(
-                onPressed: () =>
-                    _openColorPicker(variantIndex),
-                style: OutlinedButton.styleFrom(
-                  foregroundColor: const Color(0xFF374151),
-                  side: const BorderSide(
-                      color: Color(0xFFD1D5DB)),
-                  padding: const EdgeInsets.symmetric(
-                      horizontal: 16, vertical: 10),
-                  shape: RoundedRectangleBorder(
-                      borderRadius: BorderRadius.circular(8)),
-                ),
-                child: const Text('Pick Color',
-                    style: TextStyle(fontSize: 13)),
-              ),
-            ],
-          ),
-          const SizedBox(height: 14),
+          
           _buildLabel('Upload Image'),
           const Text(
             'JPG or PNG format • Max 4 images per color',

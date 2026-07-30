@@ -213,6 +213,7 @@ class _DesktopLayout extends StatelessWidget {
           flex: 4,
           child: CartSummaryCard(
             subtotal: subtotal,
+            isCartEmpty: cartItems.isEmpty,
           ),
         ),
       ],
@@ -251,6 +252,7 @@ class _MobileLayout extends StatelessWidget {
         const SizedBox(height: 32),
         CartSummaryCard(
           subtotal: subtotal,
+          isCartEmpty: cartItems.isEmpty,
         ),
       ],
     );

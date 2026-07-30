@@ -214,16 +214,16 @@ Future<bool> hasOverlappingDiscount({
     } else {
       // Whole-product discount: use the min price across variants,
       // same as searchProducts()'s convention.
-      final List<dynamic> variants =
+     final List<dynamic> variants =
           (product['product_variant'] as List<dynamic>?) ?? [];
-      double minPrice = 0;
+      double? minPrice;
       for (final variant in variants) {
         final double price = (variant['retail_price'] as num).toDouble();
-        if (minPrice == 0 || price < minPrice) {
+        if (minPrice == null || price < minPrice) {
           minPrice = price;
         }
       }
-      originalPrice = minPrice;
+      originalPrice = minPrice ?? 0;
     }
 
     return Discount.fromMap({

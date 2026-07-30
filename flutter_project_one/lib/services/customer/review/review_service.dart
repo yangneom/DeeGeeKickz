@@ -5,6 +5,16 @@
 //
 // Naming note: the table is called `feedback` in Supabase
 // but the customer-facing concept is "review".
+//
+// BUG FIX this round — submitReview():
+//   Now that the DB has a unique (user_id, product_id) constraint,
+//   a raced double-submit (double-tap, or a retry after a timeout
+//   that actually succeeded) will hit the insert AFTER the
+//   pre-check passes, and Postgres will reject it with error code
+//   23505 (unique_violation). Previously this fell through to the
+//   generic catch and returned the raw exception string. It's now
+//   caught specifically and returns the same friendly
+//   "already reviewed" message as the pre-check does.
 // ================================================
 
 import 'package:supabase_flutter/supabase_flutter.dart';
@@ -80,11 +90,16 @@ class ReviewService {
     required String reviewText,
     List<String> imageUrls = const [],   // phase 2
   }) async {
-    try {
-      final String? userId = _supabase.auth.currentUser?.id;
-      if (userId == null) return 'You must be logged in to submit a review.';
+    final String? userId = _supabase.auth.currentUser?.id;
+    if (userId == null) return 'You must be logged in to submit a review.';
 
-      // Prevent duplicate reviews (one per customer per product)
+    try {
+      // Prevent duplicate reviews (one per customer per product).
+      // This pre-check is still useful for the common case (instant
+      // feedback without waiting on a failed insert), but it can't
+      // close the race on its own — see the 23505 catch below, which
+      // is what actually guarantees correctness now that the DB has
+      // a unique constraint on (user_id, product_id).
       final existing = await _supabase
           .from('feedback')
           .select('feedback_id')
@@ -105,19 +120,28 @@ class ReviewService {
         'verified_purchase': false,        // phase 2
         'status':          'Visible',
       });
-
-      // Fire-and-forget: notify staff. Never let a notification
-      // failure make the review submission look like it failed.
-      await _notifyStaffNewFeedback(
-        productId: productId,
-        rating: rating.round(),
-      );
-
-      return null; // success
+    } on PostgrestException catch (error) {
+      // BUG FIX: a raced double-submit lands here once the DB unique
+      // constraint is in place — return the same friendly message
+      // the pre-check above gives, instead of a raw Postgres error.
+      if (error.code == '23505') {
+        return 'You have already reviewed this product.';
+      }
+      print('submitReview error: $error');
+      return error.message;
     } catch (error) {
       print('submitReview error: $error');
       return error.toString();
     }
+
+    // Fire-and-forget: notify staff. Never let a notification
+    // failure make the review submission look like it failed.
+    await _notifyStaffNewFeedback(
+      productId: productId,
+      rating: rating.round(),
+    );
+
+    return null; // success
   }
 
   // ================================================

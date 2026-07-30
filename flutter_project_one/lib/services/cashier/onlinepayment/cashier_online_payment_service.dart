@@ -144,12 +144,21 @@ class CashierOnlinePaymentService {
     );
   }
 
-/// Cashier hit "Cancel Payment", or the QR timed out with nobody
-  /// paying. Since this order never had a real payment attempt from
-  /// the customer's side (no scan, no money moved), there's nothing
-  /// worth auditing — fully delete it instead of leaving a permanent
-  /// 'Cancelled' record cluttering Order Approval / Sales Management.
-  Future<void> cancelPendingOrder(int orderId) async {
+/// Attempts to cancel a pending order. Returns `false` — and deletes
+  /// nothing — if the order was actually completed (payment succeeded)
+  /// right as the timeout/cancel fired. Only returns `true` when the
+  /// order genuinely had no payment and was safely removed.
+  Future<bool> cancelPendingOrder(int orderId) async {
+    final row = await _supabase
+        .from('orders')
+        .select('order_status')
+        .eq('order_id', orderId)
+        .single();
+
+    if (row['order_status'] == 'Completed') {
+      return false;
+    }
+
     // Release the stock reservation first.
     await _paymentService.releaseStockForOrder(orderId: orderId);
 
@@ -158,6 +167,7 @@ class CashierOnlinePaymentService {
     await _supabase.from('order_item').delete().eq('order_id', orderId);
     await _supabase.from('order_progress').delete().eq('order_id', orderId);
     await _supabase.from('orders').delete().eq('order_id', orderId);
+    return true;
   }
 
 }

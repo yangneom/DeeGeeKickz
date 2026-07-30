@@ -174,6 +174,24 @@ class _FeedbackScreenState extends ConsumerState<FeedbackScreen> {
                                       currentStatus: item.status,
                                       adminReply: adminReply,
                                     );
+                                // BUG FIX: saveReply() records its
+                                // result in provider state rather
+                                // than throwing or returning a
+                                // value — without this check, a
+                                // failed save (RLS rejection,
+                                // network drop, etc.) would
+                                // silently close the dialog as if
+                                // it had succeeded. Throwing here
+                                // lets the dialog's catch block
+                                // (see feedback_details_dialog.dart)
+                                // keep the dialog open and show the
+                                // real error instead.
+                                final String? error = ref
+                                    .read(feedbackModerationProvider)
+                                    .errorMessage;
+                                if (error != null) {
+                                  throw Exception(error);
+                                }
                               },
                             ),
                           ),

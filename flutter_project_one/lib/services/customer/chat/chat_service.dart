@@ -1,10 +1,41 @@
-// lib/services/customer/chat/chat_service.dart
-
+import 'dart:io';
+import 'dart:typed_data';
+import 'package:file_picker/file_picker.dart';
 import 'package:supabase_flutter/supabase_flutter.dart';
 import '../../../models/chat_message_model.dart';
 
 class ChatService {
   final SupabaseClient _client = Supabase.instance.client;
+
+  // ── Upload a chat image to the shared product-images bucket ────
+  // Reuses the same bucket inventory already uses, under its own
+  // "chat/" folder so the two don't mix. Returns the public URL, or
+  // null if the upload failed (caller should show a friendly error
+  // and NOT send a message with a broken image link).
+  Future<String?> uploadChatImage({
+    required String conversationId,
+    required PlatformFile file,
+  }) async {
+    try {
+      final String timestamp = DateTime.now().millisecondsSinceEpoch.toString();
+      final String filePath = 'chat/$conversationId/${timestamp}_${file.name}';
+
+      Uint8List? bytes = file.bytes;
+      if (bytes == null && file.path != null) {
+        bytes = await File(file.path!).readAsBytes();
+      }
+      if (bytes == null) {
+        print('uploadChatImage: no bytes and no path for ${file.name} — cannot upload');
+        return null;
+      }
+
+      await _client.storage.from('product-images').uploadBinary(filePath, bytes);
+      return _client.storage.from('product-images').getPublicUrl(filePath);
+    } catch (error) {
+      print('uploadChatImage error: $error');
+      return null;
+    }
+  }
 
   // ── Get or create the single conversation for current customer ─
   Future<Conversation?> getOrCreateConversation() async {
@@ -48,11 +79,18 @@ class ChatService {
 
   // ── Send a message ─────────────────────────────────────────────
 // ── Send a message ─────────────────────────────────────────────
+ // ── Send a message ─────────────────────────────────────────────
+  // text can be empty ONLY if imageUrl and/or productId is set — the
+  // caller is responsible for that check before calling this (see
+  // chat_provider.dart sendMessage). message_text is NOT NULL in the
+  // DB, so an image-only message still inserts '' rather than null.
   Future<void> sendMessage({
     required String conversationId,
     required String senderId,
     required String senderRole,
     required String text,
+    String? imageUrl,
+    String? productId,
   }) async {
     await _client.from('messages').insert({
       'conversation_id': int.parse(conversationId),
@@ -60,6 +98,8 @@ class ChatService {
       'sender_role':     senderRole,
       'message_text':    text,
       'is_read':         false,
+      'image_url':       imageUrl,
+      'product_id':      productId == null ? null : int.parse(productId),
     });
 
    // Notify staff when the CUSTOMER sends a message, and notify the
@@ -69,11 +109,15 @@ class ChatService {
         conversationId: conversationId,
         customerId: senderId,
         text: text,
+        imageUrl: imageUrl,
+        productId: productId,
       );
     } else {
       await _notifyCustomerAdminReply(
         conversationId: conversationId,
         text: text,
+        imageUrl: imageUrl,
+        productId: productId,
       );
     }
   }
@@ -82,9 +126,11 @@ class ChatService {
   // NOTIFY CUSTOMER — ADMIN REPLIED
   // Recipient: the customer who owns this conversation.
   // ================================================
-  Future<void> _notifyCustomerAdminReply({
+Future<void> _notifyCustomerAdminReply({
     required String conversationId,
     required String text,
+    String? imageUrl,
+    String? productId,
   }) async {
     try {
       final convo = await _client
@@ -93,9 +139,7 @@ class ChatService {
           .eq('conversation_id', int.parse(conversationId))
           .single();
 
-      final preview = text.trim().length > 60
-          ? '${text.trim().substring(0, 60)}...'
-          : text.trim();
+      final String preview = _buildPreview(text, imageUrl, productId);
 
       await _client.from('notifications').insert({
         'customer_id': convo['customer_id'],
@@ -107,14 +151,29 @@ class ChatService {
       print('_notifyCustomerAdminReply error: $error');
     }
   }
+
+  // ── Builds a readable preview even when text is empty (image-only
+  // or product-only messages) so notifications never show a blank
+  // body. Priority: real text > image > product > generic fallback.
+  String _buildPreview(String text, String? imageUrl, String? productId) {
+    final String trimmed = text.trim();
+    if (trimmed.isNotEmpty) {
+      return trimmed.length > 60 ? '${trimmed.substring(0, 60)}...' : trimmed;
+    }
+    if (imageUrl != null && imageUrl.isNotEmpty) return '📷 Sent a photo';
+    if (productId != null) return '🔗 Shared a product';
+    return 'Sent a message';
+  }
   // ================================================
   // NOTIFY STAFF — NEW MESSAGE
   // Recipient: Admin only (Super Admin has no chat screen).
   // ================================================
-  Future<void> _notifyStaffNewMessage({
+Future<void> _notifyStaffNewMessage({
     required String conversationId,
     required String customerId,
     required String text,
+    String? imageUrl,
+    String? productId,
   }) async {
     try {
       String customerName = 'A customer';
@@ -132,9 +191,7 @@ class ChatService {
         // fall back to the generic label above
       }
 
-      final preview = text.trim().length > 60
-          ? '${text.trim().substring(0, 60)}...'
-          : text.trim();
+      final String preview = _buildPreview(text, imageUrl, productId);
 
       final staff = await _client
           .from('users')

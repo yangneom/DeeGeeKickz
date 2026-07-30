@@ -140,10 +140,11 @@ class BannerService {
       // every subsequent edit while it stays Active.
       final existing = await _supabase
           .from(_table)
-          .select('status')
+          .select('status, banner_image_url')
           .eq('banner_id', bannerId)
           .maybeSingle();
       final String? previousStatus = existing?['status'] as String?;
+      final String? previousImageUrl = existing?['banner_image_url'] as String?;
 
       final Map<String, dynamic> updateData = {
         'status': status,
@@ -169,6 +170,22 @@ class BannerService {
       }
 
       await _supabase.from(_table).update(updateData).eq('banner_id', bannerId);
+
+      // Old image is now orphaned in storage if it was replaced — clean it
+      // up the same best-effort way deleteBanner() does.
+      if (newImageBytes != null && previousImageUrl != null) {
+        try {
+          final Uri uri = Uri.parse(previousImageUrl);
+          final int bucketIndex = uri.pathSegments.indexOf(_bucket);
+          if (bucketIndex != -1 && bucketIndex < uri.pathSegments.length - 1) {
+            final String objectPath =
+                uri.pathSegments.sublist(bucketIndex + 1).join('/');
+            await _supabase.storage.from(_bucket).remove([objectPath]);
+          }
+        } catch (storageError) {
+          print('updateBanner old image cleanup error: $storageError');
+        }
+      }
 
       await _activityLog.log(
         action: 'Updated promotion banner #$bannerId',

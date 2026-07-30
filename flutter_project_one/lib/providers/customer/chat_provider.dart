@@ -1,5 +1,4 @@
-// lib/providers/customer/chat_provider.dart
-
+import 'package:file_picker/file_picker.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:supabase_flutter/supabase_flutter.dart' show RealtimeChannel;
 import 'package:supabase_flutter/supabase_flutter.dart' show Supabase;
@@ -7,9 +6,37 @@ import '../../models/chat_message_model.dart';
 import '../../services/customer/chat/chat_service.dart';
 
 // ── Service provider ───────────────────────────────────────────────────────────
+// ── Service provider ───────────────────────────────────────────────────────────
 final chatServiceProvider = Provider<ChatService>((ref) {
   return ChatService();
 });
+
+// ── Pending product attachment ──────────────────────────────────────────────
+// Set when the customer taps "Ask about this item" on Product Detail.
+// The chat screen reads this, shows an attached chip above the input,
+// and clears it once the message is actually sent (or dismissed).
+// ── Pending product attachment ──────────────────────────────────────────────
+// Set when the customer taps "Ask about this item" on Product Detail.
+// The chat screen reads this, shows an attached chip above the input,
+// and clears it once the message is actually sent (or dismissed).
+class PendingChatProduct {
+  final String productId;
+  final String productName;
+  const PendingChatProduct({required this.productId, required this.productName});
+}
+
+class PendingChatProductNotifier extends Notifier<PendingChatProduct?> {
+  @override
+  PendingChatProduct? build() => null;
+
+  void set(PendingChatProduct product) => state = product;
+  void clear() => state = null;
+}
+
+final pendingChatProductProvider =
+    NotifierProvider<PendingChatProductNotifier, PendingChatProduct?>(
+  PendingChatProductNotifier.new,
+);
 
 // ══════════════════════════════════════════════════════════════════════════════
 // CUSTOMER CHAT PROVIDER
@@ -80,11 +107,21 @@ class CustomerChatNotifier extends Notifier<CustomerChatState> {
     }
   }
 
-  // ── Send message ──────────────────────────────────────────────
-  Future<void> sendMessage(String text) async {
+// ── Send message ──────────────────────────────────────────────
+  // text may be empty ONLY if imageUrl or productId is provided —
+  // an entirely empty message (no text, no image, no product) is
+  // rejected here so the UI can't send nothing.
+  Future<void> sendMessage(
+    String text, {
+    String? imageUrl,
+    String? productId,
+  }) async {
     final user         = Supabase.instance.client.auth.currentUser;
     final conversation = state.conversation;
     if (user == null || conversation == null) return;
+
+    final String trimmed = text.trim();
+    if (trimmed.isEmpty && imageUrl == null && productId == null) return;
 
     // Optimistic add
     final optimistic = Message(
@@ -92,9 +129,11 @@ class CustomerChatNotifier extends Notifier<CustomerChatState> {
       conversationId: conversation.id,
       senderId:       user.id,
       senderRole:     SenderRole.customer,
-      text:           text,
+      text:           trimmed,
       isRead:         false,
       createdAt:      DateTime.now(),
+      imageUrl:       imageUrl,
+      productId:      productId,
     );
     state = state.copyWith(messages: [...state.messages, optimistic]);
 
@@ -103,7 +142,9 @@ class CustomerChatNotifier extends Notifier<CustomerChatState> {
         conversationId: conversation.id,
         senderId:       user.id,
         senderRole:     'Customer',
-        text:           text,
+        text:           trimmed,
+        imageUrl:       imageUrl,
+        productId:      productId,
       );
     } catch (_) {
       // Remove optimistic message on failure
@@ -115,6 +156,22 @@ class CustomerChatNotifier extends Notifier<CustomerChatState> {
     }
   }
 
+  // ── Send an image (picks + uploads, then sends the message) ────
+  // Returns false if upload failed, so the UI can show an error
+  // snackbar instead of silently doing nothing.
+  Future<bool> sendImage(PlatformFile file, {String? caption}) async {
+    final conversation = state.conversation;
+    if (conversation == null) return false;
+
+    final String? url = await _service.uploadChatImage(
+      conversationId: conversation.id,
+      file:           file,
+    );
+    if (url == null) return false;
+
+    await sendMessage(caption ?? '', imageUrl: url);
+    return true;
+  }
   // ── Realtime ──────────────────────────────────────────────────
   void _subscribeRealtime(String conversationId) {
     _channel = _service.subscribeToMessages(conversationId, (msg) {
@@ -269,11 +326,18 @@ class AdminChatNotifier extends Notifier<AdminChatState> {
     }
   }
 
-  // ── Admin sends a message ─────────────────────────────────────
-  Future<void> sendMessage(String text) async {
+// ── Admin sends a message ─────────────────────────────────────
+  Future<void> sendMessage(
+    String text, {
+    String? imageUrl,
+    String? productId,
+  }) async {
     final user         = Supabase.instance.client.auth.currentUser;
     final conversation = state.selectedConversation;
     if (user == null || conversation == null) return;
+
+    final String trimmed = text.trim();
+    if (trimmed.isEmpty && imageUrl == null && productId == null) return;
 
     // Optimistic add
     final optimistic = Message(
@@ -281,9 +345,11 @@ class AdminChatNotifier extends Notifier<AdminChatState> {
       conversationId: conversation.id,
       senderId:       user.id,
       senderRole:     SenderRole.admin,
-      text:           text,
+      text:           trimmed,
       isRead:         false,
       createdAt:      DateTime.now(),
+      imageUrl:       imageUrl,
+      productId:      productId,
     );
     state = state.copyWith(messages: [...state.messages, optimistic]);
 
@@ -292,7 +358,9 @@ class AdminChatNotifier extends Notifier<AdminChatState> {
         conversationId: conversation.id,
         senderId:       user.id,
         senderRole:     'Admin',
-        text:           text,
+        text:           trimmed,
+        imageUrl:       imageUrl,
+        productId:      productId,
       );
     } catch (_) {
       state = state.copyWith(
@@ -301,6 +369,21 @@ class AdminChatNotifier extends Notifier<AdminChatState> {
             .toList(),
       );
     }
+  }
+
+  // ── Admin sends an image ────────────────────────────────────────
+  Future<bool> sendImage(PlatformFile file, {String? caption}) async {
+    final conversation = state.selectedConversation;
+    if (conversation == null) return false;
+
+    final String? url = await _service.uploadChatImage(
+      conversationId: conversation.id,
+      file:           file,
+    );
+    if (url == null) return false;
+
+    await sendMessage(caption ?? '', imageUrl: url);
+    return true;
   }
 
   // ── Realtime: new conversations ────────────────────────────────

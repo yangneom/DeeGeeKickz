@@ -17,7 +17,7 @@ class ShopProductCard extends StatelessWidget {
     required this.product,
     this.discount,
     this.onTap,
-  });
+});
 
 void _navigateToDetail(BuildContext context) {
   Navigator.of(context).push(

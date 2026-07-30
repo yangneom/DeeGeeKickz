@@ -1,7 +1,7 @@
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import '../../../services/admin/promotionDiscount/discount_service.dart';
-
+import '../../common/dialog/confirm_dialog.dart';
 // ================================================
 // CREATE DISCOUNT DIALOG
 //
@@ -260,6 +260,37 @@ Future<void> _handleApply() async {
           : 'This product already has an active whole-product discount during this period.',
     );
     return;
+  }
+
+  // Cross-scope check: does the OTHER scope have an active discount
+  // overlapping this period? Not blocked — just confirmed, since the
+  // variant-specific one will still correctly win at checkout.
+  if (_applyToSpecificVariant) {
+    final bool wholeProductOverlap = await _discountService.hasOverlappingDiscount(
+      productId: _selectedProductId!,
+      variantId: null, // check the WHOLE-PRODUCT scope instead
+      startDate: _startDate!,
+      endDate: _endDate!,
+    );
+
+    if (!mounted) return;
+
+    if (wholeProductOverlap) {
+      setState(() => _isSaving = false);
+      final bool? confirmed = await showConfirmDialog(
+        context: context,
+        title: 'Overlaps a whole-product discount',
+        message: 'This product already has an active whole-product discount '
+            'during this period. If you continue, this color will use its '
+            'own discount instead of the whole-product one during the '
+            'overlap — the whole-product discount still applies to the '
+            'other colors.',
+        confirmLabel: 'Continue Anyway',
+        confirmColor: const Color(0xFF2563EB),
+      );
+      if (confirmed != true) return;
+      setState(() => _isSaving = true);
+    }
   }
 
   final String? error = await _discountService.addDiscount(
@@ -537,7 +568,7 @@ Future<void> _handleApply() async {
             child: Text(
               _isLoadingVariants
                   ? 'Selected: $_selectedProductName (loading colors...)'
-                  : 'Selected: $_selectedProductName (₱${_addCommas(_selectedOriginalPrice.toInt())})',
+                  : 'Selected: $_selectedProductName (₱${_addCommas(_previewOriginalPrice.toInt())})',
               style: const TextStyle(fontSize: 11, color: Color(0xFF16A34A), fontWeight: FontWeight.w500),
             ),
           ),

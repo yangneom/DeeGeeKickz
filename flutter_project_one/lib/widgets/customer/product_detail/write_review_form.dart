@@ -6,8 +6,22 @@ import 'package:flutter/foundation.dart' show kIsWeb;
 /// Stateful form for submitting a product review.
 /// - Interactive star rating picker
 /// - Review title + body text fields
-/// - Photo attachment via file_picker (up to 3 photos)
+/// - Photo AND video attachment via file_picker (up to 3 files total,
+///   videos capped at 25MB each)
 /// - Submit triggers [onSubmit] callback with the collected data
+///
+/// BUG FIXES this round:
+///  1. Removed the vestigial `Future.delayed(600ms)` mock-data leftover —
+///     it added dead time before the real Supabase call even started.
+///     `onSubmit` is now called directly; the real loading state comes
+///     from `externalLoading` (driven by the provider's actual network
+///     call), so the local `_submitting` flag is no longer needed.
+///  2. Photo picker now always requests `withData: true` instead of
+///     `withData: kIsWeb`. Previously on mobile, `file.bytes` was null
+///     (only `file.path` was populated), which meant any upload logic
+///     built against `file.bytes` would silently skip every photo on
+///     mobile. Requesting bytes on all platforms keeps the upload path
+///     (see review_providers.dart) platform-agnostic.
 class WriteReviewForm extends StatefulWidget {
   final String productName;
   final bool externalLoading; // true while Supabase submit is in flight
@@ -37,7 +51,6 @@ class _WriteReviewFormState extends State<WriteReviewForm> {
   double _rating = 0;
   double _hoverRating = 0;
   List<PlatformFile> _photos = [];
-  bool _submitting = false;
 
   static const int _maxPhotos = 3;
 
@@ -50,16 +63,51 @@ class _WriteReviewFormState extends State<WriteReviewForm> {
 
   // ── Photo picker ─────────────────────────────────────────────
 
+  // Videos over this size are rejected client-side rather than uploaded
+  // and failing later — keeps storage costs predictable.
+  static const int _maxVideoBytes = 25 * 1024 * 1024; // 25 MB
+
+  static const Set<String> _videoExtensions = {
+    'mp4', 'mov', 'm4v', 'webm', '3gp',
+  };
+
+  static bool isVideoFile(PlatformFile file) {
+    final ext = (file.extension ?? '').toLowerCase();
+    return _videoExtensions.contains(ext);
+  }
+
   Future<void> _pickPhotos() async {
     final result = await FilePicker.platform.pickFiles(
-      type: FileType.image,
+      // FileType.media picks both photos and videos in one picker.
+      type: FileType.media,
       allowMultiple: true,
-      withData: kIsWeb, // on web we need bytes; on mobile path is enough
+      // FIX #2: always request bytes, not just on web. Upload logic
+      // needs actual bytes regardless of platform.
+      withData: true,
     );
     if (result == null) return;
 
     final picked = result.files;
-    final combined = [..._photos, ...picked];
+
+    // Reject oversized videos with a clear message instead of silently
+    // dropping them or letting a slow upload fail later.
+    final oversized = picked.where(
+      (f) => isVideoFile(f) && f.size > _maxVideoBytes,
+    );
+    if (oversized.isNotEmpty && mounted) {
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(
+          content: Text('VIDEO TOO LARGE — MAX 25MB'),
+          backgroundColor: Colors.black,
+          duration: Duration(seconds: 2),
+        ),
+      );
+    }
+    final accepted = picked.where(
+      (f) => !isVideoFile(f) || f.size <= _maxVideoBytes,
+    );
+
+    final combined = [..._photos, ...accepted];
     setState(() {
       // Cap at _maxPhotos
       _photos = combined.take(_maxPhotos).toList();
@@ -93,19 +141,15 @@ class _WriteReviewFormState extends State<WriteReviewForm> {
     }
     if (!_formKey.currentState!.validate()) return;
 
-    setState(() => _submitting = true);
-
-    // Simulate a short async save (replace with Supabase call later)
-    Future.delayed(const Duration(milliseconds: 600), () {
-      if (!mounted) return;
-      setState(() => _submitting = false);
-      widget.onSubmit(
-        rating: _rating,
-        title: _titleController.text.trim(),
-        body: _bodyController.text.trim(),
-        photos: _photos,
-      );
-    });
+    // FIX #1: no more fake delay — hand off straight to the real
+    // submission flow. The button's loading spinner is driven by
+    // widget.externalLoading (the provider's actual isLoading state).
+    widget.onSubmit(
+      rating: _rating,
+      title: _titleController.text.trim(),
+      body: _bodyController.text.trim(),
+      photos: _photos,
+    );
   }
 
   // ── Build ────────────────────────────────────────────────────
@@ -200,10 +244,10 @@ class _WriteReviewFormState extends State<WriteReviewForm> {
           const SizedBox(height: 32),
 
           // ── Photo upload ──────────────────────────────────────
-          const _FieldLabel(text: 'ADD PHOTOS (OPTIONAL)'),
+          const _FieldLabel(text: 'ADD PHOTOS & VIDEOS (OPTIONAL)'),
           const SizedBox(height: 4),
           Text(
-            'Up to $_maxPhotos photos • JPG, PNG',
+            'Up to $_maxPhotos files • JPG, PNG, MP4, MOV (25MB max per video)',
             style: const TextStyle(
               fontFamily: 'Inter',
               fontSize: 12,
@@ -222,7 +266,7 @@ class _WriteReviewFormState extends State<WriteReviewForm> {
 
           // ── Submit button ─────────────────────────────────────
           _SubmitButton(
-            submitting: _submitting || widget.externalLoading,
+            submitting: widget.externalLoading,
             onTap: _submit,
           ),
 
@@ -390,21 +434,50 @@ class _PhotoThumb extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
+    final bool isVideo = _WriteReviewFormState.isVideoFile(file);
+
     return Stack(
       children: [
         Container(
           width: 80,
           height: 80,
           color: const Color(0xFFEEEEEE),
-          child: kIsWeb
-              ? (file.bytes != null
-                  ? Image.memory(file.bytes!, fit: BoxFit.cover)
-                  : const Icon(Icons.image_outlined,
-                      color: Color(0xFFCFC4C5)))
-              : (file.path != null
-                  ? Image.file(File(file.path!), fit: BoxFit.cover)
-                  : const Icon(Icons.image_outlined,
-                      color: Color(0xFFCFC4C5))),
+          child: isVideo
+              // Video bytes can't be rendered via Image — show a
+              // recognizable video badge instead. Actual playback
+              // happens on the review card once video_player is wired
+              // up on the read side.
+              ? Column(
+                  mainAxisAlignment: MainAxisAlignment.center,
+                  children: [
+                    const Icon(Icons.play_circle_outline,
+                        size: 28, color: Color(0xFF4C4546)),
+                    const SizedBox(height: 4),
+                    Padding(
+                      padding: const EdgeInsets.symmetric(horizontal: 4),
+                      child: Text(
+                        file.name,
+                        maxLines: 1,
+                        overflow: TextOverflow.ellipsis,
+                        textAlign: TextAlign.center,
+                        style: const TextStyle(
+                          fontFamily: 'Inter',
+                          fontSize: 9,
+                          color: Color(0xFF4C4546),
+                        ),
+                      ),
+                    ),
+                  ],
+                )
+              : (kIsWeb
+                  ? (file.bytes != null
+                      ? Image.memory(file.bytes!, fit: BoxFit.cover)
+                      : const Icon(Icons.image_outlined,
+                          color: Color(0xFFCFC4C5)))
+                  : (file.path != null
+                      ? Image.file(File(file.path!), fit: BoxFit.cover)
+                      : const Icon(Icons.image_outlined,
+                          color: Color(0xFFCFC4C5)))),
         ),
         // Remove button
         Positioned(

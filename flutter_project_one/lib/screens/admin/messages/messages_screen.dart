@@ -2,9 +2,12 @@
 
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
+import 'package:file_picker/file_picker.dart';
 
 import '../../../providers/customer/chat_provider.dart';
+import '../../../providers/product/product_provider.dart';
 import '../../../models/chat_message_model.dart';
+import '../../../models/product.dart' as db_product;
 
 class MessagesScreen extends ConsumerStatefulWidget {
   const MessagesScreen({super.key});
@@ -36,6 +39,8 @@ class _MessagesScreenState extends ConsumerState<MessagesScreen> {
     });
   }
 
+ bool _isUploadingImage = false;
+
   void _onSend() {
     final text = _inputController.text.trim();
     if (text.isEmpty) return;
@@ -44,6 +49,38 @@ class _MessagesScreenState extends ConsumerState<MessagesScreen> {
     _scrollToBottom();
   }
 
+  Future<void> _onPickImage() async {
+    try {
+      final result = await FilePicker.platform.pickFiles(
+        type: FileType.image,
+        withData: true,
+      );
+      if (result == null || result.files.isEmpty) return;
+
+      setState(() => _isUploadingImage = true);
+
+      final bool success = await ref
+          .read(adminChatProvider.notifier)
+          .sendImage(result.files.first);
+
+      if (mounted) {
+        setState(() => _isUploadingImage = false);
+        if (!success) {
+          ScaffoldMessenger.of(context).showSnackBar(
+            const SnackBar(
+              content: Text('Failed to send image. Please try again.'),
+              backgroundColor: Colors.red,
+            ),
+          );
+        } else {
+          _scrollToBottom();
+        }
+      }
+    } catch (error) {
+      print('_onPickImage error: $error');
+      if (mounted) setState(() => _isUploadingImage = false);
+    }
+  }
   @override
   Widget build(BuildContext context) {
     final chatState = ref.watch(adminChatProvider);
@@ -84,13 +121,15 @@ class _MessagesScreenState extends ConsumerState<MessagesScreen> {
                             ),
                           ),
                         )
-                      : _ChatWindow(
+                     : _ChatWindow(
                           conversation:    chatState.selectedConversation!,
                           messages:        chatState.messages,
                           isLoading:       chatState.isMessagesLoading,
                           scrollController: _scrollController,
                           inputController: _inputController,
                           onSend:          _onSend,
+                          onPickImage:     _onPickImage,
+                          isUploadingImage: _isUploadingImage,
                         ),
                 ),
               ],
@@ -364,6 +403,8 @@ class _ChatWindow extends StatelessWidget {
   final ScrollController scrollController;
   final TextEditingController inputController;
   final VoidCallback onSend;
+  final VoidCallback onPickImage;
+  final bool isUploadingImage;
 
   const _ChatWindow({
     required this.conversation,
@@ -372,6 +413,8 @@ class _ChatWindow extends StatelessWidget {
     required this.scrollController,
     required this.inputController,
     required this.onSend,
+    required this.onPickImage,
+    required this.isUploadingImage,
   });
 
   String _initials(String name) {
@@ -486,6 +529,7 @@ class _ChatWindow extends StatelessWidget {
         ),
 
         // Input
+        // Input
         Container(
           padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 14),
           decoration: const BoxDecoration(
@@ -496,6 +540,23 @@ class _ChatWindow extends StatelessWidget {
           ),
           child: Row(
             children: [
+              GestureDetector(
+                onTap: isUploadingImage ? null : onPickImage,
+                child: Container(
+                  width: 36,
+                  height: 36,
+                  alignment: Alignment.center,
+                  margin: const EdgeInsets.only(right: 8),
+                  child: isUploadingImage
+                      ? const SizedBox(
+                          width: 16,
+                          height: 16,
+                          child: CircularProgressIndicator(strokeWidth: 2),
+                        )
+                      : const Icon(Icons.image_outlined,
+                          size: 20, color: Color(0xFF6B7280)),
+                ),
+              ),
               Expanded(
                 child: Container(
                   padding: const EdgeInsets.symmetric(
@@ -593,14 +654,17 @@ class _AdminMessageBubble extends StatelessWidget {
             ),
 
           // Bubble + time
-          Column(
+         // Bubble + time
+          Flexible(
+            child: Column(
             crossAxisAlignment:
                 isAdmin ? CrossAxisAlignment.end : CrossAxisAlignment.start,
             children: [
               Container(
-                constraints: const BoxConstraints(maxWidth: 320),
-                padding: const EdgeInsets.symmetric(
-                    horizontal: 14, vertical: 10),
+                constraints: BoxConstraints(
+                  maxWidth: MediaQuery.of(context).size.width * 0.7,
+                ),
+                clipBehavior: Clip.antiAlias,
                 decoration: BoxDecoration(
                   color: isAdmin ? Colors.black : Colors.white,
                   borderRadius: BorderRadius.only(
@@ -618,16 +682,58 @@ class _AdminMessageBubble extends StatelessWidget {
                       : Border.all(
                           color: const Color(0xFFE5E7EB), width: 0.5),
                 ),
-                child: Text(
-                  message.text,
-                  style: TextStyle(
-                    fontFamily: 'Inter',
-                    fontSize: 13,
-                    color: isAdmin ? Colors.white : const Color(0xFF111827),
-                    height: 1.5,
-                  ),
+                child: Column(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  mainAxisSize: MainAxisSize.min,
+                  children: [
+                    if (message.hasImage)
+                      Image.network(
+                        message.imageUrl!,
+                        width: 240,
+                        fit: BoxFit.cover,
+                        loadingBuilder: (context, child, progress) {
+                          if (progress == null) return child;
+                          return Container(
+                            width: 240,
+                            height: 160,
+                            alignment: Alignment.center,
+                            child: const CircularProgressIndicator(strokeWidth: 2),
+                          );
+                        },
+                        errorBuilder: (_, __, ___) => Container(
+                          width: 240,
+                          height: 100,
+                          color: const Color(0xFFEEEEEE),
+                          alignment: Alignment.center,
+                          child: const Icon(Icons.broken_image_outlined,
+                              color: Color(0xFF9CA3AF)),
+                        ),
+                      ),
+                    if (message.hasProductRef)
+                      _AdminProductRefCard(
+                        productId: message.productId!,
+                        isAdmin: isAdmin,
+                      ),
+                    if (message.text.isNotEmpty)
+                      Padding(
+                        padding: const EdgeInsets.symmetric(
+                            horizontal: 14, vertical: 10),
+                        child: Text(
+                          message.text,
+                          style: TextStyle(
+                            fontFamily: 'Inter',
+                            fontSize: 13,
+                            color: isAdmin
+                                ? Colors.white
+                                : const Color(0xFF111827),
+                            height: 1.5,
+                          ),
+                        ),
+                      ),
+                  ],
                 ),
               ),
+          
               const SizedBox(height: 4),
               Text(
                 message.formattedTime,
@@ -637,8 +743,10 @@ class _AdminMessageBubble extends StatelessWidget {
                 ),
               ),
             ],
-          ),
+          )),
 
+          // Admin avatar
+          // Admin avatar
           // Admin avatar
           if (isAdmin)
             Container(
@@ -657,6 +765,81 @@ class _AdminMessageBubble extends StatelessWidget {
                 ),
               ),
             ),
+        ],
+      ),
+    );
+  }
+}
+
+class _AdminProductRefCard extends ConsumerWidget {
+  final String productId;
+  final bool isAdmin;
+
+  const _AdminProductRefCard({
+    required this.productId,
+    required this.isAdmin,
+  });
+
+  @override
+  Widget build(BuildContext context, WidgetRef ref) {
+    final productsAsync = ref.watch(productsProvider);
+    final List<db_product.Product> products = productsAsync.value ?? [];
+    final db_product.Product? product = products.cast<db_product.Product?>().firstWhere(
+          (p) => p!.productId == productId,
+          orElse: () => null,
+        );
+
+    return Container(
+      width: 190,
+      margin: const EdgeInsets.all(8),
+      padding: const EdgeInsets.all(8),
+      decoration: BoxDecoration(
+        color: Colors.white,
+        border: Border.all(color: const Color(0xFFE5E7EB)),
+      ),
+      child: Row(
+        children: [
+          Container(
+            width: 36,
+            height: 36,
+            decoration: const BoxDecoration(color: Color(0xFFEEEEEE)),
+            alignment: Alignment.center,
+            clipBehavior: Clip.antiAlias,
+            child: Builder(builder: (context) {
+              final String? thumbUrl =
+                  product?.variants.isNotEmpty == true
+                      ? product!.variants.first.primaryImageUrl
+                      : null;
+              if (thumbUrl == null || thumbUrl.isEmpty) {
+                return const Icon(Icons.image_outlined,
+                    size: 16, color: Color(0xFF9CA3AF));
+              }
+              return Image.network(
+                thumbUrl,
+                fit: BoxFit.cover,
+                width: 36,
+                height: 36,
+                errorBuilder: (_, __, ___) => const Icon(
+                    Icons.image_outlined,
+                    size: 16,
+                    color: Color(0xFF9CA3AF)),
+              );
+            }),
+          ),
+          const SizedBox(width: 8),
+          Expanded(
+            child: Text(
+              product?.productName ?? 'Product unavailable',
+              style: TextStyle(
+                fontFamily: 'Inter',
+                fontSize: 12,
+                fontWeight: FontWeight.w600,
+                color: isAdmin ? Colors.white : Colors.black,
+              ),
+              maxLines: 1,
+              overflow: TextOverflow.ellipsis,
+            ),
+          ),
         ],
       ),
     );

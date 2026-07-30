@@ -1,17 +1,22 @@
 // ================================================
-// feedback_details_dialog.dart  (UPDATED)
+// feedback_details_dialog.dart  (BUG-FIXED)
 //
-// Changes from fake-data version:
-//  1. onSave callback is now async (awaits provider call)
-//  2. feedbackId is read from item['_feedbackId']
-//     (set by FeedbackModel.toAdminMap())
-//  3. 'Hidden' status option added to _statusOptions
-//  4. Reply thread now distinguishes staff vs customer replies
-//     (reply.authorName / reply.isStaff instead of reply.adminName)
-//  5. UI structure, confirm dialog flow: UNCHANGED
+// Fixes applied this round:
+//  1. Empty-customerName crash guard — CircleAvatar initial
+//     now falls back to '?' instead of calling substring(0,1)
+//     on a possibly-empty string.
+//  2. "Save Reply" no-op guard — the button is now disabled
+//     (not just re-enabled after tap) unless the status has
+//     actually changed OR a new reply has been typed. A
+//     defensive check remains inside _handleSave too, in case
+//     it's ever invoked programmatically.
+//
+// Everything else — UI structure, confirm dialog flow,
+// async onSave delegation — UNCHANGED from your version.
 // ================================================
 
 import 'package:flutter/material.dart';
+import 'package:video_player/video_player.dart';
 import '../../common/dialog/confirm_dialog.dart';
 import '../../../models/review_model.dart' show FeedbackReply;
 
@@ -45,10 +50,19 @@ class _FeedbackDetailsDialogState extends State<FeedbackDetailsDialog> {
     _selectedStatus = widget.feedback['status'];
     // Reply field starts empty — this composes a NEW reply appended
     // to the thread below, it no longer prefills/overwrites the last one.
+
+    // Rebuild whenever the reply text changes so the Save button's
+    // enabled state stays in sync with whether there's anything to save.
+    _replyController.addListener(_onFieldsChanged);
+  }
+
+  void _onFieldsChanged() {
+    if (mounted) setState(() {});
   }
 
   @override
   void dispose() {
+    _replyController.removeListener(_onFieldsChanged);
     _replyController.dispose();
     super.dispose();
   }
@@ -77,9 +91,15 @@ class _FeedbackDetailsDialogState extends State<FeedbackDetailsDialog> {
 
   Future<void> _handleSave() async {
     final String currentStatus = widget.feedback['status'] as String;
-    final String existingReply = widget.feedback['adminReply'] as String? ?? '';
     final String newReply      = _replyController.text.trim();
     final bool   statusChanged = _selectedStatus != currentStatus;
+
+    // Defensive no-op guard — the Save button is disabled in this state
+    // already, but this protects against any other call path.
+    if (!statusChanged && newReply.isEmpty) {
+      Navigator.pop(context);
+      return;
+    }
 
     // ── Confirm status change ──
     if (statusChanged) {
@@ -145,8 +165,18 @@ class _FeedbackDetailsDialogState extends State<FeedbackDetailsDialog> {
     final double screenHeight = MediaQuery.of(context).size.height;
     final double screenWidth  = MediaQuery.of(context).size.width;
 
-    final Map<String, Color> badgeColors =
-        _getBadgeColors(widget.feedback['status'] as String);
+    final String currentStatus = widget.feedback['status'] as String;
+    final Map<String, Color> badgeColors = _getBadgeColors(currentStatus);
+
+    // FIX #1: guard against empty customerName instead of blindly
+    // calling substring(0, 1) — mirrors the guard already used in
+    // _FeedbackCard in feedback_screen.dart.
+    final String customerName = widget.feedback['customerName'] as String;
+
+    // FIX #3 (papercut): Save Reply is only actionable when something
+    // has actually changed — a different status, or new reply text.
+    final bool hasChanges =
+        _selectedStatus != currentStatus || _replyController.text.trim().isNotEmpty;
 
     return Dialog(
       insetPadding:    EdgeInsets.zero,
@@ -191,9 +221,9 @@ class _FeedbackDetailsDialogState extends State<FeedbackDetailsDialog> {
                         radius: 20,
                         backgroundColor: const Color(0xFFE5E7EB),
                         child: Text(
-                          (widget.feedback['customerName'] as String)
-                              .substring(0, 1)
-                              .toUpperCase(),
+                          customerName.isNotEmpty
+                              ? customerName.substring(0, 1).toUpperCase()
+                              : '?',
                           style: const TextStyle(
                             fontSize: 16,
                             fontWeight: FontWeight.w600,
@@ -207,7 +237,7 @@ class _FeedbackDetailsDialogState extends State<FeedbackDetailsDialog> {
                           crossAxisAlignment: CrossAxisAlignment.start,
                           children: [
                             Text(
-                              widget.feedback['customerName'] as String,
+                              customerName,
                               style: const TextStyle(
                                 fontSize: 14,
                                 fontWeight: FontWeight.w600,
@@ -230,7 +260,7 @@ class _FeedbackDetailsDialogState extends State<FeedbackDetailsDialog> {
                           border:       Border.all(color: badgeColors['border']!),
                         ),
                         child: Text(
-                          widget.feedback['status'] as String,
+                          currentStatus,
                           style: TextStyle(
                             fontSize: 12,
                             fontWeight: FontWeight.w500,
@@ -281,6 +311,18 @@ class _FeedbackDetailsDialogState extends State<FeedbackDetailsDialog> {
                       ),
                     ),
                     const SizedBox(height: 16),
+
+                    // ── Photo / video gallery ──────────────────
+                    // BUG FIX: this section was missing entirely —
+                    // uploaded media never had anywhere to render on
+                    // the admin side, even after the data pipeline
+                    // (upload -> DB -> model) was fixed.
+                    _AdminMediaGallery(
+                      urls: (widget.feedback['imageUrls'] as List<dynamic>?)
+                              ?.map((e) => e.toString())
+                              .toList() ??
+                          const [],
+                    ),
 
                     const Text('Status', style: TextStyle(fontSize: 13, fontWeight: FontWeight.w600, color: Color(0xFF374151))),
                     const SizedBox(height: 8),
@@ -408,10 +450,12 @@ class _FeedbackDetailsDialogState extends State<FeedbackDetailsDialog> {
                   ),
                   const SizedBox(width: 12),
                   ElevatedButton(
-                    onPressed: _saving ? null : _handleSave,
+                    // FIX #3: disabled while saving OR when there's nothing to save.
+                    onPressed: (_saving || !hasChanges) ? null : _handleSave,
                     style: ElevatedButton.styleFrom(
                       backgroundColor: const Color(0xFF2563EB),
                       foregroundColor: Colors.white,
+                      disabledBackgroundColor: const Color(0xFF93C5FD),
                       elevation: 0,
                       padding: const EdgeInsets.symmetric(horizontal: 20, vertical: 12),
                       shape:  RoundedRectangleBorder(borderRadius: BorderRadius.circular(8)),
@@ -430,6 +474,238 @@ class _FeedbackDetailsDialogState extends State<FeedbackDetailsDialog> {
               ),
             ),
           ],
+        ),
+      ),
+    );
+  }
+}
+
+// ── Photo / video gallery (admin side) ─────────────────────────────
+
+bool _isVideoUrl(String url) {
+  final String lower = url.toLowerCase();
+  return lower.endsWith('.mp4') ||
+      lower.endsWith('.mov') ||
+      lower.endsWith('.m4v') ||
+      lower.endsWith('.webm') ||
+      lower.endsWith('.3gp');
+}
+
+class _AdminMediaGallery extends StatelessWidget {
+  final List<String> urls;
+  const _AdminMediaGallery({required this.urls});
+
+  @override
+  Widget build(BuildContext context) {
+    if (urls.isEmpty) return const SizedBox.shrink();
+
+    return Column(
+      crossAxisAlignment: CrossAxisAlignment.start,
+      children: [
+        const Text('Photos & Videos',
+            style: TextStyle(
+                fontSize: 13,
+                fontWeight: FontWeight.w600,
+                color: Color(0xFF374151))),
+        const SizedBox(height: 8),
+        SizedBox(
+          height: 80,
+          child: ListView.separated(
+            scrollDirection: Axis.horizontal,
+            itemCount: urls.length,
+            separatorBuilder: (_, __) => const SizedBox(width: 8),
+            itemBuilder: (context, i) {
+              final String url = urls[i];
+              final bool isVideo = _isVideoUrl(url);
+
+              return GestureDetector(
+                onTap: () => showDialog(
+                  context: context,
+                  barrierColor: Colors.black,
+                  builder: (_) =>
+                      _AdminMediaViewerDialog(urls: urls, startIndex: i),
+                ),
+                child: Container(
+                  width: 80,
+                  height: 80,
+                  decoration: BoxDecoration(
+                    color: const Color(0xFFF3F4F6),
+                    borderRadius: BorderRadius.circular(8),
+                    border: Border.all(color: const Color(0xFFE5E7EB)),
+                  ),
+                  clipBehavior: Clip.antiAlias,
+                  child: isVideo
+                      ? const Center(
+                          child: Icon(Icons.play_circle_fill,
+                              color: Color(0xFF6B7280), size: 30),
+                        )
+                      : Image.network(
+                          url,
+                          fit: BoxFit.cover,
+                          errorBuilder: (_, __, ___) => const Icon(
+                            Icons.broken_image_outlined,
+                            color: Color(0xFFD1D5DB),
+                          ),
+                          loadingBuilder: (context, child, progress) {
+                            if (progress == null) return child;
+                            return const Center(
+                              child: SizedBox(
+                                width: 16,
+                                height: 16,
+                                child:
+                                    CircularProgressIndicator(strokeWidth: 2),
+                              ),
+                            );
+                          },
+                        ),
+                ),
+              );
+            },
+          ),
+        ),
+        const SizedBox(height: 16),
+      ],
+    );
+  }
+}
+
+class _AdminMediaViewerDialog extends StatefulWidget {
+  final List<String> urls;
+  final int startIndex;
+  const _AdminMediaViewerDialog(
+      {required this.urls, required this.startIndex});
+
+  @override
+  State<_AdminMediaViewerDialog> createState() =>
+      _AdminMediaViewerDialogState();
+}
+
+class _AdminMediaViewerDialogState extends State<_AdminMediaViewerDialog> {
+  late final PageController _pageController =
+      PageController(initialPage: widget.startIndex);
+
+  @override
+  void dispose() {
+    _pageController.dispose();
+    super.dispose();
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    return Dialog.fullscreen(
+      backgroundColor: Colors.black,
+      child: Stack(
+        children: [
+          PageView.builder(
+            controller: _pageController,
+            itemCount: widget.urls.length,
+            itemBuilder: (context, i) {
+              final String url = widget.urls[i];
+              return _isVideoUrl(url)
+                  ? _AdminInlineVideoPlayer(url: url)
+                  : InteractiveViewer(
+                      child: Center(
+                        child: Image.network(url, fit: BoxFit.contain),
+                      ),
+                    );
+            },
+          ),
+          Positioned(
+            top: 40,
+            right: 12,
+            child: IconButton(
+              icon: const Icon(Icons.close, color: Colors.white, size: 28),
+              onPressed: () => Navigator.of(context).pop(),
+            ),
+          ),
+        ],
+      ),
+    );
+  }
+}
+
+class _AdminInlineVideoPlayer extends StatefulWidget {
+  final String url;
+  const _AdminInlineVideoPlayer({required this.url});
+
+  @override
+  State<_AdminInlineVideoPlayer> createState() =>
+      _AdminInlineVideoPlayerState();
+}
+
+class _AdminInlineVideoPlayerState extends State<_AdminInlineVideoPlayer> {
+  late final VideoPlayerController _controller;
+  bool _initialized = false;
+  bool _failed = false;
+
+  @override
+  void initState() {
+    super.initState();
+    _controller = VideoPlayerController.networkUrl(Uri.parse(widget.url))
+      ..initialize().then((_) {
+        if (!mounted) return;
+        setState(() => _initialized = true);
+        _controller.play();
+      }).catchError((_) {
+        if (!mounted) return;
+        setState(() => _failed = true);
+      });
+  }
+
+  @override
+  void dispose() {
+    _controller.dispose();
+    super.dispose();
+  }
+
+  void _togglePlay() {
+    setState(() {
+      _controller.value.isPlaying ? _controller.pause() : _controller.play();
+    });
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    if (_failed) {
+      return const Center(
+        child: Text(
+          'Could not play this video.',
+          style: TextStyle(color: Colors.white70),
+        ),
+      );
+    }
+    if (!_initialized) {
+      return const Center(
+        child: CircularProgressIndicator(color: Colors.white),
+      );
+    }
+    return Center(
+      child: GestureDetector(
+        onTap: _togglePlay,
+        child: AspectRatio(
+          aspectRatio: _controller.value.aspectRatio,
+          child: Stack(
+            alignment: Alignment.center,
+            children: [
+              VideoPlayer(_controller),
+              if (!_controller.value.isPlaying)
+                const Icon(Icons.play_circle_fill,
+                    color: Colors.white70, size: 64),
+              Positioned(
+                left: 0,
+                right: 0,
+                bottom: 0,
+                child: VideoProgressIndicator(
+                  _controller,
+                  allowScrubbing: true,
+                  colors: const VideoProgressColors(
+                    playedColor: Colors.white,
+                    backgroundColor: Colors.white24,
+                  ),
+                ),
+              ),
+            ],
+          ),
         ),
       ),
     );

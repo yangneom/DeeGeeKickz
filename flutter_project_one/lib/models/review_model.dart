@@ -5,6 +5,14 @@
 // Current phase  : any logged-in customer can submit.
 // Future phase   : only customers with a delivered
 //                  order can submit (verified purchase).
+//
+// BUG FIX this round:
+//   imageUrls previously hardcoded to `const []` with a "phase 2"
+//   comment — but the `image_urls` column already exists in the
+//   schema (it's selected in review_service.dart's _selectWithJoins)
+//   and submitReview() already writes to it. This was purely a
+//   read-side gap: uploaded photos/videos were being stored but
+//   never read back into the model, so they never rendered.
 // ================================================
 
 class FeedbackReply {
@@ -51,7 +59,7 @@ class ReviewModel {
   final String productName;      // snapshot joined from product table
   final double rating;           // 1-5  (stored as INT 1-5 in DB)
   final String reviewText;       // feedback.comment_message
-  final List<String> imageUrls;  // not in current schema — kept for future
+  final List<String> imageUrls;  // feedback.image_urls — photo/video URLs
   final bool verifiedPurchase;   // always false until phase 2
   final String status;           // ENUM: 'Visible' | 'Flagged' | 'Hidden'
   final String? adminReply;      // feedback.admin_reply (legacy single-reply field, kept for backward compat)
@@ -100,7 +108,14 @@ class ReviewModel {
       productName:      productMap['product_name'] as String? ?? '',
       rating:           (row['rating']         as num).toDouble(),
       reviewText:       row['comment_message'] as String? ?? '',
-      imageUrls:        const [],              // phase 2
+      // BUG FIX: read image_urls back from the row instead of
+      // hardcoding an empty list. The column already exists and
+      // submitReview() already writes to it — this was the missing
+      // read-side link.
+      imageUrls:        (row['image_urls'] as List<dynamic>?)
+                            ?.map((e) => e.toString())
+                            .toList() ??
+                          const [],
       verifiedPurchase: false,                 // phase 2
       status:           row['status']          as String? ?? 'Visible',
       adminReply:       row['admin_reply']     as String?,

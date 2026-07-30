@@ -9,6 +9,8 @@ import '../../../providers/customer/customer_cart_provider.dart';
 import '../../../services/admin/promotionDiscount/discount_service.dart';
 import '../../../screens/customer/messages/customer_chat_screen.dart';
 import '../../../screens/customer/checkout/checkout_screen.dart'; 
+import '../../../providers/customer/chat_provider.dart';
+
 /// Product info panel backed by the real [Product] model.
 /// Color picker → variant images update gallery via callback (future).
 /// Size picker → shows only sizes with available stock.
@@ -488,7 +490,15 @@ Discount? get _discount {
         const SizedBox(height: 8),
  
         TextButton.icon(
-          onPressed: () => requireAuth(context, const CustomerChatScreen()),
+          onPressed: () {
+            ref.read(pendingChatProductProvider.notifier).set(
+              PendingChatProduct(
+                productId: product.productId,
+                productName: product.productName,
+              ),
+            );
+            requireAuth(context, const CustomerChatScreen());
+          },
           icon: const Icon(Icons.chat_bubble_outline,
               size: 18, color: Color(0xFF656464)),
           label: const Text(

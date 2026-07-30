@@ -1,10 +1,12 @@
-// lib/screens/customer/messages/customer_chat_screen.dart
-
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
+import 'package:file_picker/file_picker.dart';
 
 import '../../../providers/customer/chat_provider.dart';
+import '../../../providers/customer/chat_provider.dart' show pendingChatProductProvider, PendingChatProduct;
+import '../../../providers/product/product_provider.dart';
 import '../../../models/chat_message_model.dart';
+import '../../../models/product.dart' as db_product;
 import '../../../widgets/common/nav/app_top_bar.dart';
 import '../../../widgets/common/nav/app_drawer.dart';
 import '../../../widgets/common/nav/bottom_nav_bar.dart';
@@ -40,18 +42,70 @@ class _CustomerChatScreenState extends ConsumerState<CustomerChatScreen> {
     });
   }
 
-  void _onSend() {
+  bool _isUploadingImage = false;
+
+ void _onSend() {
     final text = _inputController.text.trim();
-    if (text.isEmpty) return;
+    final pending = ref.read(pendingChatProductProvider);
+
+    if (text.isEmpty && pending == null) return;
+
     _inputController.clear();
-    ref.read(customerChatProvider.notifier).sendMessage(text);
+    ref.read(customerChatProvider.notifier).sendMessage(
+          text,
+          productId: pending?.productId,
+        );
+        if (pending != null) {
+      ref.read(pendingChatProductProvider.notifier).clear();
+    }
     _scrollToBottom();
   }
 
-  @override
+  Future<void> _onPickImage() async {
+    try {
+      final result = await FilePicker.platform.pickFiles(
+        type: FileType.image,
+        withData: true, // forces bytes on web — path is always null there
+      );
+      if (result == null || result.files.isEmpty) return;
+
+      setState(() => _isUploadingImage = true);
+
+      final bool success = await ref
+          .read(customerChatProvider.notifier)
+          .sendImage(result.files.first);
+
+      if (mounted) {
+        setState(() => _isUploadingImage = false);
+        if (!success) {
+          ScaffoldMessenger.of(context).showSnackBar(
+            const SnackBar(
+              content: Text('Failed to send image. Please try again.'),
+              backgroundColor: Colors.red,
+            ),
+          );
+        } else {
+          _scrollToBottom();
+        }
+      }
+    } catch (error) {
+      print('_onPickImage error: $error');
+      if (mounted) {
+        setState(() => _isUploadingImage = false);
+        ScaffoldMessenger.of(context).showSnackBar(
+          const SnackBar(
+            content: Text('Failed to pick image. Please try again.'),
+            backgroundColor: Colors.red,
+          ),
+        );
+      }
+    }
+  }
+
+@override
   Widget build(BuildContext context) {
     final chatState = ref.watch(customerChatProvider);
-
+    final pendingProduct = ref.watch(pendingChatProductProvider);
     // Scroll to bottom whenever messages change
     ref.listen(customerChatProvider, (prev, next) {
       if (prev?.messages.length != next.messages.length) {
@@ -80,9 +134,21 @@ class _CustomerChatScreenState extends ConsumerState<CustomerChatScreen> {
             ),
 
             // ── Input bar ───────────────────────────────────────
+          // ── Input bar ───────────────────────────────────────
+            // ── Attached product chip ────────────────────────────
+            if (pendingProduct != null)
+              _AttachedProductChip(
+                productName: pendingProduct.productName,
+                onRemove: () =>
+                    ref.read(pendingChatProductProvider.notifier).clear(),
+              ),
+
+            // ── Input bar ───────────────────────────────────────
             _ChatInputBar(
               controller: _inputController,
               onSend: _onSend,
+              onPickImage: _onPickImage,
+              isUploadingImage: _isUploadingImage,
             ),
           ],
         ),
@@ -167,13 +233,25 @@ class _CustomerChatScreenState extends ConsumerState<CustomerChatScreen> {
 
 // ─── Chat bubble ───────────────────────────────────────────────────────────────
 
-class _ChatBubble extends StatelessWidget {
+class _ChatBubble extends ConsumerWidget {
   final Message message;
   const _ChatBubble({required this.message});
 
   @override
-  Widget build(BuildContext context) {
+  Widget build(BuildContext context, WidgetRef ref) {
     final isCustomer = message.isFromCustomer;
+
+    // Only bother looking up product data if this message actually
+    // references one — avoids an unnecessary provider read otherwise.
+    db_product.Product? referencedProduct;
+    if (message.hasProductRef) {
+      final productsAsync = ref.watch(productsProvider);
+      final List<db_product.Product> products = productsAsync.value ?? [];
+      referencedProduct = products.cast<db_product.Product?>().firstWhere(
+            (p) => p!.productId == message.productId,
+            orElse: () => null,
+          );
+    }
 
     return Padding(
       padding: const EdgeInsets.symmetric(vertical: 6),
@@ -207,26 +285,124 @@ class _ChatBubble extends StatelessWidget {
                 ? CrossAxisAlignment.end
                 : CrossAxisAlignment.start,
             children: [
-              Container(
-                constraints: const BoxConstraints(maxWidth: 280),
-                padding: const EdgeInsets.symmetric(
-                    horizontal: 16, vertical: 10),
+             Container(
+                constraints: BoxConstraints(
+                  maxWidth: MediaQuery.of(context).size.width * 0.7,
+                ),
+                clipBehavior: Clip.antiAlias,
                 decoration: BoxDecoration(
-                  color: isCustomer
-                      ? Colors.black
-                      : Colors.white,
+                  color: isCustomer ? Colors.black : Colors.white,
                   border: isCustomer
                       ? null
                       : Border.all(color: const Color(0xFFCFC4C5)),
                 ),
-                child: Text(
-                  message.text,
-                  style: TextStyle(
-                    fontFamily: 'Inter',
-                    fontSize: 14,
-                    color: isCustomer ? Colors.white : Colors.black,
-                    height: 1.5,
-                  ),
+                child: Column(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  mainAxisSize: MainAxisSize.min,
+                  children: [
+                    // ── Image, if present ──
+                    if (message.hasImage)
+                      Image.network(
+                        message.imageUrl!,
+                        width: 240,
+                        fit: BoxFit.cover,
+                        loadingBuilder: (context, child, progress) {
+                          if (progress == null) return child;
+                          return Container(
+                            width: 240,
+                            height: 180,
+                            alignment: Alignment.center,
+                            child: const CircularProgressIndicator(
+                                strokeWidth: 2),
+                          );
+                        },
+                        errorBuilder: (_, __, ___) => Container(
+                          width: 240,
+                          height: 120,
+                          alignment: Alignment.center,
+                          color: const Color(0xFFEEEEEE),
+                          child: const Icon(Icons.broken_image_outlined,
+                              color: Color(0xFF9CA3AF)),
+                        ),
+                      ),
+
+                    // ── Product reference card, if present ──
+                   // ── Product reference card, if present ──
+                    // ── Product reference card, if present ──
+                    if (message.hasProductRef)
+                      Container(
+                        width: 200,
+                        margin: const EdgeInsets.all(8),
+                        padding: const EdgeInsets.all(8),
+                        decoration: BoxDecoration(
+                          color: Colors.white,
+                          border: Border.all(color: const Color(0xFFE2E2E2)),
+                        ),
+                        child: Row(
+                          children: [
+                            Container(
+                              width: 40,
+                              height: 40,
+                              decoration: const BoxDecoration(color: Color(0xFFEEEEEE)),
+                              alignment: Alignment.center,
+                              clipBehavior: Clip.antiAlias,
+                              child: Builder(builder: (context) {
+                                final String? thumbUrl = referencedProduct
+                                        ?.variants.isNotEmpty ==
+                                        true
+                                    ? referencedProduct!.variants.first.primaryImageUrl
+                                    : null;
+                                if (thumbUrl == null || thumbUrl.isEmpty) {
+                                  return const Icon(Icons.image_outlined,
+                                      size: 18, color: Color(0xFF9CA3AF));
+                                }
+                                return Image.network(
+                                  thumbUrl,
+                                  fit: BoxFit.cover,
+                                  width: 40,
+                                  height: 40,
+                                  errorBuilder: (_, __, ___) => const Icon(
+                                      Icons.image_outlined,
+                                      size: 18,
+                                      color: Color(0xFF9CA3AF)),
+                                );
+                              }),
+                            ),
+                            const SizedBox(width: 10),
+                            Expanded(
+                              child: Text(
+                                referencedProduct?.productName ??
+                                    'Product unavailable',
+                                style: const TextStyle(
+                                  fontFamily: 'Inter',
+                                  fontSize: 12,
+                                  fontWeight: FontWeight.w600,
+                                  color: Colors.black,
+                                ),
+                                maxLines: 1,
+                                overflow: TextOverflow.ellipsis,
+                              ),
+                            ),
+                          ],
+                        ),
+                      ),
+
+                    // ── Text, if present ──
+                    if (message.text.isNotEmpty)
+                      Padding(
+                        padding: const EdgeInsets.symmetric(
+                            horizontal: 16, vertical: 10),
+                        child: Text(
+                          message.text,
+                          style: TextStyle(
+                            fontFamily: 'Inter',
+                            fontSize: 14,
+                            color: isCustomer ? Colors.white : Colors.black,
+                            height: 1.5,
+                          ),
+                        ),
+                      ),
+                  ],
                 ),
               ),
               const SizedBox(height: 4),
@@ -246,15 +422,65 @@ class _ChatBubble extends StatelessWidget {
   }
 }
 
-// ─── Input bar ─────────────────────────────────────────────────────────────────
+// ─── Attached product chip ───────────────────────────────────────────────────
 
+class _AttachedProductChip extends StatelessWidget {
+  final String productName;
+  final VoidCallback onRemove;
+
+  const _AttachedProductChip({
+    required this.productName,
+    required this.onRemove,
+  });
+
+  @override
+  Widget build(BuildContext context) {
+    return Container(
+      margin: const EdgeInsets.fromLTRB(16, 0, 16, 8),
+      padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 8),
+      decoration: BoxDecoration(
+        color: const Color(0xFFF3F3F4),
+        border: Border.all(color: const Color(0xFFCFC4C5)),
+      ),
+      child: Row(
+        children: [
+          const Icon(Icons.image_outlined, size: 16, color: Color(0xFF656464)),
+          const SizedBox(width: 8),
+          Expanded(
+            child: Text(
+              'Asking about: $productName',
+              style: const TextStyle(
+                fontFamily: 'Inter',
+                fontSize: 12,
+                fontWeight: FontWeight.w500,
+                color: Color(0xFF1A1C1C),
+              ),
+              maxLines: 1,
+              overflow: TextOverflow.ellipsis,
+            ),
+          ),
+          GestureDetector(
+            onTap: onRemove,
+            child: const Icon(Icons.close, size: 16, color: Color(0xFF656464)),
+          ),
+        ],
+      ),
+    );
+  }
+}
+
+// ─── Input bar ─────────────────────────────────────────────────────────────────
 class _ChatInputBar extends StatelessWidget {
   final TextEditingController controller;
   final VoidCallback onSend;
+  final VoidCallback onPickImage;
+  final bool isUploadingImage;
 
   const _ChatInputBar({
     required this.controller,
     required this.onSend,
+    required this.onPickImage,
+    required this.isUploadingImage,
   });
 
   @override
@@ -269,6 +495,26 @@ class _ChatInputBar extends StatelessWidget {
         top: false,
         child: Row(
           children: [
+            GestureDetector(
+              onTap: isUploadingImage ? null : onPickImage,
+              child: Container(
+                width: 44,
+                height: 44,
+                alignment: Alignment.center,
+                child: isUploadingImage
+                    ? const SizedBox(
+                        width: 18,
+                        height: 18,
+                        child: CircularProgressIndicator(strokeWidth: 2),
+                      )
+                    : const Icon(
+                        Icons.image_outlined,
+                        size: 22,
+                        color: Color(0xFF656464),
+                      ),
+              ),
+            ),
+            const SizedBox(width: 4),
             Expanded(
               child: Container(
                 padding: const EdgeInsets.symmetric(
@@ -320,7 +566,6 @@ class _ChatInputBar extends StatelessWidget {
     );
   }
 }
-
 // ─── Support header ────────────────────────────────────────────────────────────
 
 class _SupportHeader extends StatelessWidget {

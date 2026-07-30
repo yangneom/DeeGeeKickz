@@ -1,6 +1,8 @@
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 
+import '../../../models/product.dart' hide ProductImage;
+
 import '../../../models/product.dart';
 import '../../../providers/product/product_provider.dart';
 import '../../../widgets/common/nav/app_top_bar.dart';
@@ -183,14 +185,22 @@ class _DesktopHero extends StatelessWidget {
           child: ProductImageGallery(imageUrls: imageUrls),
         ),
         const SizedBox(width: 40),
-        Expanded(
+      Expanded(
           flex: 42,
-          child: ProductInfoSection(product: product),
+          child: Column(
+            crossAxisAlignment: CrossAxisAlignment.stretch,
+            children: [
+              ProductInfoSection(product: product),
+        const SizedBox(height: 16),
+            ],
+          ),
         ),
       ],
     );
   }
 }
+
+// ── Mobile: gallery top, info below ──────────────────────────────
 
 // ── Mobile: gallery top, info below ──────────────────────────────
 
@@ -214,3 +224,5 @@ class _MobileHero extends StatelessWidget {
     );
   }
 }
+
+// ── "Ask about this item" — stages a product attachment then opens chat ──

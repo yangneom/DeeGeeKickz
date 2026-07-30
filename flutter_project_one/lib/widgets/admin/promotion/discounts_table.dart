@@ -34,7 +34,34 @@ class _DiscountsTableState extends State<DiscountsTable> {
     });
   }
 
+  // ================================================
+  // CHECK: DOES THIS VARIANT DISCOUNT OVERLAP A
+  // WHOLE-PRODUCT DISCOUNT?
+  // UI-only warning — pricing already resolves correctly
+  // via ActiveDiscounts.resolve() (variant wins). This just
+  // flags it visibly so the admin isn't confused seeing two
+  // "Active" rows for the same product.
+  // ================================================
+  bool _hasOverlappingWholeProductDiscount(Discount variantDiscount) {
+    if (!variantDiscount.isVariantSpecific) return false;
+    if (variantDiscount.status != 'Active') return false;
+
+    for (final Discount other in _discounts) {
+      if (other.isVariantSpecific) continue; // only compare vs whole-product
+      if (other.productId != variantDiscount.productId) continue;
+      if (other.status != 'Active') continue;
+
+      final bool datesOverlap =
+          !other.startDate.isAfter(variantDiscount.endDate) &&
+          !other.endDate.isBefore(variantDiscount.startDate);
+
+      if (datesOverlap) return true;
+    }
+    return false;
+  }
+
   String _formatDateRange(DateTime start, DateTime end) {
+
     const List<String> months = [
       'Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun',
       'Jul', 'Aug', 'Sep', 'Oct', 'Nov', 'Dec',
@@ -221,20 +248,56 @@ class _DiscountsTableState extends State<DiscountsTable> {
                               if (_discounts[i].isVariantSpecific)
                                 Padding(
                                   padding: const EdgeInsets.only(top: 2),
-                                  child: Container(
-                                    padding: const EdgeInsets.symmetric(horizontal: 6, vertical: 1),
-                                    decoration: BoxDecoration(
-                                      color: const Color(0xFFEFF6FF),
-                                      borderRadius: BorderRadius.circular(4),
-                                    ),
-                                    child: Text(
-                                      _discounts[i].variantColor ?? 'Specific color',
-                                      style: const TextStyle(
-                                        fontSize: 10,
-                                        fontWeight: FontWeight.w600,
-                                        color: Color(0xFF2563EB),
+                                  child: Wrap(
+                                    spacing: 4,
+                                    crossAxisAlignment: WrapCrossAlignment.center,
+                                    children: [
+                                      Container(
+                                        padding: const EdgeInsets.symmetric(horizontal: 6, vertical: 1),
+                                        decoration: BoxDecoration(
+                                          color: const Color(0xFFEFF6FF),
+                                          borderRadius: BorderRadius.circular(4),
+                                        ),
+                                        child: Text(
+                                          _discounts[i].variantColor ?? 'Specific color',
+                                          style: const TextStyle(
+                                            fontSize: 10,
+                                            fontWeight: FontWeight.w600,
+                                            color: Color(0xFF2563EB),
+                                          ),
+                                        ),
                                       ),
-                                    ),
+                                      if (_hasOverlappingWholeProductDiscount(_discounts[i]))
+                                        Tooltip(
+                                          message:
+                                              'A whole-product discount is also active on '
+                                              '${_discounts[i].productName} during this period. '
+                                              'This color\'s discount takes priority at checkout.',
+                                          child: Container(
+                                            padding: const EdgeInsets.symmetric(horizontal: 6, vertical: 1),
+                                            decoration: BoxDecoration(
+                                              color: const Color(0xFFFEF3C7),
+                                              borderRadius: BorderRadius.circular(4),
+                                              border: Border.all(color: const Color(0xFFFCD34D)),
+                                            ),
+                                            child: Row(
+                                              mainAxisSize: MainAxisSize.min,
+                                              children: const [
+                                                Icon(Icons.info_outline, size: 10, color: Color(0xFFB45309)),
+                                                SizedBox(width: 3),
+                                                Text(
+                                                  'Overlaps whole-product',
+                                                  style: TextStyle(
+                                                    fontSize: 9,
+                                                    fontWeight: FontWeight.w600,
+                                                    color: Color(0xFFB45309),
+                                                  ),
+                                                ),
+                                              ],
+                                            ),
+                                          ),
+                                        ),
+                                    ],
                                   ),
                                 ),
                             ],

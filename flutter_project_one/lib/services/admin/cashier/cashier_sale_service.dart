@@ -17,19 +17,13 @@ Future<String> saveSale({
     required List<Map<String, dynamic>> cartItems,
   }) async {
     try {
-      // 1. Generate order number (still needed for the printed
-      // receipt/order number label — the RPC uses its own real
-      // order_id as the DB primary key, this is just the display code)
-      final String orderNumber = await _generateOrderNumber();
+      
 
       final String cashierId = _supabase.auth.currentUser!.id;
 
-      // 2-4. Order + items (with stock check) + payment — all done
-      // atomically inside one Postgres transaction via RPC. If any
-      // item fails the availability check, EVERYTHING rolls back:
-      // no order, no order_item rows, no stock deducted, no payment
-      // row. No more risk of a partial sale leaving stock silently
-      // wrong when one item in a multi-item cart fails.
+// Order number is derived from the real order_id (a DB-generated
+      // serial, guaranteed unique) instead of a client-side row count —
+      // no race condition possible between two simultaneous checkouts.
       final int orderId = await _supabase.rpc('process_cashier_sale', params: {
         'p_cashier_id':      cashierId,
         'p_subtotal':        sale.subtotal,
@@ -50,6 +44,8 @@ Future<String> saveSale({
           'subtotal':    item['subtotal'],
         }).toList(),
       }) as int;
+
+        final String orderNumber = _orderNumberFromId(orderId);
 
       // 5. Generate + upload PDF receipt, save receipt_url to the
       // payment row. Reuses the same ReceiptPdfService the online
@@ -116,24 +112,18 @@ Future<String> saveSale({
   }
 
 
-  // ================================================
+ // ================================================
   // GENERATE ORDER NUMBER
+  // Built from the real order_id (unique, DB-assigned) instead of a
+  // counted row query — eliminates the race condition where two
+  // simultaneous checkouts could produce the same receipt number.
   // ================================================
-  Future<String> _generateOrderNumber() async {
+  String _orderNumberFromId(int orderId) {
     final DateTime now = DateTime.now();
     final String date =
         '${now.year}${now.month.toString().padLeft(2, '0')}${now.day.toString().padLeft(2, '0')}';
-
-    final response = await _supabase
-        .from('orders')
-        .select('order_id')
-        .eq('order_type', 'In-Store');
-
-    final int count = (response as List).length + 1;
-    final String seq = count.toString().padLeft(4, '0');
-    return 'DG-$date-$seq';
+    return 'DG-$date-${orderId.toString().padLeft(4, '0')}';
   }
-
   Future<double> _getCostPrice(int? sizeId) async {
     if (sizeId == null) return 0;
     try {

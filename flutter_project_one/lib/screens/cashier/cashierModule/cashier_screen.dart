@@ -583,9 +583,23 @@ void _addToCart({
           showReceiptDialog(context: context, sale: sale);
         },
         onCancelled: () async {
-          Navigator.of(context).pop();
-          await CashierOnlinePaymentService()
+          final bool wasCancelled = await CashierOnlinePaymentService()
               .cancelPendingOrder(checkout.orderId);
+
+          if (mounted) Navigator.of(context).pop();
+
+          if (!wasCancelled && mounted) {
+            ScaffoldMessenger.of(context).showSnackBar(
+              const SnackBar(
+                content: Text(
+                  'Payment was actually received for this order — it was '
+                  'NOT cancelled. Check Order Management to confirm.',
+                ),
+                backgroundColor: Color(0xFF16A34A),
+                duration: Duration(seconds: 8),
+              ),
+            );
+          }
         },
       ),
     );

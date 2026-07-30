@@ -1,5 +1,6 @@
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
+import 'package:video_player/video_player.dart';
 
 import '../../../models/review_model.dart';
 import '../../../providers/customer/review_providers.dart';
@@ -62,7 +63,14 @@ class _ProductReviewsSectionState
     return counts;
   }
 
-  void _openWriteReview(BuildContext context) {
+  // BUG FIX: previously read `ref.read(hasUserReviewedProvider(...)).value`
+  // synchronously — `.value` on a FutureProvider is null until it resolves,
+  // so a fast tap on "Write a Review" could sail through the duplicate
+  // check before the provider ever finished loading (defaulting to
+  // `false`). This is now `async` and awaits the provider's `.future`,
+  // which returns the resolved value (or reuses it if already cached) —
+  // no window where an unresolved future is silently treated as "false".
+  Future<void> _openWriteReview(BuildContext context) async {
     final authState = ref.read(authStateProvider);
     final isLoggedIn = authState.value?.session != null;
 
@@ -161,10 +169,14 @@ class _ProductReviewsSectionState
       return;
     }
 
-    // Check if already reviewed
-    final hasReviewed =
-        ref.read(hasUserReviewedProvider(widget.productId)).value ??
-            false;
+    // BUG FIX: await the real resolved value instead of trusting a
+    // possibly-null cached `.value`. Also show a lightweight loading
+    // state isn't strictly necessary here since this resolves fast
+    // once cached, but the await guarantees correctness on first tap.
+    final bool hasReviewed =
+        await ref.read(hasUserReviewedProvider(widget.productId).future);
+
+    if (!context.mounted) return;
 
     if (hasReviewed) {
       ScaffoldMessenger.of(context).showSnackBar(
@@ -437,8 +449,6 @@ const _MobileLayout({
     );
   }
 }
-
-// ── Rating summary panel ──────────────────────────────────────────
 
 // ── Rating summary panel ──────────────────────────────────────────
 
@@ -864,6 +874,13 @@ class _ReviewCardState extends ConsumerState<_ReviewCard> {
             ),
           ),
 
+          // ── Photo / video gallery ────────────────────────────
+          // BUG FIX: review.imageUrls was already on the model but
+          // never rendered anywhere on this card — this was the
+          // missing display step, separate from the upload/parse
+          // fixes made earlier.
+          _ReviewMediaRow(urls: review.imageUrls),
+
           // ── Reply thread ──────────────────────────────────
           if (replies.isNotEmpty) ...[
             const SizedBox(height: 12),
@@ -1036,6 +1053,230 @@ class _ReviewCardState extends ConsumerState<_ReviewCard> {
               ],
             ),
         ],
+      ),
+    );
+  }
+}
+
+// ── Media gallery (photos + videos) ──────────────────────────────
+
+bool _isVideoUrl(String url) {
+  final String lower = url.toLowerCase();
+  return lower.endsWith('.mp4') ||
+      lower.endsWith('.mov') ||
+      lower.endsWith('.m4v') ||
+      lower.endsWith('.webm') ||
+      lower.endsWith('.3gp');
+}
+
+class _ReviewMediaRow extends StatelessWidget {
+  final List<String> urls;
+  const _ReviewMediaRow({required this.urls});
+
+  @override
+  Widget build(BuildContext context) {
+    if (urls.isEmpty) return const SizedBox.shrink();
+
+    return Padding(
+      padding: const EdgeInsets.only(top: 12),
+      child: SizedBox(
+        height: 80,
+        child: ListView.separated(
+          scrollDirection: Axis.horizontal,
+          itemCount: urls.length,
+          separatorBuilder: (_, __) => const SizedBox(width: 8),
+          itemBuilder: (context, i) {
+            final String url = urls[i];
+            final bool isVideo = _isVideoUrl(url);
+
+            return GestureDetector(
+              onTap: () => showDialog(
+                context: context,
+                barrierColor: Colors.black,
+                builder: (_) =>
+                    _MediaViewerDialog(urls: urls, startIndex: i),
+              ),
+              child: Container(
+                width: 80,
+                height: 80,
+                color: const Color(0xFFEEEEEE),
+                child: isVideo
+                    // No lightweight way to grab a video's first frame
+                    // without an extra thumbnail-generation dependency
+                    // — a play icon in the grid is enough to signal
+                    // "tap to watch"; full playback happens in the
+                    // fullscreen viewer.
+                    ? const Center(
+                        child: Icon(Icons.play_circle_fill,
+                            color: Color(0xFF4C4546), size: 30),
+                      )
+                    : Image.network(
+                        url,
+                        fit: BoxFit.cover,
+                        errorBuilder: (_, __, ___) => const Icon(
+                          Icons.broken_image_outlined,
+                          color: Color(0xFFCFC4C5),
+                        ),
+                        loadingBuilder: (context, child, progress) {
+                          if (progress == null) return child;
+                          return const Center(
+                            child: SizedBox(
+                              width: 16,
+                              height: 16,
+                              child: CircularProgressIndicator(
+                                  strokeWidth: 2),
+                            ),
+                          );
+                        },
+                      ),
+              ),
+            );
+          },
+        ),
+      ),
+    );
+  }
+}
+
+// ── Fullscreen viewer — swipeable across all media in the review ──
+
+class _MediaViewerDialog extends StatefulWidget {
+  final List<String> urls;
+  final int startIndex;
+  const _MediaViewerDialog({required this.urls, required this.startIndex});
+
+  @override
+  State<_MediaViewerDialog> createState() => _MediaViewerDialogState();
+}
+
+class _MediaViewerDialogState extends State<_MediaViewerDialog> {
+  late final PageController _pageController =
+      PageController(initialPage: widget.startIndex);
+
+  @override
+  void dispose() {
+    _pageController.dispose();
+    super.dispose();
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    return Dialog.fullscreen(
+      backgroundColor: Colors.black,
+      child: Stack(
+        children: [
+          PageView.builder(
+            controller: _pageController,
+            itemCount: widget.urls.length,
+            itemBuilder: (context, i) {
+              final String url = widget.urls[i];
+              return _isVideoUrl(url)
+                  ? _InlineVideoPlayer(url: url)
+                  : InteractiveViewer(
+                      child: Center(
+                        child: Image.network(url, fit: BoxFit.contain),
+                      ),
+                    );
+            },
+          ),
+          Positioned(
+            top: 40,
+            right: 12,
+            child: IconButton(
+              icon: const Icon(Icons.close, color: Colors.white, size: 28),
+              onPressed: () => Navigator.of(context).pop(),
+            ),
+          ),
+        ],
+      ),
+    );
+  }
+}
+
+// ── Inline video player — used inside the fullscreen viewer ───────
+
+class _InlineVideoPlayer extends StatefulWidget {
+  final String url;
+  const _InlineVideoPlayer({required this.url});
+
+  @override
+  State<_InlineVideoPlayer> createState() => _InlineVideoPlayerState();
+}
+
+class _InlineVideoPlayerState extends State<_InlineVideoPlayer> {
+  late final VideoPlayerController _controller;
+  bool _initialized = false;
+  bool _failed = false;
+
+  @override
+  void initState() {
+    super.initState();
+    _controller = VideoPlayerController.networkUrl(Uri.parse(widget.url))
+      ..initialize().then((_) {
+        if (!mounted) return;
+        setState(() => _initialized = true);
+        _controller.play();
+      }).catchError((_) {
+        if (!mounted) return;
+        setState(() => _failed = true);
+      });
+  }
+
+  @override
+  void dispose() {
+    _controller.dispose();
+    super.dispose();
+  }
+
+  void _togglePlay() {
+    setState(() {
+      _controller.value.isPlaying ? _controller.pause() : _controller.play();
+    });
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    if (_failed) {
+      return const Center(
+        child: Text(
+          'Could not play this video.',
+          style: TextStyle(color: Colors.white70, fontFamily: 'Inter'),
+        ),
+      );
+    }
+    if (!_initialized) {
+      return const Center(
+        child: CircularProgressIndicator(color: Colors.white),
+      );
+    }
+    return Center(
+      child: GestureDetector(
+        onTap: _togglePlay,
+        child: AspectRatio(
+          aspectRatio: _controller.value.aspectRatio,
+          child: Stack(
+            alignment: Alignment.center,
+            children: [
+              VideoPlayer(_controller),
+              if (!_controller.value.isPlaying)
+                const Icon(Icons.play_circle_fill,
+                    color: Colors.white70, size: 64),
+              Positioned(
+                left: 0,
+                right: 0,
+                bottom: 0,
+                child: VideoProgressIndicator(
+                  _controller,
+                  allowScrubbing: true,
+                  colors: const VideoProgressColors(
+                    playedColor: Colors.white,
+                    backgroundColor: Colors.white24,
+                  ),
+                ),
+              ),
+            ],
+          ),
+        ),
       ),
     );
   }

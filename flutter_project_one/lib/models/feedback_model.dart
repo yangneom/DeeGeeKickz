@@ -6,6 +6,14 @@
 // FeedbackModel is a thin view on the same row, adding
 // admin-specific helpers (badge colours, label text, etc.)
 // so the Admin UI does not need to import ReviewModel directly.
+//
+// BUG FIX this round:
+//   toAdminMap() never included imageUrls — so even after
+//   review_model.dart was fixed to parse image_urls back from
+//   Supabase, that data was dropped right here before it ever
+//   reached the admin dialog. Photos/videos were correctly stored
+//   and correctly parsed onto ReviewModel, but the admin-facing
+//   map simply never carried them forward.
 // ================================================
 
 import 'review_model.dart';
@@ -30,6 +38,9 @@ class FeedbackModel {
       '${review.createdAt.year.toString().substring(2)}';
   String? get adminReply  => review.adminReply;
   List<FeedbackReply> get replies => review.replies;
+  // BUG FIX: was missing entirely — this is what toAdminMap() needed
+  // to actually carry photo/video URLs through to the admin UI.
+  List<String> get imageUrls => review.imageUrls;
 
   // ── Factory: build from Supabase row ─────────────────────────
   factory FeedbackModel.fromSupabase(Map<String, dynamic> row) {
@@ -48,6 +59,9 @@ class FeedbackModel {
       'status':          status,
       'adminReply':      adminReply ?? '',
       'replies':         replies,
+      // BUG FIX: this key was missing — feedback_details_dialog.dart
+      // now reads it to render the photo/video gallery.
+      'imageUrls':       imageUrls,
       // keep original model accessible for service calls
       '_feedbackId':     id,
     };

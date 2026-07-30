@@ -206,13 +206,16 @@ return orderId;
     final double total    = subtotal + shipping;
 
 
-    if (items.isEmpty) {
-      return Scaffold(
-        appBar: const AppTopBar(activeRoute: 'shop'),
-        drawer: const AppDrawer(),
-        body: const Center(
-          child: Text('Your cart is empty.'),
-        ),
+   if (items.isEmpty) {
+      // Safety net only — CartSummaryCard now blocks navigation here
+      // with a snackbar before this screen is ever reached normally.
+      // This just covers edge cases like the cart emptying in another
+      // tab while this screen is already open.
+      WidgetsBinding.instance.addPostFrameCallback((_) {
+        if (mounted) Navigator.of(context).pop();
+      });
+      return const Scaffold(
+        body: Center(child: CircularProgressIndicator()),
       );
     }
 

@@ -33,10 +33,14 @@ class WriteReviewScreen extends ConsumerWidget {
         ? '${title.trim()}\n\n${body.trim()}'
         : body.trim();
 
+    // BUG FIX: photos was previously dropped here — submit() didn't
+    // even accept a photos param. It now does (see review_providers.dart),
+    // and uploads them to Storage before the review row is inserted.
     await ref.read(reviewSubmitProvider.notifier).submit(
           productId: productId,
           rating: rating,
           reviewText: reviewText,
+          photos: photos,
         );
 
     final state = ref.read(reviewSubmitProvider);
