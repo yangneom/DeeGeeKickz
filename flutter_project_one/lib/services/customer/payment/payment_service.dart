@@ -143,6 +143,22 @@ class PaymentService {
   // ================================================
   Future<void> approvePayment({required int orderId}) async {
     try {
+      // Guard against double-tap/retry races — re-read the order's
+      // current status before touching stock. Without this, two
+      // concurrent approvePayment calls for the same order can both
+      // pass stock validation and both deduct stock_quantity.
+      final Map<String, dynamic>? orderRow = await _supabase
+          .from('orders')
+          .select('order_status')
+          .eq('order_id', orderId)
+          .maybeSingle();
+
+      if (orderRow?['order_status'] != 'Pending') {
+        throw Exception(
+          'This order is no longer Pending — refresh before retrying.',
+        );
+      }
+
       // Commit stock FIRST — if this throws (insufficient
       // stock), nothing below runs, so payment/order status
       // stay untouched and the order remains at Pending.
@@ -217,6 +233,21 @@ class PaymentService {
     required String reason,
   }) async {
     try {
+      // Guard against rejecting an order that's already moved past
+      // Pending (e.g. a stale dialog, or a race with an admin who
+      // just approved it from another tab).
+      final Map<String, dynamic>? orderRow = await _supabase
+          .from('orders')
+          .select('order_status')
+          .eq('order_id', orderId)
+          .maybeSingle();
+
+      if (orderRow?['order_status'] != 'Pending') {
+        throw Exception(
+          'This order is no longer Pending — refresh before retrying.',
+        );
+      }
+
       final String adminId = _supabase.auth.currentUser!.id;
 
       // 1. Release the stock reservation — this order
@@ -408,6 +439,14 @@ Future<void> cancelOrder({
         // never stays stuck at 'Verified'/'Paid' for a cancelled order.
         await _supabase.from('payment').update({
           'payment_status': refundSucceeded ? 'Refunded' : 'Refund Failed',
+        }).eq('order_id', orderId);
+      } else {
+        // No money was ever collected (e.g. COD cancelled before
+        // delivery), so there's nothing to refund — but the payment
+        // row should still reflect that this order is closed, instead
+        // of staying stuck at 'Pending' forever next to a Cancelled order.
+        await _supabase.from('payment').update({
+          'payment_status': 'Cancelled',
         }).eq('order_id', orderId);
       }
     } catch (e) {

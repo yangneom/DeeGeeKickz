@@ -39,7 +39,6 @@ class _LoginFormState extends ConsumerState<LoginForm> {
   final TextEditingController _passwordController = TextEditingController();
 
   bool _isPasswordVisible = false;
-  bool _rememberMe = false;
 
   final GlobalKey<FormState> _formKey = GlobalKey<FormState>();
 
@@ -120,6 +119,60 @@ class _LoginFormState extends ConsumerState<LoginForm> {
 
       ref.read(isLoadingProvider.notifier).setLoading(false);
 
+    }
+  }
+
+  // ================================================
+  // BUILD
+  // ================================================
+  // ================================================
+  // FORGOT PASSWORD
+  // ================================================
+  Future<void> _handleForgotPassword() async {
+    final TextEditingController resetEmailController =
+        TextEditingController(text: _emailController.text);
+
+    final String? email = await showDialog<String>(
+      context: context,
+      builder: (dialogContext) {
+        return AlertDialog(
+          title: const Text('Reset Password'),
+          content: TextField(
+            controller: resetEmailController,
+            keyboardType: TextInputType.emailAddress,
+            decoration: const InputDecoration(
+              hintText: 'Enter your account email',
+            ),
+          ),
+          actions: [
+            TextButton(
+              onPressed: () => Navigator.of(dialogContext).pop(),
+              child: const Text('Cancel'),
+            ),
+            TextButton(
+              onPressed: () => Navigator.of(dialogContext).pop(resetEmailController.text.trim()),
+              child: const Text('Send Reset Link'),
+            ),
+          ],
+        );
+      },
+    );
+
+    if (email == null || email.isEmpty || !mounted) return;
+
+    try {
+      await ref.read(authServiceProvider).sendPasswordResetEmail(email);
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(content: Text('If an account exists for $email, a reset link has been sent.')),
+        );
+      }
+    } catch (e) {
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          const SnackBar(content: Text('Something went wrong. Please try again.')),
+        );
+      }
     }
   }
 
@@ -275,39 +328,20 @@ class _LoginFormState extends ConsumerState<LoginForm> {
             const SizedBox(height: 12),
 
             // ── REMEMBER ME + FORGOT PASSWORD ──
-            Row(
-              mainAxisAlignment: MainAxisAlignment.spaceBetween,
-              children: [
-                Row(
-                  children: [
-                    Checkbox(
-                      value: _rememberMe,
-                      onChanged: (bool? value) {
-                        setState(() {
-                          _rememberMe = value ?? false;
-                        });
-                      },
-                    ),
-                    const Text(
-                      'Remember Me',
-                      style: TextStyle(fontSize: 13),
-                    ),
-                  ],
-                ),
-                GestureDetector(
-                  onTap: () {
-                    // TODO: Navigate to forgot password screen
-                  },
-                  child: const Text(
-                    'Forgot Password?',
-                    style: TextStyle(
-                      fontSize: 13,
-                      color: Colors.black,
-                      fontWeight: FontWeight.w500,
-                    ),
+            // ── FORGOT PASSWORD ──
+            Align(
+              alignment: Alignment.centerRight,
+              child: GestureDetector(
+                onTap: _handleForgotPassword,
+                child: const Text(
+                  'Forgot Password?',
+                  style: TextStyle(
+                    fontSize: 13,
+                    color: Colors.black,
+                    fontWeight: FontWeight.w500,
                   ),
                 ),
-              ],
+              ),
             ),
 
             const SizedBox(height: 16),

@@ -12,6 +12,12 @@ import 'package:flutter_project_one/services/admin/inventory/inventory_service.d
 // ================================================
 // SHOW EDIT PRODUCT DIALOG
 // ================================================
+class _ImageUploadResult {
+  final List<String> urls;
+  final List<String> failedFileNames;
+  _ImageUploadResult({required this.urls, required this.failedFileNames});
+}
+
 Future<void> showEditProductDialog(
   BuildContext context, {
   required Product product,
@@ -365,12 +371,13 @@ class _EditProductDialogState extends ConsumerState<EditProductDialog> {
   // ================================================
   // UPLOAD NEW IMAGES
   // ================================================
-  Future<List<String>> _uploadImages(
+  Future<_ImageUploadResult> _uploadImages(
     int variantId,
     List<PlatformFile> files,
     int existingImageCount,
   ) async {
     final List<String> urls = [];
+    final List<String> failedFileNames = [];
 
     for (int i = 0; i < files.length; i++) {
       final PlatformFile file = files[i];
@@ -384,7 +391,10 @@ class _EditProductDialogState extends ConsumerState<EditProductDialog> {
         if (bytes == null && file.path != null) {
           bytes = await File(file.path!).readAsBytes();
         }
-        if (bytes == null) continue;
+        if (bytes == null) {
+          failedFileNames.add(file.name);
+          continue;
+        }
 
         await _supabase.storage
             .from('product-images')
@@ -397,11 +407,11 @@ class _EditProductDialogState extends ConsumerState<EditProductDialog> {
         urls.add(publicUrl);
       } catch (error) {
         print('_uploadImages: failed ${file.name}: $error');
+        failedFileNames.add(file.name);
       }
     }
-    return urls;
+    return _ImageUploadResult(urls: urls, failedFileNames: failedFileNames);
   }
-
   // ================================================
   // VARIANT MANAGEMENT
   // ================================================
@@ -564,44 +574,65 @@ class _EditProductDialogState extends ConsumerState<EditProductDialog> {
       // ── Upload new images ──
       // Use the variantId we already know — no "newest variant"
       // query needed. (fix #6)
-      for (int i = 0; i < _variants.length; i++) {
-        final VariantData v = _variants[i];
-        if (v.pickedImageFiles.isEmpty) continue;
+      // ── Upload new images ──
+      // Now isolated in its own try/catch — previously an image
+      // failure here fell through to the outer catch and showed
+      // "Failed to save product", even though the product update
+      // above had already succeeded (fix #11).
+      final List<String> allFailedFileNames = [];
+      try {
+        for (int i = 0; i < _variants.length; i++) {
+          final VariantData v = _variants[i];
+          if (v.pickedImageFiles.isEmpty) continue;
 
-        // variantId must be non-null here; service guarantees
-        // existing variants keep their id, new ones get one.
-        // We need the resolved id for new variants — so the
-        // service must return them. See note below.
-        final int? variantId = v.variantId;
-        if (variantId == null) continue; // safety guard
+          final int? variantId = v.variantId;
+          if (variantId == null) continue;
 
-        final List<String> imageUrls = await _uploadImages(
-          variantId,
-          v.pickedImageFiles,
-          v.existingImages.length,
-        );
+          final uploadResult = await _uploadImages(
+            variantId,
+            v.pickedImageFiles,
+            v.existingImages.length,
+          );
+          allFailedFileNames.addAll(uploadResult.failedFileNames);
 
-        // First uploaded image is primary only if no existing images
-        for (int j = 0; j < imageUrls.length; j++) {
-          await _supabase.from('product_image').insert({
-            'variant_id': variantId,
-            'image_url': imageUrls[j],
-            'is_primary':
-                v.existingImages.isEmpty && j == 0,
-          });
+          for (int j = 0; j < uploadResult.urls.length; j++) {
+            await _supabase.from('product_image').insert({
+              'variant_id': variantId,
+              'image_url': uploadResult.urls[j],
+              'is_primary':
+                  v.existingImages.isEmpty && j == 0,
+            });
+          }
         }
+      } catch (imageError) {
+        print('Image upload error: $imageError');
+        allFailedFileNames.add('(one or more images)');
       }
 
       widget.onProductUpdated();
 
       if (mounted) {
         Navigator.pop(context);
-        ScaffoldMessenger.of(context).showSnackBar(
-          const SnackBar(
-            content: Text('Product updated successfully!'),
-            backgroundColor: Color(0xFF16A34A),
-          ),
-        );
+
+        if (allFailedFileNames.isNotEmpty) {
+          ScaffoldMessenger.of(context).showSnackBar(
+            SnackBar(
+              content: Text(
+                'Product updated, but some image(s) failed to upload. '
+                'You can try adding them again from Edit Product.',
+              ),
+              backgroundColor: Colors.orange,
+              duration: const Duration(seconds: 5),
+            ),
+          );
+        } else {
+          ScaffoldMessenger.of(context).showSnackBar(
+            const SnackBar(
+              content: Text('Product updated successfully!'),
+              backgroundColor: Color(0xFF16A34A),
+            ),
+          );
+        }
       }
     } catch (error) {
       print('_saveProduct error: $error');

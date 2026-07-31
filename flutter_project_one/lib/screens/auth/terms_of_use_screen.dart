@@ -1,166 +1,177 @@
-// ============================================================================
-// terms_of_use_screen.dart
-//
-// This is the sibling screen to privacy_policy_screen.dart. It shows the
-// Terms of Use for DeeGeeKickz and gets pushed onto the navigation stack
-// when the user taps "Terms of Use" on the sign-up screen.
-//
-// It follows the exact same structure as PrivacyPolicyScreen on purpose --
-// once you understand one of these two files, you already understand the
-// other. Keeping the pattern identical makes the code easier to maintain.
-// ============================================================================
-
 import 'package:flutter/material.dart';
 
 class TermsOfUseScreen extends StatelessWidget {
   const TermsOfUseScreen({super.key});
 
+  static const String _lastUpdated = 'July 31, 2026';
+
+  static const List<_TermsSection> _sections = [
+    _TermsSection(
+      'Accepting These Terms',
+      'By creating an account or using the DeeGeeKickz app, you agree '
+          'to these Terms of Use. If you don\'t agree, please don\'t use '
+          'the app.',
+    ),
+    _TermsSection(
+      'Creating an Account',
+      'To place an order, you\'ll need to create an account with '
+          'accurate information — your name, email, and phone number. '
+          'Keep your password to yourself, and you\'re responsible for '
+          'anything that happens under your account.',
+    ),
+    _TermsSection(
+      'Orders and Payment',
+      'Orders depend on what\'s in stock. Prices shown at checkout may '
+          'change without notice. Payments are processed securely '
+          'through our payment partner, and placing an order means '
+          'you\'re authorizing that charge.',
+    ),
+    _TermsSection(
+      'Cancellations and Returns',
+      'You can cancel an order before it\'s shipped. Returns and '
+          'exchanges follow the return window and conditions shown in '
+          'the app or shared by our support team.',
+    ),
+    _TermsSection(
+      'Reserved Stock',
+      'When you place an order, we hold that item for you while your '
+          'order is being processed. If payment isn\'t completed in '
+          'time, the item may become available to other customers '
+          'again.',
+    ),
+    _TermsSection(
+      'Using the App Responsibly',
+      'Please don\'t misuse the app — this includes trying to access '
+          'accounts or data that aren\'t yours, or interfering with how '
+          'the app normally works.',
+    ),
+    _TermsSection(
+      'Account Suspension',
+      'We may disable or suspend accounts that violate these terms or '
+          'are involved in fraudulent or abusive activity.',
+    ),
+    _TermsSection(
+      'No Warranties',
+      'DeeGeeKickz is a student thesis project, provided as-is without '
+          'warranties. We\'re not liable for indirect or incidental '
+          'damages from using the app.',
+    ),
+    _TermsSection(
+      'Changes to These Terms',
+      'We may update these Terms of Use from time to time. Continuing '
+          'to use the app after changes are posted means you accept the '
+          'updated terms.',
+    ),
+    _TermsSection(
+      'Contact Us',
+      'Questions about these Terms of Use? Reach out to us through the '
+          'Support section of the app.',
+    ),
+  ];
+
   @override
   Widget build(BuildContext context) {
     return Scaffold(
-      appBar: AppBar(
-        title: const Text('Terms of Use'),
-        elevation: 0,
-        backgroundColor: Colors.white,
-        foregroundColor: Colors.black,
-      ),
       backgroundColor: Colors.white,
       body: SafeArea(
         child: SingleChildScrollView(
-          padding: const EdgeInsets.all(24.0),
-          child: Column(
-            crossAxisAlignment: CrossAxisAlignment.start,
-            children: [
-              const Text(
-                'DeeGeeKickz Terms of Use',
-                style: TextStyle(
-                  fontSize: 22,
-                  fontWeight: FontWeight.bold,
+          child: Center(
+            child: ConstrainedBox(
+              constraints: const BoxConstraints(maxWidth: 640),
+              child: Padding(
+                padding: const EdgeInsets.fromLTRB(24, 40, 24, 56),
+                child: Column(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    GestureDetector(
+                      onTap: () => Navigator.of(context).pop(),
+                      child: Row(
+                        children: const [
+                          Icon(Icons.arrow_back, size: 18, color: Color(0xFF6B7280)),
+                          SizedBox(width: 6),
+                          Text(
+                            'Back',
+                            style: TextStyle(
+                              fontSize: 13,
+                              fontWeight: FontWeight.w500,
+                              color: Color(0xFF6B7280),
+                            ),
+                          ),
+                        ],
+                      ),
+                    ),
+                    const SizedBox(height: 24),
+                    const Text(
+                      'Terms of Use',
+                      style: TextStyle(
+                        fontSize: 28,
+                        fontWeight: FontWeight.bold,
+                        color: Colors.black,
+                      ),
+                    ),
+                    const SizedBox(height: 6),
+                    const Text(
+                      'Last updated $_lastUpdated',
+                      style: TextStyle(fontSize: 13, color: Color(0xFF9CA3AF)),
+                    ),
+                    const SizedBox(height: 28),
+                    ...List.generate(
+                      _sections.length,
+                      (i) => _SectionBox(section: _sections[i]),
+                    ),
+                  ],
                 ),
               ),
-              const SizedBox(height: 8),
-              Text(
-                'Last updated: ${_lastUpdated()}',
-                style: const TextStyle(
-                  fontSize: 13,
-                  color: Colors.grey,
-                ),
-              ),
-              const SizedBox(height: 20),
-
-              _sectionTitle('1. Acceptance of Terms'),
-              _sectionBody(
-                'By creating an account or using the DeeGeeKickz app, you '
-                'agree to be bound by these Terms of Use. If you do not '
-                'agree to these terms, please do not use the app.',
-              ),
-
-              _sectionTitle('2. Account Registration'),
-              _sectionBody(
-                'To place an order, you must create an account with '
-                'accurate and complete information, including your name, '
-                'email address, and phone number. You are responsible for '
-                'keeping your password confidential and for all activity '
-                'that happens under your account.',
-              ),
-
-              _sectionTitle('3. Orders and Payment'),
-              _sectionBody(
-                'All orders placed through DeeGeeKickz are subject to '
-                'product availability. Prices are shown in the app at the '
-                'time of purchase and may change without prior notice. '
-                'Payments are processed securely through our payment '
-                'partner, PayMongo. Placing an order authorizes us to '
-                'charge the payment method you provide.',
-              ),
-
-              _sectionTitle('4. Order Cancellations and Returns'),
-              _sectionBody(
-                'Orders may be cancelled before they are marked as shipped, '
-                'subject to store policy. Returns or exchanges are handled '
-                'according to the return window and conditions communicated '
-                'in-app or by store staff at the time of purchase.',
-              ),
-
-              _sectionTitle('5. Reserved Stock'),
-              _sectionBody(
-                'When you place an online order, the corresponding stock '
-                'is temporarily reserved for you so it is not sold to '
-                'another customer while your order is being processed. '
-                'This reservation may be released if payment is not '
-                'completed within the required time frame.',
-              ),
-
-              _sectionTitle('6. User Conduct'),
-              _sectionBody(
-                'You agree not to misuse the app, including attempting to '
-                'access accounts, data, or systems that do not belong to '
-                'you, or interfering with the normal operation of the app.',
-              ),
-
-              _sectionTitle('7. Account Suspension'),
-              _sectionBody(
-                'We reserve the right to disable or archive accounts that '
-                'violate these Terms of Use or that are involved in '
-                'fraudulent or abusive activity.',
-              ),
-
-              _sectionTitle('8. Limitation of Liability'),
-              _sectionBody(
-                'DeeGeeKickz is provided on an "as is" basis. As a student '
-                'thesis project, the app and its services are provided '
-                'without warranties of any kind, and we are not liable for '
-                'indirect or incidental damages arising from your use of '
-                'the app.',
-              ),
-
-              _sectionTitle('9. Changes to These Terms'),
-              _sectionBody(
-                'We may update these Terms of Use from time to time. '
-                'Continued use of the app after changes are posted means '
-                'you accept the updated terms.',
-              ),
-
-              _sectionTitle('10. Contact Us'),
-              _sectionBody(
-                'If you have questions about these Terms of Use, please '
-                'reach out to us through the Support section of the app.',
-              ),
-
-              const SizedBox(height: 24),
-            ],
+            ),
           ),
         ),
       ),
     );
   }
+}
 
-  Widget _sectionTitle(String title) {
-    return Padding(
-      padding: const EdgeInsets.only(top: 16, bottom: 6),
-      child: Text(
-        title,
-        style: const TextStyle(
-          fontSize: 16,
-          fontWeight: FontWeight.bold,
-        ),
+class _TermsSection {
+  final String title;
+  final String body;
+  const _TermsSection(this.title, this.body);
+}
+
+class _SectionBox extends StatelessWidget {
+  final _TermsSection section;
+  const _SectionBox({required this.section});
+
+  @override
+  Widget build(BuildContext context) {
+    return Container(
+      width: double.infinity,
+      margin: const EdgeInsets.only(bottom: 14),
+      padding: const EdgeInsets.all(18),
+      decoration: BoxDecoration(
+        border: Border.all(color: const Color(0xFFD1D5DB)),
+        borderRadius: BorderRadius.circular(10),
+      ),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          Text(
+            section.title,
+            style: const TextStyle(
+              fontSize: 15,
+              fontWeight: FontWeight.w700,
+              color: Colors.black,
+            ),
+          ),
+          const SizedBox(height: 8),
+          Text(
+            section.body,
+            style: const TextStyle(
+              fontSize: 13,
+              height: 1.6,
+              color: Color(0xFF4B5563),
+            ),
+          ),
+        ],
       ),
     );
-  }
-
-  Widget _sectionBody(String body) {
-    return Text(
-      body,
-      style: const TextStyle(
-        fontSize: 14,
-        height: 1.5,
-        color: Colors.black87,
-      ),
-    );
-  }
-
-  String _lastUpdated() {
-    final now = DateTime.now();
-    return '${now.month}/${now.day}/${now.year}';
   }
 }

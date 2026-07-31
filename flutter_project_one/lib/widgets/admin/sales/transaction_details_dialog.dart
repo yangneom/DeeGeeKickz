@@ -5,7 +5,7 @@ import '../../../services/admin/sales/sales_management_service.dart';
 import '../../common/tables/common_table.dart';
 
 class TransactionDetailsDialog extends StatefulWidget {
-  final SaleRecord sale; // ← was Map<String,String>, now real data
+  final SaleRecord sale;
 
   const TransactionDetailsDialog({super.key, required this.sale});
 
@@ -26,7 +26,8 @@ class _TransactionDetailsDialogState extends State<TransactionDetailsDialog> {
   @override
   Widget build(BuildContext context) {
     final double screenHeight = MediaQuery.of(context).size.height;
-    final double screenWidth  = MediaQuery.of(context).size.width;
+    final double screenWidth = MediaQuery.of(context).size.width;
+    final bool isInStore = widget.sale.orderType == 'In-Store';
 
     return Dialog(
       insetPadding: EdgeInsets.zero,
@@ -56,49 +57,48 @@ class _TransactionDetailsDialogState extends State<TransactionDetailsDialog> {
               mainAxisSize: MainAxisSize.max,
               crossAxisAlignment: CrossAxisAlignment.start,
               children: [
-                // ── HEADER ──
+                // ── HEADER — title + subtitle + divider, matches
+                // Edit Product / Order Details convention ──
                 Padding(
                   padding: const EdgeInsets.fromLTRB(24, 24, 24, 0),
                   child: Column(
                     crossAxisAlignment: CrossAxisAlignment.start,
                     children: [
-                      const Text('TRANSACTION DETAILS',
-                          style: TextStyle(fontSize: 20, fontWeight: FontWeight.bold, color: Color(0xFF111827), letterSpacing: 1.0)),
-                      const SizedBox(height: 4),
-                      Text('Order #${widget.sale.orderId} · ${widget.sale.orderType == 'In-Store' ? 'In-Store' : 'Online'}',
-                          style: const TextStyle(fontSize: 13, color: Color(0xFF6B7280))),
-                      const SizedBox(height: 12),
                       Row(
+                        mainAxisAlignment: MainAxisAlignment.spaceBetween,
                         children: [
-                          const Icon(Icons.calendar_today_outlined, size: 14, color: Color(0xFF6B7280)),
-                          const SizedBox(width: 6),
-                          Text(widget.sale.dateTime, style: const TextStyle(fontSize: 13, color: Color(0xFF6B7280))),
+                          const Text(
+                            'Transaction Details',
+                            style: TextStyle(fontSize: 22, fontWeight: FontWeight.bold, color: Color(0xFF111827)),
+                          ),
+                          GestureDetector(
+                            onTap: () => Navigator.pop(context),
+                            child: const Icon(Icons.close, size: 22, color: Color(0xFF6B7280)),
+                          ),
                         ],
                       ),
-                      const SizedBox(height: 20),
+                      const SizedBox(height: 4),
+                      Text(
+                        'Order #${widget.sale.orderId} · ${isInStore ? 'In-Store' : 'Online'} · ${widget.sale.dateTime}',
+                        style: const TextStyle(fontSize: 13, color: Color(0xFF6B7280)),
+                      ),
+                      const SizedBox(height: 16),
                       const Divider(color: Color(0xFFE5E7EB), height: 1),
                     ],
                   ),
                 ),
 
-                // ── SCROLLABLE BODY ──
+                // ── SCROLLABLE BODY — one flat box per section,
+                // stacked full-width, matching Order Details ──
                 Expanded(
                   child: SingleChildScrollView(
-                    padding: const EdgeInsets.all(24),
+                    padding: const EdgeInsets.fromLTRB(24, 16, 24, 16),
                     child: Column(
                       crossAxisAlignment: CrossAxisAlignment.start,
                       children: [
-                        _buildItemsSection(items),
-                        const SizedBox(height: 32),
-                        Row(
-                          crossAxisAlignment: CrossAxisAlignment.start,
-                          children: [
-                            Expanded(child: _buildPaymentInfo(referenceNumber, paymentStatus, receiptUrl)),
-                            const SizedBox(width: 16),
-                            Expanded(child: _buildSummary()),
-                          ],
-                        ),
+                        _buildItemsAndSummarySection(items, isInStore),
                         const SizedBox(height: 16),
+                        _buildPaymentInfoSection(referenceNumber, paymentStatus, receiptUrl),
                       ],
                     ),
                   ),
@@ -107,7 +107,10 @@ class _TransactionDetailsDialogState extends State<TransactionDetailsDialog> {
                 // ── FOOTER ──
                 Container(
                   padding: const EdgeInsets.fromLTRB(24, 16, 24, 24),
-                  decoration: const BoxDecoration(color: Colors.white, border: Border(top: BorderSide(color: Color(0xFFE5E7EB)))),
+                  decoration: const BoxDecoration(
+                    color: Colors.white,
+                    border: Border(top: BorderSide(color: Color(0xFFE5E7EB))),
+                  ),
                   child: Row(
                     mainAxisAlignment: MainAxisAlignment.end,
                     children: [
@@ -132,8 +135,12 @@ class _TransactionDetailsDialogState extends State<TransactionDetailsDialog> {
     );
   }
 
-  // ── ITEMS TABLE — now real data from order_item ──
-  Widget _buildItemsSection(List<OrderItem> items) {
+  // ================================================
+  // ONE combined box: item table + subtotal/shipping/
+  // discount/total together, same as how Order Details
+  // keeps its item list and totals in a single box.
+  // ================================================
+  Widget _buildItemsAndSummarySection(List<OrderItem> items, bool isInStore) {
     List<List<Widget>> tableRows = items.map((item) {
       return [
         Text(item.productName, style: const TextStyle(fontSize: 13, color: Color(0xFF111827))),
@@ -145,153 +152,167 @@ class _TransactionDetailsDialogState extends State<TransactionDetailsDialog> {
       ];
     }).toList();
 
-    return Column(
-      crossAxisAlignment: CrossAxisAlignment.start,
-      children: [
-        const Text('Items Purchased', style: TextStyle(fontSize: 15, fontWeight: FontWeight.w600, color: Color(0xFF111827))),
-        const SizedBox(height: 12),
-        CommonTable(
-          headers: const ['Product Name', 'Brand', 'Size', 'Quantity', 'Unit Price', 'Total'],
-          rows: tableRows,
-        ),
-      ],
-    );
-  }
-
-  // ── PAYMENT INFO — now real data from payment table ──
-  Widget _buildPaymentInfo(String referenceNumber, String paymentStatus, String? receiptUrl) {
-    final bool isPaid = paymentStatus == 'Paid';
-
     return Container(
+      width: double.infinity,
       padding: const EdgeInsets.all(20),
-      decoration: BoxDecoration(color: const Color(0xFFF9FAFB), borderRadius: BorderRadius.circular(8), border: Border.all(color: const Color(0xFFE5E7EB))),
+      decoration: BoxDecoration(
+        color: const Color(0xFFF9FAFB),
+        borderRadius: BorderRadius.circular(8),
+        border: Border.all(color: const Color(0xFFE5E7EB)),
+      ),
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.start,
         children: [
-          const Text('Payment Information', style: TextStyle(fontSize: 15, fontWeight: FontWeight.w600, color: Color(0xFF111827))),
-          const SizedBox(height: 20),
-          _buildInfoRow(icon: Icons.credit_card_outlined, label: 'Payment Method', value: widget.sale.paymentMethod),
+          const Text('Order Details', style: TextStyle(fontSize: 15, fontWeight: FontWeight.w600, color: Color(0xFF111827))),
           const SizedBox(height: 16),
-          _buildInfoRow(icon: Icons.tag, label: 'Reference Number', value: referenceNumber.isNotEmpty ? referenceNumber : '—'),
+          CommonTable(
+            headers: const ['Product Name', 'Brand', 'Size', 'Quantity', 'Unit Price', 'Total'],
+            rows: tableRows,
+          ),
           const SizedBox(height: 16),
+          const Divider(color: Color(0xFFE5E7EB), height: 1),
+          const SizedBox(height: 16),
+          _buildSummaryRow('Subtotal', '₱${widget.sale.subtotal.toStringAsFixed(0)}'),
+          if (!isInStore) ...[
+            const SizedBox(height: 10),
+            _buildSummaryRow(
+              'Shipping',
+              widget.sale.shipping > 0 ? '₱${widget.sale.shipping.toStringAsFixed(0)}' : 'FREE',
+            ),
+          ],
+          if (widget.sale.discountAmount > 0) ...[
+            const SizedBox(height: 10),
+            _buildSummaryRow('Discount', '-₱${widget.sale.discountAmount.toStringAsFixed(0)}', valueColor: const Color(0xFF16A34A)),
+          ],
+          const SizedBox(height: 12),
+          const Divider(color: Color(0xFFE5E7EB), height: 1),
+          const SizedBox(height: 12),
           Row(
-            crossAxisAlignment: CrossAxisAlignment.start,
+            mainAxisAlignment: MainAxisAlignment.spaceBetween,
             children: [
-              const Icon(Icons.check_circle_outline, size: 16, color: Color(0xFF6B7280)),
-              const SizedBox(width: 12),
-              Column(
-                crossAxisAlignment: CrossAxisAlignment.start,
-                children: [
-                  const Text('Payment Status', style: TextStyle(fontSize: 12, color: Color(0xFF6B7280))),
-                  const SizedBox(height: 4),
-                  Container(
-                    padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 4),
-                    decoration: BoxDecoration(
-                      color: isPaid ? const Color(0xFFDCFCE7) : const Color(0xFFFEF3C7),
-                      borderRadius: BorderRadius.circular(20),
-                    ),
-                    child: Row(
-                      mainAxisSize: MainAxisSize.min,
-                      children: [
-                        Container(
-                          width: 6, height: 6,
-                          decoration: BoxDecoration(color: isPaid ? const Color(0xFF16A34A) : const Color(0xFF92400E), shape: BoxShape.circle),
-                        ),
-                        const SizedBox(width: 6),
-                        Text(paymentStatus,
-                            style: TextStyle(fontSize: 12, fontWeight: FontWeight.w500, color: isPaid ? const Color(0xFF16A34A) : const Color(0xFF92400E))),
-                      ],
-                    ),
-                  ),
-                ],
+              const Text('Total', style: TextStyle(fontSize: 15, fontWeight: FontWeight.w700, color: Color(0xFF111827))),
+              Text(
+                '₱${widget.sale.totalAmount.toStringAsFixed(0)}',
+                style: const TextStyle(fontSize: 18, fontWeight: FontWeight.bold, color: Color(0xFF2563EB)),
               ),
             ],
           ),
-          if (receiptUrl != null && receiptUrl.isNotEmpty) ...[
-            const SizedBox(height: 16),
-            GestureDetector(
-              onTap: () async {
-                final Uri uri = Uri.parse(receiptUrl);
-                if (await canLaunchUrl(uri)) await launchUrl(uri, mode: LaunchMode.externalApplication);
-              },
-              child: _buildInfoRow(icon: Icons.receipt_outlined, label: 'Receipt', value: 'View Receipt', isLink: true),
-            ),
-          ],
         ],
       ),
     );
   }
 
-  Widget _buildInfoRow({required IconData icon, required String label, required String value, bool isLink = false}) {
-    return Row(
-      crossAxisAlignment: CrossAxisAlignment.start,
-      children: [
-        Icon(icon, size: 16, color: const Color(0xFF6B7280)),
-        const SizedBox(width: 12),
-        Column(
-          crossAxisAlignment: CrossAxisAlignment.start,
-          children: [
-            Text(label, style: const TextStyle(fontSize: 12, color: Color(0xFF6B7280))),
-            const SizedBox(height: 2),
-            Text(value, style: TextStyle(fontSize: 13, fontWeight: FontWeight.w500, color: isLink ? const Color(0xFF2563EB) : const Color(0xFF111827))),
-          ],
-        ),
-      ],
-    );
-  }
-
-  // ── SUMMARY — now real subtotal/shipping/discount/total from the order ──
-  //
-  // UPDATE: added the Shipping row that was missing before. Without
-  // it, Subtotal - Discount visibly didn't equal Total for any order
-  // that had a real shipping fee baked into total_amount — the ₱10
-  // difference just looked like a math error with no explanation.
-  // Now: Subtotal + Shipping - Discount = Total, and every part of
-  // that is shown.
-  Widget _buildSummary() {
-    return Container(
-      padding: const EdgeInsets.all(20),
-      decoration: BoxDecoration(color: const Color(0xFFF9FAFB), borderRadius: BorderRadius.circular(8), border: Border.all(color: const Color(0xFFE5E7EB))),
-      child: Column(
-        crossAxisAlignment: CrossAxisAlignment.start,
-        children: [
-          const Text('Summary', style: TextStyle(fontSize: 15, fontWeight: FontWeight.w600, color: Color(0xFF111827))),
-          const SizedBox(height: 20),
-          _buildSummaryRow(label: 'Subtotal', value: '₱${widget.sale.subtotal.toStringAsFixed(0)}'),
-          const SizedBox(height: 12),
-          _buildSummaryRow(
-            label: 'Shipping',
-            value: widget.sale.shipping > 0 ? '₱${widget.sale.shipping.toStringAsFixed(0)}' : 'FREE',
-          ),
-          const SizedBox(height: 12),
-          const Divider(color: Color(0xFFE5E7EB)),
-          const SizedBox(height: 12),
-          _buildSummaryRow(label: 'Discount', value: '₱${widget.sale.discountAmount.toStringAsFixed(0)}', isDiscount: true),
-          const SizedBox(height: 16),
-          Container(
-            width: double.infinity,
-            padding: const EdgeInsets.all(16),
-            decoration: BoxDecoration(color: const Color(0xFFEFF6FF), borderRadius: BorderRadius.circular(8), border: Border.all(color: const Color(0xFFBFDBFE))),
-            child: Row(
-              mainAxisAlignment: MainAxisAlignment.spaceBetween,
-              children: [
-                const Text('Total Amount', style: TextStyle(fontSize: 14, fontWeight: FontWeight.w600, color: Color(0xFF111827))),
-                Text('₱${widget.sale.totalAmount.toStringAsFixed(0)}', style: const TextStyle(fontSize: 18, fontWeight: FontWeight.bold, color: Color(0xFF2563EB))),
-              ],
-            ),
-          ),
-        ],
-      ),
-    );
-  }
-
-  Widget _buildSummaryRow({required String label, required String value, bool isDiscount = false}) {
+  Widget _buildSummaryRow(String label, String value, {Color? valueColor}) {
     return Row(
       mainAxisAlignment: MainAxisAlignment.spaceBetween,
       children: [
         Text(label, style: const TextStyle(fontSize: 13, color: Color(0xFF6B7280))),
-        Text(isDiscount ? '-$value' : value,
-            style: TextStyle(fontSize: 13, fontWeight: FontWeight.w500, color: isDiscount ? const Color(0xFF16A34A) : const Color(0xFF111827))),
+        Text(value, style: TextStyle(fontSize: 13, fontWeight: FontWeight.w500, color: valueColor ?? const Color(0xFF111827))),
+      ],
+    );
+  }
+
+  // ================================================
+  // ONE box: Payment Information — plain label/value
+  // pairs in a 2-column grid, same pattern as Customer
+  // Information in Order Details.
+  // ================================================
+  Widget _buildPaymentInfoSection(String referenceNumber, String paymentStatus, String? receiptUrl) {
+    final bool isPaid = paymentStatus == 'Paid';
+
+    return Container(
+      width: double.infinity,
+      padding: const EdgeInsets.all(20),
+      decoration: BoxDecoration(
+        color: const Color(0xFFF9FAFB),
+        borderRadius: BorderRadius.circular(8),
+        border: Border.all(color: const Color(0xFFE5E7EB)),
+      ),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          const Text('Payment Information', style: TextStyle(fontSize: 15, fontWeight: FontWeight.w600, color: Color(0xFF111827))),
+          const SizedBox(height: 16),
+          Row(
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: [
+              Expanded(child: _buildLabelValue('Payment Method', widget.sale.paymentMethod)),
+              Expanded(child: _buildLabelValue('Reference Number', referenceNumber.isNotEmpty ? referenceNumber : '—')),
+            ],
+          ),
+          const SizedBox(height: 16),
+          Row(
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: [
+              Expanded(
+                child: Column(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    const Text('Payment Status', style: TextStyle(fontSize: 12, color: Color(0xFF6B7280))),
+                    const SizedBox(height: 6),
+                    Container(
+                      padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 4),
+                      decoration: BoxDecoration(
+                        color: isPaid ? const Color(0xFFDCFCE7) : const Color(0xFFFEF3C7),
+                        borderRadius: BorderRadius.circular(20),
+                      ),
+                      child: Row(
+                        mainAxisSize: MainAxisSize.min,
+                        children: [
+                          Container(
+                            width: 6,
+                            height: 6,
+                            decoration: BoxDecoration(
+                              color: isPaid ? const Color(0xFF16A34A) : const Color(0xFF92400E),
+                              shape: BoxShape.circle,
+                            ),
+                          ),
+                          const SizedBox(width: 6),
+                          Text(
+                            paymentStatus,
+                            style: TextStyle(
+                              fontSize: 12,
+                              fontWeight: FontWeight.w500,
+                              color: isPaid ? const Color(0xFF16A34A) : const Color(0xFF92400E),
+                            ),
+                          ),
+                        ],
+                      ),
+                    ),
+                  ],
+                ),
+              ),
+              if (receiptUrl != null && receiptUrl.isNotEmpty)
+                Expanded(
+                  child: GestureDetector(
+                    onTap: () async {
+                      final Uri uri = Uri.parse(receiptUrl);
+                      if (await canLaunchUrl(uri)) await launchUrl(uri, mode: LaunchMode.externalApplication);
+                    },
+                    child: _buildLabelValue('Receipt', 'View Receipt', isLink: true),
+                  ),
+                ),
+            ],
+          ),
+        ],
+      ),
+    );
+  }
+
+  Widget _buildLabelValue(String label, String value, {bool isLink = false}) {
+    return Column(
+      crossAxisAlignment: CrossAxisAlignment.start,
+      children: [
+        Text(label, style: const TextStyle(fontSize: 12, color: Color(0xFF6B7280))),
+        const SizedBox(height: 4),
+        Text(
+          value,
+          style: TextStyle(
+            fontSize: 13,
+            fontWeight: FontWeight.w500,
+            color: isLink ? const Color(0xFF2563EB) : const Color(0xFF111827),
+          ),
+        ),
       ],
     );
   }

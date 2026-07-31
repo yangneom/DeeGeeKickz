@@ -221,6 +221,19 @@ class _EmptyState extends StatelessWidget {
               color: Color(0xFFCFC4C5),
             ),
           ),
+          if (filter == 'All') ...[
+            const SizedBox(height: 12),
+            const Text(
+              'If you just paid via GCash or Card, your order will '
+              'appear here shortly once payment is confirmed.',
+              textAlign: TextAlign.center,
+              style: TextStyle(
+                fontFamily: 'Inter',
+                fontSize: 12,
+                color: Color(0xFF9CA3AF),
+              ),
+            ),
+          ],
         ],
       ),
     );

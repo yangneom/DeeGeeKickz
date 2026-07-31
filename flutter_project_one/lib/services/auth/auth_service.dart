@@ -206,11 +206,22 @@ class AuthService {
   }
 
   // ── LOGOUT ──
+  // ── SEND PASSWORD RESET EMAIL ──
+  Future<void> sendPasswordResetEmail(String email) async {
+    try {
+      await _supabase.auth.resetPasswordForEmail(email.trim());
+      print('Password reset email sent to $email');
+    } catch (error) {
+      print('sendPasswordResetEmail error: $error');
+      rethrow;
+    }
+  }
+
+  // ── LOGOUT ──
   Future<void> logout() async {
     await _supabase.auth.signOut();
     print('User logged out');
   }
-
   // ── GET USER PROFILE ──
   Future<Map<String, dynamic>?> getUserProfile() async {
     try {

@@ -79,7 +79,17 @@ class _OtpVerificationScreenState extends ConsumerState<OtpVerificationScreen> {
       }
 
       // Email verified — NOW send the phone OTP, not before
-      await smsService.sendOtp(pending.phone);
+      // Email verified — NOW send the phone OTP, not before
+      final bool smsSent = await smsService.sendOtp(pending.phone);
+
+      if (!smsSent) {
+        setState(() {
+          _isLoading = false;
+          _errorMessage = 'We couldn\'t send a code to that phone number. '
+              'Please check the number is correct, or try resending.';
+        });
+        return;
+      }
 
       setState(() {
         _isLoading = false;
@@ -143,7 +153,11 @@ class _OtpVerificationScreenState extends ConsumerState<OtpVerificationScreen> {
         return;
       }
     } else {
-      await ref.read(iprogSmsServiceProvider).sendOtp(pending.phone);
+      final bool smsSent = await ref.read(iprogSmsServiceProvider).sendOtp(pending.phone);
+      if (!smsSent) {
+        setState(() => _errorMessage = 'We couldn\'t resend the code. Please check your phone number.');
+        return;
+      }
     }
 
     _startTimer();
@@ -203,7 +217,7 @@ class _OtpVerificationScreenState extends ConsumerState<OtpVerificationScreen> {
               TextFormField(
                 controller: _codeController,
                 keyboardType: TextInputType.number,
-                maxLength: 10,
+                maxLength: 6,
                 decoration: InputDecoration(
                   hintText: '6-digit code',
                   counterText: '',

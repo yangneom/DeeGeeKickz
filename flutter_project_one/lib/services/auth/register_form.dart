@@ -585,11 +585,11 @@ class _RegisterFormState extends ConsumerState<RegisterForm> {
                           ),
                         ),
                         const SizedBox(height: 8),
-                        TextFormField(
+                       TextFormField(
                           controller: _phoneController,
                           keyboardType: TextInputType.phone,
                           decoration: InputDecoration(
-                            hintText: 'Enter your Phone Number',
+                            hintText: 'e.g. 09171234567',
                             border: OutlineInputBorder(
                               borderRadius: BorderRadius.circular(8),
                             ),
@@ -602,6 +602,11 @@ class _RegisterFormState extends ConsumerState<RegisterForm> {
                             if (value == null || value.isEmpty) {
                               return 'Please enter your phone number';
                             }
+                            final String cleaned = value.trim();
+                            final RegExp phRegex = RegExp(r'^(09\d{9}|\+639\d{9})$');
+                            if (!phRegex.hasMatch(cleaned)) {
+                              return 'Enter a valid PH number (e.g. 09171234567)';
+                            }
                             return null;
                           },
                         ),
@@ -610,6 +615,8 @@ class _RegisterFormState extends ConsumerState<RegisterForm> {
                   ),
 
                   const SizedBox(width: 16),
+
+                  // Confirm Password
 
                   // Confirm Password
                   Expanded(
@@ -685,7 +692,7 @@ class _RegisterFormState extends ConsumerState<RegisterForm> {
                     controller: _phoneController,
                     keyboardType: TextInputType.phone,
                     decoration: InputDecoration(
-                      hintText: 'Enter your Phone Number',
+                      hintText: 'e.g. 09171234567',
                       border: OutlineInputBorder(
                         borderRadius: BorderRadius.circular(8),
                       ),
@@ -697,6 +704,11 @@ class _RegisterFormState extends ConsumerState<RegisterForm> {
                     validator: (String? value) {
                       if (value == null || value.isEmpty) {
                         return 'Please enter your phone number';
+                      }
+                      final String cleaned = value.trim();
+                      final RegExp phRegex = RegExp(r'^(09\d{9}|\+639\d{9})$');
+                      if (!phRegex.hasMatch(cleaned)) {
+                        return 'Enter a valid PH number (e.g. 09171234567)';
                       }
                       return null;
                     },

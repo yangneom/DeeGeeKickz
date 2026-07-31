@@ -41,7 +41,6 @@ class OrderDetailsDialog extends StatefulWidget {
 class _OrderDetailsDialogState extends State<OrderDetailsDialog> {
 
   final OrderManagementService _orderService          = OrderManagementService();
-  final TextEditingController  _adminNoteController   = TextEditingController();
   final TextEditingController  _lalamoveLinkController = TextEditingController();
 
   late String _currentStatus;
@@ -96,7 +95,6 @@ class _OrderDetailsDialogState extends State<OrderDetailsDialog> {
 
   @override
   void dispose() {
-    _adminNoteController.dispose();
     _lalamoveLinkController.dispose();
     super.dispose();
   }
@@ -696,47 +694,6 @@ class _OrderDetailsDialogState extends State<OrderDetailsDialog> {
     return Row(
       crossAxisAlignment: CrossAxisAlignment.start,
       children: [
-        // Admin Note
-        Expanded(
-          child: Column(
-            crossAxisAlignment: CrossAxisAlignment.start,
-            children: [
-              const Text(
-                'Admin Note',
-                style: TextStyle(
-                  fontSize:   13,
-                  fontWeight: FontWeight.w600,
-                  color:      Color(0xFF374151),
-                ),
-              ),
-              const SizedBox(height: 8),
-              TextField(
-                controller: _adminNoteController,
-                maxLines:   4,
-                decoration: InputDecoration(
-                  hintText:  'e.g., Your order will be shipped tomorrow',
-                  hintStyle: const TextStyle(fontSize: 12, color: Color(0xFF9CA3AF)),
-                  border: OutlineInputBorder(
-                    borderRadius: BorderRadius.circular(8),
-                    borderSide: const BorderSide(color: Color(0xFFE5E7EB)),
-                  ),
-                  enabledBorder: OutlineInputBorder(
-                    borderRadius: BorderRadius.circular(8),
-                    borderSide: const BorderSide(color: Color(0xFFE5E7EB)),
-                  ),
-                  focusedBorder: OutlineInputBorder(
-                    borderRadius: BorderRadius.circular(8),
-                    borderSide: const BorderSide(color: Color(0xFF2563EB)),
-                  ),
-                  contentPadding: const EdgeInsets.all(12),
-                ),
-              ),
-            ],
-          ),
-        ),
-
-        const SizedBox(width: 16),
-
         // Lalamove link — now a fallback/manual-override field
         Expanded(
           child: Column(
@@ -985,7 +942,7 @@ class _OrderDetailsDialogState extends State<OrderDetailsDialog> {
               await _orderService.updateOrderStatus(
                 orderId:   int.parse(widget.order.orderId),
                 status:    'Preparing',
-                adminNote: _adminNoteController.text,
+                adminNote: null,
               );
               if (mounted) {
                 setState(() => _currentStatus = 'Preparing');
@@ -1027,7 +984,6 @@ class _OrderDetailsDialogState extends State<OrderDetailsDialog> {
                    try {
                       final LalamoveOrderResult result = await _orderService.markAsShipped(
                         order: widget.order,
-                        adminNote: _adminNoteController.text,
                       );
 
                       if (mounted) {
@@ -1081,7 +1037,7 @@ class _OrderDetailsDialogState extends State<OrderDetailsDialog> {
                       await _orderService.updateOrderStatus(
                         orderId:     int.parse(widget.order.orderId),
                         status:      'Shipped',
-                        adminNote:   _adminNoteController.text,
+                        adminNote:   null,
                         trackingUrl: link,
                       );
 
@@ -1155,7 +1111,7 @@ class _OrderDetailsDialogState extends State<OrderDetailsDialog> {
               await _orderService.updateOrderStatus(
                 orderId:   int.parse(widget.order.orderId),
                 status:    'Completed',
-                adminNote: _adminNoteController.text,
+                adminNote: null,
               );
 
               final String resultingPaymentStatus =

@@ -1,188 +1,168 @@
-// ============================================================================
-// privacy_policy_screen.dart
-//
-// This is a simple, static screen that displays the Privacy Policy for the
-// DeeGeeKickz shoe store app. It gets pushed onto the navigation stack
-// whenever the user taps the "Privacy Policy" link on the sign-up screen.
-//
-// WHY StatelessWidget?
-// This screen doesn't need to change anything while it's on screen (no
-// setState(), no user input, no timers) -- it just shows text. So we use
-// StatelessWidget instead of StatefulWidget. StatefulWidget is only needed
-// when a widget has to "remember" and update its own data over time.
-// ============================================================================
-
 import 'package:flutter/material.dart';
 
 class PrivacyPolicyScreen extends StatelessWidget {
-  // "const" constructor -- this tells Flutter that this widget never
-  // changes its own properties, so Flutter can reuse the same instance
-  // instead of rebuilding it, which is a small performance optimization.
   const PrivacyPolicyScreen({super.key});
+
+  static const String _lastUpdated = 'July 31, 2026';
+
+  static const List<_PolicySection> _sections = [
+    _PolicySection(
+      'Information We Collect',
+      'When you create an account, we collect basic details like your '
+          'name, email, and phone number. When you place an order, we '
+          'also collect your shipping address and payment confirmation. '
+          'We never store your full card number or CVV — that\'s handled '
+          'securely by our payment partner.',
+    ),
+    _PolicySection(
+      'How We Use Your Information',
+      'We use your information to create your account, process and '
+          'deliver your orders, send you updates (like "Order Confirmed" '
+          'or "Order Shipped"), respond to your support requests, and '
+          'improve your shopping experience.',
+    ),
+    _PolicySection(
+      'How We Share Your Information',
+      'We do not sell your personal information to anyone. We only '
+          'share limited information with trusted partners who help us '
+          'run the app and process payments — never for advertising.',
+    ),
+    _PolicySection(
+      'Keeping Your Data Safe',
+      'Your account information is stored securely, with access limits '
+          'in place so only the right people (like our support team) can '
+          'see the information they actually need to help you. While we '
+          'take reasonable steps to protect your data, no method of '
+          'online storage is 100% secure.',
+    ),
+    _PolicySection(
+      'Your Rights',
+      'You can request to view, update, or delete your personal '
+          'account information at any time through your Account '
+          'settings or by contacting support — subject to certain '
+          'records we\'re required to keep for order history.',
+    ),
+    _PolicySection(
+      'Children\'s Privacy',
+      'DeeGeeKickz is not directed at children under 13, and we do not '
+          'knowingly collect personal information from anyone under 13.',
+    ),
+    _PolicySection(
+      'Changes to This Policy',
+      'We may update this Privacy Policy from time to time. If we make '
+          'significant changes, we\'ll notify you within the app or by '
+          'email.',
+    ),
+    _PolicySection(
+      'Contact Us',
+      'Questions about this Privacy Policy? Reach out to us through '
+          'the Support section of the app.',
+    ),
+  ];
 
   @override
   Widget build(BuildContext context) {
-    // Scaffold gives us the basic screen "skeleton": an AppBar on top and
-    // a body underneath. Almost every full screen in Flutter starts here.
     return Scaffold(
-      appBar: AppBar(
-        title: const Text('Privacy Policy'),
-        // elevation: 0 removes the little shadow line under the AppBar so
-        // it looks flat/clean, matching the minimal style of the sign-up
-        // screen in the mockup.
-        elevation: 0,
-        backgroundColor: Colors.white,
-        foregroundColor: Colors.black,
-      ),
       backgroundColor: Colors.white,
-      // SafeArea makes sure our content doesn't get hidden behind notches,
-      // status bars, or rounded corners on different phones.
       body: SafeArea(
-        // SingleChildScrollView lets the user scroll if the text is longer
-        // than the screen. Without this, long text would just overflow
-        // and Flutter would show a red/yellow "overflow" error.
         child: SingleChildScrollView(
-          padding: const EdgeInsets.all(24.0),
-          child: Column(
-            // crossAxisAlignment.start makes all children (text blocks)
-            // align to the left, instead of centering them.
-            crossAxisAlignment: CrossAxisAlignment.start,
-            children: [
-              const Text(
-                'DeeGeeKickz Privacy Policy',
-                style: TextStyle(
-                  fontSize: 22,
-                  fontWeight: FontWeight.bold,
+          child: Center(
+            child: ConstrainedBox(
+              constraints: const BoxConstraints(maxWidth: 640),
+              child: Padding(
+                padding: const EdgeInsets.fromLTRB(24, 40, 24, 56),
+                child: Column(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    GestureDetector(
+                      onTap: () => Navigator.of(context).pop(),
+                      child: Row(
+                        children: const [
+                          Icon(Icons.arrow_back, size: 18, color: Color(0xFF6B7280)),
+                          SizedBox(width: 6),
+                          Text(
+                            'Back',
+                            style: TextStyle(
+                              fontSize: 13,
+                              fontWeight: FontWeight.w500,
+                              color: Color(0xFF6B7280),
+                            ),
+                          ),
+                        ],
+                      ),
+                    ),
+                    const SizedBox(height: 24),
+                    const Text(
+                      'Privacy Policy',
+                      style: TextStyle(
+                        fontSize: 28,
+                        fontWeight: FontWeight.bold,
+                        color: Colors.black,
+                      ),
+                    ),
+                    const SizedBox(height: 6),
+                    const Text(
+                      'Last updated $_lastUpdated',
+                      style: TextStyle(fontSize: 13, color: Color(0xFF9CA3AF)),
+                    ),
+                    const SizedBox(height: 28),
+                    ...List.generate(
+                      _sections.length,
+                      (i) => _SectionBox(section: _sections[i]),
+                    ),
+                  ],
                 ),
               ),
-              const SizedBox(height: 8),
-              Text(
-                'Last updated: ${_lastUpdated()}',
-                style: const TextStyle(
-                  fontSize: 13,
-                  color: Colors.grey,
-                ),
-              ),
-              const SizedBox(height: 20),
-
-              // Each _sectionTitle + _sectionBody pair below is just a
-              // reusable pattern: a bold heading, then a paragraph of
-              // regular text underneath it. Building it this way means
-              // if you want to add a new section later, you just copy
-              // one of these pairs and change the words.
-              _sectionTitle('1. Information We Collect'),
-              _sectionBody(
-                'When you create a DeeGeeKickz account, we collect the '
-                'information you provide directly, such as your first name, '
-                'last name, email address, and phone number. When you place '
-                'an order, we also collect your shipping address and '
-                'payment confirmation details processed through our '
-                'payment partner (PayMongo). We do not store your full '
-                'card number or CVV on our own servers.',
-              ),
-
-              _sectionTitle('2. How We Use Your Information'),
-              _sectionBody(
-                'We use the information you provide to create and manage '
-                'your account, process and deliver your shoe orders, send '
-                'order status updates (such as confirmation, packed, '
-                'shipped, and delivered notifications), respond to your '
-                'support requests, and improve the overall shopping '
-                'experience in the app.',
-              ),
-
-              _sectionTitle('3. How We Share Your Information'),
-              _sectionBody(
-                'We do not sell your personal information to third '
-                'parties. We may share limited information with trusted '
-                'service providers who help us operate the app, such as '
-                'our database provider (Supabase) and our payment '
-                'processor (PayMongo), solely for the purpose of running '
-                'DeeGeeKickz.',
-              ),
-
-              _sectionTitle('4. Data Storage and Security'),
-              _sectionBody(
-                'Your account information is stored securely using '
-                'Supabase, with access controls (Row Level Security) in '
-                'place so that customers, cashiers, admins, and super '
-                'admins can only see the data that is relevant to their '
-                'role. While we take reasonable steps to protect your '
-                'data, no method of electronic storage is 100% secure.',
-              ),
-
-              _sectionTitle('5. Your Rights'),
-              _sectionBody(
-                'You may request to view, update, or delete your personal '
-                'account information at any time by contacting store '
-                'support or through your Account settings, subject to '
-                'certain records we are required to keep for order and '
-                'payment history.',
-              ),
-
-              _sectionTitle('6. Children\'s Privacy'),
-              _sectionBody(
-                'DeeGeeKickz is not directed at children under the age of '
-                '13, and we do not knowingly collect personal information '
-                'from children under 13.',
-              ),
-
-              _sectionTitle('7. Changes to This Policy'),
-              _sectionBody(
-                'We may update this Privacy Policy from time to time. If '
-                'we make significant changes, we will notify you within '
-                'the app or by email.',
-              ),
-
-              _sectionTitle('8. Contact Us'),
-              _sectionBody(
-                'If you have any questions about this Privacy Policy, '
-                'please reach out to us through the Support section of '
-                'the app.',
-              ),
-
-              const SizedBox(height: 24),
-            ],
+            ),
           ),
         ),
       ),
     );
   }
+}
 
-  // A small helper function that returns a bold section heading Widget.
-  // Pulling this out into its own function avoids repeating the same
-  // TextStyle code eight times in the build() method above.
-  Widget _sectionTitle(String title) {
-    return Padding(
-      padding: const EdgeInsets.only(top: 16, bottom: 6),
-      child: Text(
-        title,
-        style: const TextStyle(
-          fontSize: 16,
-          fontWeight: FontWeight.bold,
-        ),
+class _PolicySection {
+  final String title;
+  final String body;
+  const _PolicySection(this.title, this.body);
+}
+
+class _SectionBox extends StatelessWidget {
+  final _PolicySection section;
+  const _SectionBox({required this.section});
+
+  @override
+  Widget build(BuildContext context) {
+    return Container(
+      width: double.infinity,
+      margin: const EdgeInsets.only(bottom: 14),
+      padding: const EdgeInsets.all(18),
+      decoration: BoxDecoration(
+        border: Border.all(color: const Color(0xFFD1D5DB)),
+        borderRadius: BorderRadius.circular(10),
+      ),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          Text(
+            section.title,
+            style: const TextStyle(
+              fontSize: 15,
+              fontWeight: FontWeight.w700,
+              color: Colors.black,
+            ),
+          ),
+          const SizedBox(height: 8),
+          Text(
+            section.body,
+            style: const TextStyle(
+              fontSize: 13,
+              height: 1.6,
+              color: Color(0xFF4B5563),
+            ),
+          ),
+        ],
       ),
     );
-  }
-
-  // Another small helper, this time for the regular paragraph text under
-  // each heading.
-  Widget _sectionBody(String body) {
-    return Text(
-      body,
-      style: const TextStyle(
-        fontSize: 14,
-        height: 1.5, // line height -- makes paragraphs easier to read
-        color: Colors.black87,
-      ),
-    );
-  }
-
-  // Just formats today's date as a simple placeholder "last updated" date.
-  // In a real app you'd likely hardcode this to whenever you actually last
-  // changed the policy, rather than always showing "today".
-  String _lastUpdated() {
-    final now = DateTime.now();
-    return '${now.month}/${now.day}/${now.year}';
   }
 }

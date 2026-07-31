@@ -5,9 +5,12 @@ class StockService {
   final SupabaseClient _supabase = Supabase.instance.client;
   final ActivityLogService _activityLog = ActivityLogService();
 
-  // Matches the "LOW STOCK" badge threshold already used in
-  // shop_product_card.dart (product.totalAvailable <= 10).
-  static const int _lowStockThreshold = 10;
+  // Matches the "LOW STOCK" badge threshold used in SizeEntry.status
+  // (product.dart) and ExpandableProductTable._resolveStatus — both
+  // show the badge at 5, so the notification now fires at the same
+  // cutoff instead of a size sitting at 6–10 units showing "Low
+  // Stock" in the UI with no notification ever firing for it.
+  static const int _lowStockThreshold = 5;
 
   Future<String?> adjustStock({
     required int sizeId,
