@@ -2,13 +2,87 @@ import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:supabase_flutter/supabase_flutter.dart';
 import '../../../providers/auth/auth_provider.dart';
+import '../../../services/auth/auth_service.dart';
 import '../../common/dialog/profile_dialog.dart';
 
-class AdminTopBar extends ConsumerWidget {
+class AdminTopBar extends ConsumerStatefulWidget {
   const AdminTopBar({super.key});
 
   @override
-  Widget build(BuildContext context, WidgetRef ref) {
+  ConsumerState<AdminTopBar> createState() => _AdminTopBarState();
+}
+
+class _AdminTopBarState extends ConsumerState<AdminTopBar> {
+  final AuthService _authService = AuthService();
+  bool _reminderChecked = false;
+
+  @override
+  void initState() {
+    super.initState();
+    WidgetsBinding.instance.addPostFrameCallback((_) => _checkPasswordReminder());
+  }
+
+  Future<void> _checkPasswordReminder() async {
+    if (_reminderChecked) return;
+    _reminderChecked = true;
+
+    final due = await _authService.isPasswordChangeDue();
+    if (!mounted || !due) return;
+
+    _showPasswordReminderDialog();
+  }
+
+  void _showPasswordReminderDialog() {
+    showDialog(
+      context: context,
+      barrierDismissible: true,
+      builder: (dialogContext) => AlertDialog(
+        title: const Text('Time to update your password'),
+        content: const Text(
+          'For account security, please update your password. '
+          'It\'s been 30 days or more since your last change.',
+        ),
+        actions: [
+          TextButton(
+            onPressed: () => Navigator.pop(dialogContext),
+            child: const Text('Later'),
+          ),
+          ElevatedButton(
+            onPressed: () async {
+              Navigator.pop(dialogContext);
+              final user = Supabase.instance.client.auth.currentUser;
+              if (user == null) return;
+
+              final data = await Supabase.instance.client
+                  .from('users')
+                  .select('first_name, last_name, email, phone, role')
+                  .eq('id', user.id)
+                  .single();
+
+              if (!mounted) return;
+              showDialog(
+                context: context,
+                builder: (_) => ProfileDialog(
+                  userId: user.id,
+                  firstName: data['first_name'] ?? '',
+                  lastName: data['last_name'] ?? '',
+                  email: data['email'] ?? user.email ?? '',
+                  phone: data['phone'] ?? '',
+                  role: data['role'] ?? '',
+                  canEdit: false,
+                  autoOpenPasswordSection: true,
+                ),
+              );
+            },
+            child: const Text('Change Now'),
+          ),
+        ],
+      ),
+    );
+  }
+
+  @override
+  Widget build(BuildContext context) {
 
     final authState = ref.watch(authStateProvider);
 

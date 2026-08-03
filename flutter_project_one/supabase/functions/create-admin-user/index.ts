@@ -75,7 +75,6 @@ serve(async (req) => {
       last_name,
       email,
       role,
-      is_archived: false,
       password_set: false,   // ← key flag for the invite flow
     });
 

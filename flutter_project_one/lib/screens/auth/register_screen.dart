@@ -44,36 +44,68 @@ class RegisterScreen extends ConsumerWidget {
 
       // SingleChildScrollView makes the screen scrollable
       // Important for small phones when keyboard appears
-      body: SingleChildScrollView(
-        child: ConstrainedBox(
+      body: SafeArea(
+        child: SingleChildScrollView(
+          child: ConstrainedBox(
 
-          // Make sure content is at least as tall as the screen
-          // This keeps the form centered even if content is short
-          constraints: BoxConstraints(
-            minHeight: screenHeight,
-          ),
+            // Make sure content is at least as tall as the screen
+            // This keeps the form centered even if content is short
+            constraints: BoxConstraints(
+              minHeight: screenHeight,
+            ),
 
-          child: IntrinsicHeight(
-            child: Center(
+            child: IntrinsicHeight(
+              child: Column(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
 
-              // Padding around the whole form
-              child: Padding(
-                padding: const EdgeInsets.symmetric(
-                  horizontal: 24,
-                  vertical: 40,
-                ),
+                  // ── BACK BUTTON — same style as TermsOfUseScreen ──
+                  Padding(
+                    padding: const EdgeInsets.fromLTRB(24, 16, 24, 0),
+                    child: GestureDetector(
+                      onTap: () => Navigator.of(context).pop(),
+                      child: Row(
+                        mainAxisSize: MainAxisSize.min,
+                        children: const [
+                          Icon(Icons.arrow_back, size: 18, color: Color(0xFF6B7280)),
+                          SizedBox(width: 6),
+                          Text(
+                            'Back',
+                            style: TextStyle(
+                              fontSize: 13,
+                              fontWeight: FontWeight.w500,
+                              color: Color(0xFF6B7280),
+                            ),
+                          ),
+                        ],
+                      ),
+                    ),
+                  ),
 
-                child: Column(
-                  mainAxisAlignment: MainAxisAlignment.center,
-                  children: [
+                  Expanded(
+                    child: Center(
+                      // Padding around the whole form
+                      child: Padding(
+                        padding: const EdgeInsets.symmetric(
+                          horizontal: 24,
+                          vertical: 24,
+                        ),
 
-                    // This is where our RegisterForm widget goes
-                    // All the fields and buttons are inside here
-                    // This is the ONLY difference from login_screen.dart
-                    const RegisterForm(),
+                        child: Column(
+                          mainAxisAlignment: MainAxisAlignment.center,
+                          children: [
 
-                  ],
-                ),
+                            // This is where our RegisterForm widget goes
+                            // All the fields and buttons are inside here
+                            // This is the ONLY difference from login_screen.dart
+                            const RegisterForm(),
+
+                          ],
+                        ),
+                      ),
+                    ),
+                  ),
+                ],
               ),
             ),
           ),

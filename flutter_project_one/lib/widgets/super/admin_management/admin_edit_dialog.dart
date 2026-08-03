@@ -113,7 +113,7 @@ class _AdminEditDialogState extends State<AdminEditDialog> {
       context: context,
       title: 'Save Changes?',
       message: wantsPasswordChange
-          ? 'This will update this account\'s details and reset their login password. Continue?'
+          ? 'This will update this account\'s details and set a new login password for this account. Continue?'
           : 'This will update this account\'s details. Continue?',
       confirmLabel: 'Save Changes',
     );

@@ -156,20 +156,26 @@ void _applyFilters() {
         AdminAccount account,
       ) async {
 
-        print('====================');
-        print('DISABLE BUTTON CLICKED');
-        print('EMAIL = ${account.email}');
-        print('USER ID = ${account.id}');
-        print('====================');
-
-        await ref
-            .read(adminAccountsProvider.notifier)
-            .disableAccount(account.id);
-
-        if (mounted) {
+        try {
           await ref
               .read(adminAccountsProvider.notifier)
-              .loadAccounts();
+              .disableAccount(account.id);
+
+          if (mounted) {
+            await ref
+                .read(adminAccountsProvider.notifier)
+                .loadAccounts();
+          }
+        } catch (e) {
+          if (mounted) {
+            ScaffoldMessenger.of(context).showSnackBar(
+              SnackBar(
+                content: Text(e.toString().replaceFirst('Exception: ', '')),
+                backgroundColor: const Color(0xFFEF4444),
+                behavior: SnackBarBehavior.floating,
+              ),
+            );
+          }
         }
       }
 

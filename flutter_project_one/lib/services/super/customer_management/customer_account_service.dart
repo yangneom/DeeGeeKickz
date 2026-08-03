@@ -78,7 +78,7 @@ class CustomerAccountService {
   // ================================================
   // DISABLE ACCOUNT
   // ================================================
-  Future<void> disableAccount(String userId, {required String reason}) async {
+ Future<void> disableAccount(String userId, {required String reason}) async {
     final target = await _supabase
         .from('users')
         .select('first_name, last_name')
@@ -88,15 +88,19 @@ class CustomerAccountService {
     final targetName =
         '${target['first_name'] ?? ''} ${target['last_name'] ?? ''}'.trim();
 
-    await _supabase
-        .from('users')
-        .update({
-          'is_disabled': true,
-          'disabled_reason': reason,
-          'disabled_at': DateTime.now().toIso8601String(),
-        })
-        .eq('id', userId)
-        .select();
+    final response = await _supabase.functions.invoke(
+      'disable-account',
+      body: {'user_id': userId, 'reason': reason},
+    );
+
+    final data = response.data;
+    final success = data is Map && data['success'] == true;
+
+    if (!success) {
+      final errorMsg = (data is Map ? data['error'] : null) ??
+          'Failed to disable account (status ${response.status}).';
+      throw Exception(errorMsg);
+    }
 
     await _activityLog.log(
       action: 'Disabled customer account of $targetName',

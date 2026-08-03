@@ -51,6 +51,11 @@ Future<String> saveSale({
       // payment row. Reuses the same ReceiptPdfService the online
       // order flow already uses — just fills in placeholder
       // customer info since this is a walk-in, in-store sale.
+      //
+      // isInStore: true — this is a walk-in sale with no delivery
+      // leg, so the receipt should never show a Shipping row at all
+      // (previously it always showed "Shipping: FREE" here, which
+      // was misleading on an in-store receipt).
       try {
         final List<OrderItem> orderItems = cartItems.map((item) {
           final int parsedSize =
@@ -79,7 +84,10 @@ Future<String> saveSale({
           items:         orderItems,
         );
 
-        await ReceiptPdfService().generateAndUpload(receiptOrder);
+        await ReceiptPdfService().generateAndUpload(
+          receiptOrder,
+          isInStore: true,
+        );
       } catch (receiptErr) {
         // Don't fail the whole sale just because PDF generation or
         // upload failed — the sale itself is already saved correctly.

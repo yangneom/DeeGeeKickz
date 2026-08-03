@@ -10,7 +10,7 @@ import '../../../services/admin/promotionDiscount/discount_service.dart';
 import '../../../screens/customer/messages/customer_chat_screen.dart';
 import '../../../screens/customer/checkout/checkout_screen.dart'; 
 import '../../../providers/customer/chat_provider.dart';
-
+import '../../../providers/auth/auth_provider.dart';
 /// Product info panel backed by the real [Product] model.
 /// Color picker → variant images update gallery via callback (future).
 /// Size picker → shows only sizes with available stock.
@@ -489,33 +489,45 @@ Discount? get _discount {
             label: 'Buy Now', filled: false, onTap: _onBuyNow),
         const SizedBox(height: 8),
  
-        TextButton.icon(
-          onPressed: () {
-            ref.read(pendingChatProductProvider.notifier).set(
-              PendingChatProduct(
-                productId: product.productId,
-                productName: product.productName,
+        // Chat Support only makes sense for logged-in users — Guests
+        // have no account to attach a conversation to, so hide it
+        // entirely instead of showing-then-redirecting to Login.
+        Consumer(
+          builder: (context, ref, _) {
+            final authState = ref.watch(authStateProvider);
+            final isLoggedIn = authState.value?.session?.user != null;
+
+            if (!isLoggedIn) return const SizedBox.shrink();
+
+            return TextButton.icon(
+              onPressed: () {
+                ref.read(pendingChatProductProvider.notifier).set(
+                  PendingChatProduct(
+                    productId: product.productId,
+                    productName: product.productName,
+                  ),
+                );
+                requireAuth(context, const CustomerChatScreen());
+              },
+              icon: const Icon(Icons.chat_bubble_outline,
+                  size: 18, color: Color(0xFF656464)),
+              label: const Text(
+                'CHAT SUPPORT',
+                style: TextStyle(
+                  fontFamily: 'Inter',
+                  fontSize: 14,
+                  fontWeight: FontWeight.w600,
+                  letterSpacing: 0.7,
+                  color: Color(0xFF656464),
+                ),
+              ),
+              style: TextButton.styleFrom(
+                padding:
+                    const EdgeInsets.symmetric(vertical: 8),
+                minimumSize: const Size(double.infinity, 48),
               ),
             );
-            requireAuth(context, const CustomerChatScreen());
           },
-          icon: const Icon(Icons.chat_bubble_outline,
-              size: 18, color: Color(0xFF656464)),
-          label: const Text(
-            'CHAT SUPPORT',
-            style: TextStyle(
-              fontFamily: 'Inter',
-              fontSize: 14,
-              fontWeight: FontWeight.w600,
-              letterSpacing: 0.7,
-              color: Color(0xFF656464),
-            ),
-          ),
-          style: TextButton.styleFrom(
-            padding:
-                const EdgeInsets.symmetric(vertical: 8),
-            minimumSize: const Size(double.infinity, 48),
-          ),
         ),
       ],
     );

@@ -234,13 +234,19 @@ class SuperSidebar extends ConsumerWidget {
   // ================================================
   // BUILD LOGOUT ITEM
   // ================================================
-  Widget _buildLogoutItem(BuildContext context, WidgetRef ref) {
+ Widget _buildLogoutItem(BuildContext context, WidgetRef ref) {
     return GestureDetector(
       onTap: () async {
+        // Grab everything from `ref` BEFORE any `await` — once we cross
+        // an async gap, this widget may have rebuilt/unmounted, making
+        // `ref` unsafe to read again.
+        final authService = ref.read(authServiceProvider);
+        final cartNotifier = ref.read(customerCartProvider.notifier);
+
         try {
-          final authService = ref.read(authServiceProvider);
           await authService.logout();
-          ref.read(customerCartProvider.notifier).clearLocalOnly();
+          cartNotifier.clearLocalOnly();
+
           if (context.mounted) {
             Navigator.of(context).pushAndRemoveUntil(
               MaterialPageRoute(builder: (_) => const LoginScreen()),

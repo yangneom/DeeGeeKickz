@@ -97,29 +97,57 @@ class AdminAccountService {
   // ================================================
   // DISABLE ACCOUNT
   // ================================================
+ // ================================================
+  // DISABLE ACCOUNT
+  // ================================================
   Future<void> disableAccount(
     String userId, {
     String? reason,
   }) async {
-    // fetch name first so the log entry reads clearly
+    // Guard: can't disable yourself
+    final currentUserId = _supabase.auth.currentUser?.id;
+    if (currentUserId == userId) {
+      throw Exception('You cannot disable your own account.');
+    }
+
     final target = await _supabase
         .from('users')
-        .select('first_name, last_name')
+        .select('first_name, last_name, role')
         .eq('id', userId)
         .single();
 
     final targetName =
         '${target['first_name'] ?? ''} ${target['last_name'] ?? ''}'.trim();
+    final targetRole = target['role'] as String?;
 
-    await _supabase
-        .from('users')
-        .update({
-          'is_disabled': true,
-          'disabled_reason': reason,
-          'disabled_at': DateTime.now().toIso8601String(),
-        })
-        .eq('id', userId)
-        .select();
+    // Guard: can't disable the last remaining Super Admin
+    if (targetRole == 'Super Admin') {
+      final activeSuperAdmins = await _supabase
+          .from('users')
+          .select('id')
+          .eq('role', 'Super Admin')
+          .eq('is_disabled', false);
+
+      if ((activeSuperAdmins as List).length <= 1) {
+        throw Exception('Cannot disable the last remaining Super Admin.');
+      }
+    }
+
+    // Call the edge function instead of updating the table directly —
+    // this also force-kills their active session, not just flips a flag.
+    final response = await _supabase.functions.invoke(
+      'disable-account',
+      body: {'user_id': userId, 'reason': reason},
+    );
+
+    final data = response.data;
+    final success = data is Map && data['success'] == true;
+
+    if (!success) {
+      final errorMsg = (data is Map ? data['error'] : null) ??
+          'Failed to disable account (status ${response.status}).';
+      throw Exception(errorMsg);
+    }
 
     await _activityLog.log(
       action: 'Disabled admin account of $targetName',

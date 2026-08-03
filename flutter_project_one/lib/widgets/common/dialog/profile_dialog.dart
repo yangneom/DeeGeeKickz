@@ -1,20 +1,7 @@
 import 'package:flutter/material.dart';
 import 'package:supabase_flutter/supabase_flutter.dart';
-
-// ================================================
-// PROFILE DIALOG
-//
-// Shows the logged-in user's profile details.
-//
-// - canEdit = false (Admin) → view-only, just shows info + Close.
-// - canEdit = true  (Super Admin) → shows an Edit button that turns
-//   the name/phone fields into text fields, then Save updates
-//   the 'users' row in Supabase.
-//
-// All colors here are explicit (not theme-derived) so the dialog
-// matches the app's white/grey/blue look regardless of the ambient
-// MaterialApp theme (avoids the default Material 3 purple/pink tint).
-// ================================================
+import '../../../services/auth/auth_service.dart';
+import 'confirm_dialog.dart';
 
 const _kBlue = Color(0xFF2563EB);
 const _kBlueBg = Color(0xFFEFF6FF);
@@ -23,6 +10,8 @@ const _kMidText = Color(0xFF374151);
 const _kMutedText = Color(0xFF9CA3AF);
 const _kBorder = Color(0xFFE5E7EB);
 const _kSurfaceGrey = Color(0xFFF9FAFB);
+const _kRed = Color(0xFFEF4444);
+const _kGreen = Color(0xFF16A34A);
 
 class ProfileDialog extends StatefulWidget {
   final String userId;
@@ -32,6 +21,9 @@ class ProfileDialog extends StatefulWidget {
   final String phone;
   final String role;
   final bool canEdit;
+  // When true (used by the 30-day reminder), the password section
+  // opens already expanded instead of requiring a tap to reveal it.
+  final bool autoOpenPasswordSection;
 
   const ProfileDialog({
     super.key,
@@ -42,6 +34,7 @@ class ProfileDialog extends StatefulWidget {
     required this.phone,
     required this.role,
     this.canEdit = false,
+    this.autoOpenPasswordSection = false,
   });
 
   @override
@@ -56,12 +49,27 @@ class _ProfileDialogState extends State<ProfileDialog> {
   late TextEditingController _lastNameController;
   late TextEditingController _phoneController;
 
+  bool _obscureCurrent = true;
+  bool _obscureNew = true;
+  bool _obscureConfirm = true;
+
+  // ── Password change state ──
+  final AuthService _authService = AuthService();
+  late bool _showPasswordSection;
+  bool _changingPassword = false;
+  String? _passwordError;
+  String? _passwordSuccess;
+  final _currentPasswordController = TextEditingController();
+  final _newPasswordController = TextEditingController();
+  final _confirmPasswordController = TextEditingController();
+
   @override
   void initState() {
     super.initState();
     _firstNameController = TextEditingController(text: widget.firstName);
     _lastNameController = TextEditingController(text: widget.lastName);
     _phoneController = TextEditingController(text: widget.phone);
+    _showPasswordSection = widget.autoOpenPasswordSection;
   }
 
   @override
@@ -69,6 +77,9 @@ class _ProfileDialogState extends State<ProfileDialog> {
     _firstNameController.dispose();
     _lastNameController.dispose();
     _phoneController.dispose();
+    _currentPasswordController.dispose();
+    _newPasswordController.dispose();
+    _confirmPasswordController.dispose();
     super.dispose();
   }
 
@@ -119,11 +130,75 @@ class _ProfileDialogState extends State<ProfileDialog> {
       ScaffoldMessenger.of(context).showSnackBar(
         SnackBar(
           content: Text('Failed to update profile: $e'),
-          backgroundColor: const Color(0xFFDC2626),
+          backgroundColor: _kRed,
           behavior: SnackBarBehavior.floating,
         ),
       );
     }
+  }
+
+  // ── Change password ──
+ Future<void> _handleChangePassword() async {
+    setState(() {
+      _passwordError = null;
+      _passwordSuccess = null;
+    });
+
+    final current = _currentPasswordController.text.trim();
+    final newPass = _newPasswordController.text.trim();
+    final confirm = _confirmPasswordController.text.trim();
+
+    if (current.isEmpty) {
+      setState(() => _passwordError = 'Enter your current password.');
+      return;
+    }
+    if (newPass.length < 8) {
+      setState(() => _passwordError = 'New password must be at least 8 characters.');
+      return;
+    }
+    if (newPass != confirm) {
+      setState(() => _passwordError = 'New passwords do not match.');
+      return;
+    }
+    if (newPass == current) {
+      setState(() => _passwordError = 'New password must be different from your current password.');
+      return;
+    }
+
+    // ── Confirmation step ──
+    final confirmed = await showConfirmDialog(
+      context: context,
+      title: 'Update Password?',
+      message: 'You\'ll need to use your new password the next time you log in. Continue?',
+      confirmLabel: 'Update Password',
+    );
+
+    if (confirmed != true) return;
+
+    setState(() => _changingPassword = true);
+
+    final error = await _authService.changeOwnPassword(
+      currentPassword: current,
+      newPassword: newPass,
+    );
+
+    if (!mounted) return;
+
+    if (error != null) {
+      setState(() {
+        _changingPassword = false;
+        _passwordError = error;
+      });
+      return;
+    }
+
+    setState(() {
+      _changingPassword = false;
+      _passwordSuccess = 'Password updated successfully.';
+      _currentPasswordController.clear();
+      _newPasswordController.clear();
+      _confirmPasswordController.clear();
+    });
   }
 
   InputDecoration _fieldDecoration(String label) {
@@ -149,6 +224,117 @@ class _ProfileDialogState extends State<ProfileDialog> {
     );
   }
 
+  Widget _obscurableField({
+    required TextEditingController controller,
+    required String label,
+    required bool obscured,
+    required VoidCallback onToggle,
+  }) {
+    return TextField(
+      controller: controller,
+      obscureText: obscured,
+      style: const TextStyle(fontSize: 13, color: _kMidText),
+      onChanged: (_) {
+        if (_passwordError != null) setState(() => _passwordError = null);
+      },
+      decoration: _fieldDecoration(label).copyWith(
+        suffixIcon: IconButton(
+          icon: Icon(
+            obscured ? Icons.visibility_off_outlined : Icons.visibility_outlined,
+            size: 18,
+            color: _kMutedText,
+          ),
+          onPressed: onToggle,
+        ),
+      ),
+    );
+  }
+
+  Widget _buildPasswordSection() {
+    return Column(
+      crossAxisAlignment: CrossAxisAlignment.start,
+      children: [
+        Container(height: 1, color: _kBorder),
+        const SizedBox(height: 16),
+        InkWell(
+          onTap: () => setState(() => _showPasswordSection = !_showPasswordSection),
+          child: Row(
+            mainAxisAlignment: MainAxisAlignment.spaceBetween,
+            children: [
+              const Text(
+                'Security',
+                style: TextStyle(fontSize: 13, fontWeight: FontWeight.w600, color: _kMidText),
+              ),
+              Icon(
+                _showPasswordSection ? Icons.expand_less : Icons.expand_more,
+                size: 20,
+                color: _kMutedText,
+              ),
+            ],
+          ),
+        ),
+        if (_showPasswordSection) ...[
+          const SizedBox(height: 4),
+          const Text(
+            'We need your current password to confirm it\'s really you. '
+            'New password must be at least 8 characters.',
+            style: TextStyle(fontSize: 11, color: _kMutedText),
+          ),
+          const SizedBox(height: 12),
+          _obscurableField(
+            controller: _currentPasswordController,
+            label: 'Current password',
+            obscured: _obscureCurrent,
+            onToggle: () => setState(() => _obscureCurrent = !_obscureCurrent),
+          ),
+          const SizedBox(height: 10),
+          _obscurableField(
+            controller: _newPasswordController,
+            label: 'New password',
+            obscured: _obscureNew,
+            onToggle: () => setState(() => _obscureNew = !_obscureNew),
+          ),
+          const SizedBox(height: 10),
+          _obscurableField(
+            controller: _confirmPasswordController,
+            label: 'Re-enter new password',
+            obscured: _obscureConfirm,
+            onToggle: () => setState(() => _obscureConfirm = !_obscureConfirm),
+          ),
+          if (_passwordError != null) ...[
+            const SizedBox(height: 10),
+            Text(_passwordError!, style: const TextStyle(fontSize: 12, color: _kRed)),
+          ],
+          if (_passwordSuccess != null) ...[
+            const SizedBox(height: 10),
+            Text(_passwordSuccess!, style: const TextStyle(fontSize: 12, color: _kGreen)),
+          ],
+          const SizedBox(height: 12),
+          SizedBox(
+            width: double.infinity,
+            child: ElevatedButton(
+              onPressed: _changingPassword ? null : _handleChangePassword,
+              style: ElevatedButton.styleFrom(
+                backgroundColor: _kBlue,
+                foregroundColor: Colors.white,
+                elevation: 0,
+                padding: const EdgeInsets.symmetric(vertical: 12),
+                shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(8)),
+              ),
+              child: _changingPassword
+                  ? const SizedBox(
+                      width: 16,
+                      height: 16,
+                      child: CircularProgressIndicator(strokeWidth: 2, color: Colors.white),
+                    )
+                  : const Text('Update Password', style: TextStyle(fontSize: 13)),
+            ),
+          ),
+        ],
+      ],
+    );
+  }
+
   @override
   Widget build(BuildContext context) {
     return Dialog(
@@ -157,34 +343,19 @@ class _ProfileDialogState extends State<ProfileDialog> {
       elevation: 6,
       shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(16)),
       child: ConstrainedBox(
-        constraints: const BoxConstraints(maxWidth: 360),
-        child: Padding(
+        constraints: const BoxConstraints(maxWidth: 360, maxHeight: 640),
+        child: SingleChildScrollView(
           padding: const EdgeInsets.fromLTRB(24, 20, 24, 24),
           child: Column(
             mainAxisSize: MainAxisSize.min,
             children: [
 
-              // ── HEADER: title + close X ──
-              Row(
-                children: [
-                  const Text(
-                    'Profile',
-                    style: TextStyle(
-                      fontSize: 15,
-                      fontWeight: FontWeight.w600,
-                      color: _kMidText,
-                    ),
-                  ),
-                  const Spacer(),
-                  InkWell(
-                    onTap: () => Navigator.of(context).pop(),
-                    borderRadius: BorderRadius.circular(6),
-                    child: const Padding(
-                      padding: EdgeInsets.all(4),
-                      child: Icon(Icons.close, size: 18, color: _kMutedText),
-                    ),
-                  ),
-                ],
+              const Align(
+                alignment: Alignment.centerLeft,
+                child: Text(
+                  'Profile',
+                  style: TextStyle(fontSize: 15, fontWeight: FontWeight.w600, color: _kMidText),
+                ),
               ),
 
               const SizedBox(height: 16),
@@ -194,11 +365,7 @@ class _ProfileDialogState extends State<ProfileDialog> {
                 backgroundColor: _kBorder,
                 child: Text(
                   _initials,
-                  style: const TextStyle(
-                    fontSize: 22,
-                    fontWeight: FontWeight.bold,
-                    color: _kMidText,
-                  ),
+                  style: const TextStyle(fontSize: 22, fontWeight: FontWeight.bold, color: _kMidText),
                 ),
               ),
               const SizedBox(height: 14),
@@ -206,27 +373,17 @@ class _ProfileDialogState extends State<ProfileDialog> {
               if (!_isEditing) ...[
                 Text(
                   _displayName,
-                  style: const TextStyle(
-                    fontSize: 17,
-                    fontWeight: FontWeight.bold,
-                    color: _kDarkText,
-                  ),
+                  style: const TextStyle(fontSize: 17, fontWeight: FontWeight.bold, color: _kDarkText),
                 ),
                 if (widget.role.isNotEmpty) ...[
                   const SizedBox(height: 8),
                   Container(
                     padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 4),
-                    decoration: BoxDecoration(
-                      color: _kBlueBg,
-                      borderRadius: BorderRadius.circular(20),
-                    ),
+                    decoration: BoxDecoration(color: _kBlueBg, borderRadius: BorderRadius.circular(20)),
                     child: Text(
                       widget.role.toUpperCase(),
                       style: const TextStyle(
-                        fontSize: 11,
-                        fontWeight: FontWeight.w600,
-                        color: _kBlue,
-                        letterSpacing: 0.3,
+                        fontSize: 11, fontWeight: FontWeight.w600, color: _kBlue, letterSpacing: 0.3,
                       ),
                     ),
                   ),
@@ -245,17 +402,13 @@ class _ProfileDialogState extends State<ProfileDialog> {
                   label: 'Phone',
                   value: _phoneController.text.isNotEmpty ? _phoneController.text : '—',
                 ),
+                const SizedBox(height: 20),
               ] else ...[
-                // ── EDIT MODE (super admin only) ──
                 Align(
                   alignment: Alignment.centerLeft,
                   child: Text(
                     'Editing profile',
-                    style: TextStyle(
-                      fontSize: 12,
-                      fontWeight: FontWeight.w600,
-                      color: Colors.grey.shade500,
-                    ),
+                    style: TextStyle(fontSize: 12, fontWeight: FontWeight.w600, color: Colors.grey.shade500),
                   ),
                 ),
                 const SizedBox(height: 12),
@@ -283,7 +436,11 @@ class _ProfileDialogState extends State<ProfileDialog> {
                   label: 'Email',
                   value: widget.email.isNotEmpty ? widget.email : '—',
                 ),
+                const SizedBox(height: 20),
               ],
+
+              // ── Security / change-password section (always available) ──
+              _buildPasswordSection(),
 
               const SizedBox(height: 24),
 
@@ -296,9 +453,7 @@ class _ProfileDialogState extends State<ProfileDialog> {
                           foregroundColor: _kMidText,
                           side: BorderSide(color: Colors.grey.shade300),
                           padding: const EdgeInsets.symmetric(vertical: 12),
-                          shape: RoundedRectangleBorder(
-                            borderRadius: BorderRadius.circular(8),
-                          ),
+                          shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(8)),
                         ),
                         onPressed: _isSaving
                             ? null
@@ -321,57 +476,15 @@ class _ProfileDialogState extends State<ProfileDialog> {
                           foregroundColor: Colors.white,
                           elevation: 0,
                           padding: const EdgeInsets.symmetric(vertical: 12),
-                          shape: RoundedRectangleBorder(
-                            borderRadius: BorderRadius.circular(8),
-                          ),
+                          shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(8)),
                         ),
                         onPressed: _isSaving ? null : _handleSave,
                         child: _isSaving
                             ? const SizedBox(
-                                width: 16,
-                                height: 16,
-                                child: CircularProgressIndicator(
-                                  strokeWidth: 2,
-                                  color: Colors.white,
-                                ),
+                                width: 16, height: 16,
+                                child: CircularProgressIndicator(strokeWidth: 2, color: Colors.white),
                               )
                             : const Text('Save'),
-                      ),
-                    ),
-                  ],
-                ),
-              ] else if (widget.canEdit) ...[
-                Row(
-                  children: [
-                    Expanded(
-                      child: OutlinedButton(
-                        style: OutlinedButton.styleFrom(
-                          foregroundColor: _kMidText,
-                          side: BorderSide(color: Colors.grey.shade300),
-                          padding: const EdgeInsets.symmetric(vertical: 12),
-                          shape: RoundedRectangleBorder(
-                            borderRadius: BorderRadius.circular(8),
-                          ),
-                        ),
-                        onPressed: () => Navigator.of(context).pop(),
-                        child: const Text('Close'),
-                      ),
-                    ),
-                    const SizedBox(width: 12),
-                    Expanded(
-                      child: ElevatedButton.icon(
-                        style: ElevatedButton.styleFrom(
-                          backgroundColor: _kBlue,
-                          foregroundColor: Colors.white,
-                          elevation: 0,
-                          padding: const EdgeInsets.symmetric(vertical: 12),
-                          shape: RoundedRectangleBorder(
-                            borderRadius: BorderRadius.circular(8),
-                          ),
-                        ),
-                        onPressed: () => setState(() => _isEditing = true),
-                        icon: const Icon(Icons.edit_outlined, size: 16),
-                        label: const Text('Edit'),
                       ),
                     ),
                   ],
@@ -384,9 +497,7 @@ class _ProfileDialogState extends State<ProfileDialog> {
                       foregroundColor: _kMidText,
                       side: BorderSide(color: Colors.grey.shade300),
                       padding: const EdgeInsets.symmetric(vertical: 12),
-                      shape: RoundedRectangleBorder(
-                        borderRadius: BorderRadius.circular(8),
-                      ),
+                      shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(8)),
                     ),
                     onPressed: () => Navigator.of(context).pop(),
                     child: const Text('Close'),
@@ -406,11 +517,7 @@ class _ProfileRow extends StatelessWidget {
   final String label;
   final String value;
 
-  const _ProfileRow({
-    required this.icon,
-    required this.label,
-    required this.value,
-  });
+  const _ProfileRow({required this.icon, required this.label, required this.value});
 
   @override
   Widget build(BuildContext context) {
@@ -420,10 +527,7 @@ class _ProfileRow extends StatelessWidget {
         Container(
           width: 32,
           height: 32,
-          decoration: BoxDecoration(
-            color: _kSurfaceGrey,
-            borderRadius: BorderRadius.circular(8),
-          ),
+          decoration: BoxDecoration(color: _kSurfaceGrey, borderRadius: BorderRadius.circular(8)),
           child: Icon(icon, size: 16, color: _kMutedText),
         ),
         const SizedBox(width: 10),
@@ -435,11 +539,7 @@ class _ProfileRow extends StatelessWidget {
               const SizedBox(height: 2),
               Text(
                 value,
-                style: const TextStyle(
-                  fontSize: 13,
-                  fontWeight: FontWeight.w500,
-                  color: _kMidText,
-                ),
+                style: const TextStyle(fontSize: 13, fontWeight: FontWeight.w500, color: _kMidText),
                 overflow: TextOverflow.ellipsis,
               ),
             ],

@@ -56,6 +56,11 @@ class AuthService {
       final response = await _supabase.auth.signUp(
         email: email.trim(),
         password: password.trim(),
+        data: {
+          'first_name': firstName.trim(),
+          'last_name': lastName.trim(),
+          'phone': phone.trim(),
+        },
       );
 
       final user = response.user;
@@ -165,6 +170,18 @@ class AuthService {
   }
 
   // ── LOGIN ──
+// ── LOGIN ──
+  // Special case: if this account exists but never finished email/phone
+  // verification (customer closed the app mid-signup), Supabase blocks
+  // login with an "Email not confirmed" error. Rather than showing that
+  // raw message, we return a distinct marker string so the UI can point
+  // the customer back to Sign Up — re-submitting the same email there
+  // resends the confirmation code instead of erroring, so it acts as a
+  // resume path.
+  static const String unconfirmedEmailMarker = 'UNCONFIRMED_EMAIL';
+  static const String incompleteRegistrationMarker = 'INCOMPLETE_REGISTRATION';
+
+
   Future<String?> login({
     required String email,
     required String password,
@@ -174,17 +191,27 @@ class AuthService {
         email: email.trim(),
         password: password.trim(),
       );
-
+      
       final currentUser = _supabase.auth.currentUser;
 
       // ── Check if account is disabled ──
-      // (Archive was removed — disable is now the single lockout mechanism
-      // for both staff and customer accounts.)
+      // Uses maybeSingle(), not single() — single() throws if zero rows
+      // come back, which happens for orphaned accounts (password/email
+      // verified, but phone step never finished so no users row exists).
       final profile = await _supabase
           .from('users')
           .select('is_disabled, disabled_reason, role')
           .eq('id', currentUser!.id)
-          .single();
+          .maybeSingle();
+
+      if (profile == null) {
+        // Session exists and password was correct, but there's no
+        // profile row — signup was never finished. Keep the session
+        // alive (don't sign out) so the caller can pull saved name/phone
+        // from user metadata and resume the phone-verification step.
+        print('Login: no profile row found for ${currentUser.id} — incomplete registration');
+        return incompleteRegistrationMarker;
+      }
 
       final isDisabled = profile['is_disabled'] as bool? ?? false;
 
@@ -198,6 +225,9 @@ class AuthService {
 
     } on AuthException catch (error) {
       print('LOGIN ERROR = ${error.message}');
+      if (error.message.toLowerCase().contains('email not confirmed')) {
+        return unconfirmedEmailMarker;
+      }
       return error.message;
     } catch (error) {
       print('Login unknown error: $error');
@@ -206,6 +236,9 @@ class AuthService {
   }
 
   // ── LOGOUT ──
+
+  // ── LOGOUT ──
+  // ── SEND PASSWORD RESET EMAIL ──
   // ── SEND PASSWORD RESET EMAIL ──
   Future<void> sendPasswordResetEmail(String email) async {
     try {
@@ -217,6 +250,98 @@ class AuthService {
     }
   }
 
+  // ── VERIFY PASSWORD RESET OTP ──
+  // Verifying this code establishes a temporary authenticated session,
+  // which ResetPasswordForm then uses to call updateUser(password: ...).
+  Future<String?> verifyPasswordResetOtp({
+    required String email,
+    required String token,
+  }) async {
+    try {
+      await _supabase.auth.verifyOTP(
+        type: OtpType.recovery,
+        email: email.trim(),
+        token: token.trim(),
+      );
+      print('Password reset OTP verified for $email');
+      return null;
+    } on AuthException catch (error) {
+      print('verifyPasswordResetOtp error: ${error.message}');
+      return error.message;
+    } catch (error) {
+      print('verifyPasswordResetOtp unknown error: $error');
+      return 'Something went wrong. Please try again.';
+    }
+  }
+
+// ── CHANGE OWN PASSWORD (self-service, requires current password) ──
+  // Re-authenticates first — updateUser() alone doesn't verify the caller
+  // actually knows the current password, so without this step anyone
+  // with an already-open session could silently change it.
+  Future<String?> changeOwnPassword({
+    required String currentPassword,
+    required String newPassword,
+  }) async {
+    try {
+      final user = _supabase.auth.currentUser;
+      if (user == null || user.email == null) {
+        return 'Session expired. Please log in again.';
+      }
+
+      await _supabase.auth.signInWithPassword(
+        email: user.email!,
+        password: currentPassword,
+      );
+
+      await _supabase.auth.updateUser(
+        UserAttributes(password: newPassword),
+      );
+
+      await _supabase.from('users').update({
+        'password_changed_at': DateTime.now().toIso8601String(),
+      }).eq('id', user.id);
+
+      print('Password changed successfully for ${user.email}');
+      return null;
+    } on AuthException catch (error) {
+      print('changeOwnPassword AuthException: ${error.message}');
+      if (error.message.toLowerCase().contains('invalid login credentials')) {
+        return 'Current password is incorrect.';
+      }
+      if (error.message.toLowerCase().contains('weak password') ||
+          error.message.toLowerCase().contains('password should be')) {
+        return 'New password is too weak. Use at least 8 characters.';
+      }
+      return error.message;
+    } catch (error) {
+      print('changeOwnPassword unknown error: $error');
+      return 'Something went wrong. Please try again.';
+    }
+  }
+
+  // ── CHECK IF PASSWORD CHANGE IS DUE (30-day policy) ──
+  Future<bool> isPasswordChangeDue() async {
+    try {
+      final user = _supabase.auth.currentUser;
+      if (user == null) return false;
+
+      final response = await _supabase
+          .from('users')
+          .select('password_changed_at')
+          .eq('id', user.id)
+          .single();
+
+      final changedAtRaw = response['password_changed_at'] as String?;
+      if (changedAtRaw == null) return true; // never recorded — treat as due
+
+      final changedAt = DateTime.parse(changedAtRaw);
+      final daysSince = DateTime.now().difference(changedAt).inDays;
+      return daysSince >= 30;
+    } catch (error) {
+      print('isPasswordChangeDue error: $error');
+      return false; // fail safe — don't nag if the check itself breaks
+    }
+  }
   // ── LOGOUT ──
   Future<void> logout() async {
     await _supabase.auth.signOut();

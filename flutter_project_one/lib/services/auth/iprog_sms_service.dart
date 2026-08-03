@@ -9,7 +9,9 @@ class IprogSmsService {
         'sms-otp',
         body: {'action': 'send', 'phone_number': phoneNumber},
       );
-      print('sendOtp response: ${response.data}');
+      // Don't log response.data — it contains the raw OTP code in
+      // plaintext (data.otp_code). Only log status, never the payload.
+      print('sendOtp status: ${response.data?['status']}');
       return response.data['status'] == 'success';
     } catch (error) {
       print('sendOtp error: $error');
@@ -23,7 +25,7 @@ class IprogSmsService {
         'sms-otp',
         body: {'action': 'verify', 'phone_number': phoneNumber, 'otp': otp},
       );
-      print('verifyOtp response: ${response.data}');
+      print('verifyOtp status: ${response.data?['status']}');
       return response.data['status'] == 'success';
     } catch (error) {
       print('verifyOtp error: $error');

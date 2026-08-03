@@ -3,11 +3,14 @@ import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import '../../providers/auth/auth_provider.dart';
 import '../customer/homescreen/home_screen.dart';
+import '../../providers/customer/customer_cart_provider.dart';
 
 enum _OtpStep { email, phone }
 
 class OtpVerificationScreen extends ConsumerStatefulWidget {
-  const OtpVerificationScreen({super.key});
+  final bool startAtPhoneStep;
+
+  const OtpVerificationScreen({super.key, this.startAtPhoneStep = false});
 
   @override
   ConsumerState<OtpVerificationScreen> createState() => _OtpVerificationScreenState();
@@ -23,10 +26,15 @@ class _OtpVerificationScreenState extends ConsumerState<OtpVerificationScreen> {
   Timer? _timer;
   int _secondsLeft = 60;
 
-  @override
+ @override
   void initState() {
     super.initState();
-    _startTimer();
+    if (widget.startAtPhoneStep) {
+      _step = _OtpStep.phone;
+      _secondsLeft = 0; // let them tap "Resend code" immediately, no auto-send
+    } else {
+      _startTimer();
+    }
   }
 
   @override
@@ -122,12 +130,19 @@ class _OtpVerificationScreenState extends ConsumerState<OtpVerificationScreen> {
       phone: pending.phone,
     );
 
-    setState(() => _isLoading = false);
-
     if (profileError != null) {
-      setState(() => _errorMessage = profileError);
+      setState(() {
+        _isLoading = false;
+        _errorMessage = profileError;
+      });
       return;
     }
+
+    // Account is now fully real — safe to merge whatever they had in
+    // their guest cart into it.
+    await ref.read(customerCartProvider.notifier).mergeGuestCartIntoAccount();
+
+    setState(() => _isLoading = false);
 
     ref.read(pendingRegistrationProvider.notifier).clear();
 
@@ -217,9 +232,9 @@ class _OtpVerificationScreenState extends ConsumerState<OtpVerificationScreen> {
               TextFormField(
                 controller: _codeController,
                 keyboardType: TextInputType.number,
-                maxLength: 6,
+                maxLength: 8,
                 decoration: InputDecoration(
-                  hintText: '6-digit code',
+                  hintText: '8-digit code',
                   counterText: '',
                   border: OutlineInputBorder(borderRadius: BorderRadius.circular(8)),
                 ),

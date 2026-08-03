@@ -5,7 +5,7 @@ import 'package:supabase_flutter/supabase_flutter.dart';
 
 import '../../../screens/auth/login_screen.dart';
 import '../../../core/utils/auth_gate.dart';
-
+import '../../../providers/auth/auth_provider.dart';
 import '../../../screens/customer/shop_screen.dart/shop_screen.dart';
 import '../../../screens/customer/promo/promo_screen.dart';
 import '../../../screens/customer/cart/cart_screen.dart';
@@ -137,21 +137,36 @@ class AppTopBar extends ConsumerWidget implements PreferredSizeWidget {
                     ),
 
                     // ── Right ─────────────────────────────────
-                    // Desktop only: mobile gets Search/Bag/Orders/Profile
-                    // from BottomNavBar, so nothing is duplicated here.
                     Row(
                       children: [
                         if (isDesktop) ...[
-                          _IconButton(
-                            icon: Icons.notifications_outlined,
-                            showBadge: unreadCount > 0,
-                            onTap: onNotificationsTap ??
-                                () => requireAuth(
-                                      context,
-                                      const NotificationsScreen(),
-                                    ),
+                          // Notifications only make sense for logged-in
+                          // users — Guests have nothing to be notified
+                          // about, so the bell is hidden entirely rather
+                          // than shown-but-gated.
+                          Consumer(
+                            builder: (context, ref, _) {
+                              final authState = ref.watch(authStateProvider);
+                              final isLoggedIn = authState.value?.session?.user != null;
+
+                              if (!isLoggedIn) return const SizedBox.shrink();
+
+                              return Row(
+                                children: [
+                                  _IconButton(
+                                    icon: Icons.notifications_outlined,
+                                    showBadge: unreadCount > 0,
+                                    onTap: onNotificationsTap ??
+                                        () => requireAuth(
+                                              context,
+                                              const NotificationsScreen(),
+                                            ),
+                                  ),
+                                  const SizedBox(width: 24),
+                                ],
+                              );
+                            },
                           ),
-                          const SizedBox(width: 24),
 
                           _IconButton(
                             icon: Icons.search,
@@ -176,19 +191,53 @@ class AppTopBar extends ConsumerWidget implements PreferredSizeWidget {
                           ),
                           const SizedBox(width: 24),
 
-                          _IconButton(
-                            icon: Icons.person_outline,
-                            onTap: onPersonTap ??
-                                () => requireAuth(
-                                      context,
-                                      const ProfileScreen(),
+                          // Guest → clear "Log in / Sign up" link.
+                          // Logged in → the usual profile icon.
+                          Consumer(
+                            builder: (context, ref, _) {
+                              final authState = ref.watch(authStateProvider);
+                              final isLoggedIn = authState.value?.session?.user != null;
+
+                              if (!isLoggedIn) {
+                                return InkWell(
+                                  onTap: onPersonTap ??
+                                      () => Navigator.of(context).push(
+                                            MaterialPageRoute(
+                                              builder: (_) => const LoginScreen(),
+                                            ),
+                                          ),
+                                  child: const Padding(
+                                    padding: EdgeInsets.symmetric(horizontal: 4),
+                                    child: Text(
+                                      'Log in / Sign up',
+                                      style: TextStyle(
+                                        fontFamily: 'Inter',
+                                        fontSize: 13,
+                                        fontWeight: FontWeight.w600,
+                                        color: Colors.black,
+                                      ),
                                     ),
+                                  ),
+                                );
+                              }
+
+                              return _IconButton(
+                                icon: Icons.person_outline,
+                                onTap: onPersonTap ??
+                                    () => requireAuth(
+                                          context,
+                                          const ProfileScreen(),
+                                        ),
+                              );
+                            },
                           ),
                         ],
                         // Mobile: intentionally empty. Search, Bag, Orders,
                         // and Profile all live in BottomNavBar already.
                       ],
                     ),
+
+                    
                   ],
                 ),
               ),

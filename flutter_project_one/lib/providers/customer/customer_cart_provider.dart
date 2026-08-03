@@ -79,26 +79,46 @@ class CustomerCartNotifier extends Notifier<List<CustomerCartItem>> {
   }
 
   // ── MERGE (guest → account, called right after login) ──────────────
+ // ── MERGE (guest → account, called right after a COMPLETE login/signup) ──
   Future<void> mergeGuestCartIntoAccount() async {
     final userId = _userId;
     if (userId == null) return;
 
     final guestItems = state;
+    if (guestItems.isEmpty) {
+      // nothing to merge — still safe to clear, and pull whatever the
+      // account already has server-side
+      await _clearGuestLocalStorage();
+      await loadFromSupabase();
+      return;
+    }
 
-    if (guestItems.isNotEmpty) {
+    bool allSucceeded = true;
+
+    for (final item in guestItems) {
       try {
-        for (final item in guestItems) {
-          await _supabase.from('cart_item').upsert(
-            item.toJson(userId: userId),
-            onConflict: 'user_id,product_id,size_id',
-          );
-        }
+        await _supabase.from('cart_item').upsert(
+          item.toJson(userId: userId),
+          onConflict: 'user_id,product_id,size_id',
+        );
       } catch (error) {
-        print('CustomerCartNotifier.mergeGuestCartIntoAccount error: $error');
+        allSucceeded = false;
+        print('CustomerCartNotifier.mergeGuestCartIntoAccount item failed: $error');
+        // keep going — try to save the rest of the items even if
+        // one fails, rather than aborting the whole merge
       }
     }
 
-    await _clearGuestLocalStorage();
+    if (allSucceeded) {
+      // Only wipe local guest storage once we're SURE everything made
+      // it to the server — this is what stops items silently vanishing
+      // if the merge ran too early (e.g. mid-signup, before the
+      // account's profile row exists yet) or hit a network error.
+      await _clearGuestLocalStorage();
+    } else {
+      print('Guest cart merge had failures — keeping local guest cart as backup.');
+    }
+
     await loadFromSupabase();
   }
 

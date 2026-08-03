@@ -6,9 +6,13 @@ import 'package:flutter_riverpod/flutter_riverpod.dart';
 
 // Our providers
 import '../../providers/auth/auth_provider.dart';
+import '../../services/auth/auth_service.dart';
+import '../../screens/auth/otp_screen.dart';
 
 // Import RegisterScreen so we can navigate to it when user taps Sign Up
 import '../../screens/auth/register_screen.dart';
+import '../../screens/auth/forgot_password_screen.dart';
+
 
 // Import AdminLayout for role-based navigation
 import '../../screens/admin/admin_layout.dart';
@@ -64,10 +68,54 @@ class _LoginFormState extends ConsumerState<LoginForm> {
 
       final authService = ref.read(authServiceProvider);
 
-      final String? errorMessage = await authService.login(
+     final String? errorMessage = await authService.login(
         email: _emailController.text,
         password: _passwordController.text,
       );
+
+      if (errorMessage == AuthService.unconfirmedEmailMarker) {
+        ref.read(errorMessageProvider.notifier).setError(
+          'This account was never fully verified. Please sign up again '
+          'with the same email to resend your verification code.',
+        );
+        return;
+      }
+
+      if (errorMessage == AuthService.incompleteRegistrationMarker) {
+        // Password was correct, session is alive, but the phone step
+        // was never finished. Recover name/phone from auth metadata
+        // and drop them straight into the phone-verification screen.
+        final currentUser = authService.currentUser;
+        final meta = currentUser?.userMetadata;
+        final phone = meta?['phone'] as String? ?? '';
+
+        if (currentUser == null || phone.isEmpty) {
+          ref.read(errorMessageProvider.notifier).setError(
+            'Your signup wasn\'t finished and we couldn\'t recover your '
+            'details. Please sign up again.',
+          );
+          return;
+        }
+
+        ref.read(pendingRegistrationProvider.notifier).set(
+          PendingRegistration(
+            firstName: meta?['first_name'] as String? ?? '',
+            lastName: meta?['last_name'] as String? ?? '',
+            email: currentUser.email ?? '',
+            phone: phone,
+          ),
+        );
+
+        if (mounted) {
+          Navigator.pushReplacement(
+            context,
+            MaterialPageRoute(
+              builder: (_) => const OtpVerificationScreen(startAtPhoneStep: true),
+            ),
+          );
+        }
+        return;
+      }
 
       if (errorMessage != null) {
         ref.read(errorMessageProvider.notifier).setError(errorMessage);
@@ -332,7 +380,11 @@ class _LoginFormState extends ConsumerState<LoginForm> {
             Align(
               alignment: Alignment.centerRight,
               child: GestureDetector(
-                onTap: _handleForgotPassword,
+                onTap: () {
+                  Navigator.of(context).push(
+                    MaterialPageRoute(builder: (_) => const ForgotPasswordScreen()),
+                  );
+                },
                 child: const Text(
                   'Forgot Password?',
                   style: TextStyle(

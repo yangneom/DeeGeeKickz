@@ -5,6 +5,8 @@ import '../../../screens/customer/search/search_screen.dart';
 import '../../../screens/customer/orders/order_history_screen.dart';
 import '../../../screens/customer/profile/profile_screen.dart';
 import '../../../core/utils/auth_gate.dart';
+import 'package:flutter_riverpod/flutter_riverpod.dart';
+import '../../../providers/auth/auth_provider.dart';
 
 /// Bottom navigation bar shown ONLY on mobile widths (< 768px).
 ///
@@ -20,7 +22,7 @@ import '../../../core/utils/auth_gate.dart';
 /// (e.g. ShopScreen) so nothing is falsely highlighted.
 ///
 /// Self-hides (returns SizedBox.shrink) on desktop/tablet.
-class BottomNavBar extends StatelessWidget {
+class BottomNavBar extends ConsumerWidget {
   final int currentIndex;
   final ValueChanged<int>? onTap;
 
@@ -43,8 +45,12 @@ class BottomNavBar extends StatelessWidget {
     _NavItem(icon: Icons.person_outline,          label: 'Profile'),
   ];
 
+
+
   @override
-  Widget build(BuildContext context) {
+  Widget build(BuildContext context, WidgetRef ref) {
+    final authState = ref.watch(authStateProvider);
+  final isLoggedIn = authState.value?.session?.user != null;
     return LayoutBuilder(
       builder: (context, constraints) {
         if (constraints.maxWidth >= _mdBreakpoint) {
@@ -62,7 +68,10 @@ class BottomNavBar extends StatelessWidget {
           child: Row(
             mainAxisAlignment: MainAxisAlignment.spaceAround,
             children: List.generate(_items.length, (index) {
-              final item     = _items[index];
+              final isProfileTab = index == 4;
+              final item = (isProfileTab && !isLoggedIn)
+                  ? const _NavItem(icon: Icons.login, label: 'Login')
+                  : _items[index];
               final isActive = index == currentIndex;
 
               return InkWell(

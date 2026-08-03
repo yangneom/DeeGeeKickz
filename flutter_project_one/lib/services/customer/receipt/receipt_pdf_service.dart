@@ -37,6 +37,11 @@ import '../payment/payment_service.dart';
 // back to summing item totals for legacy orders where subtotal wasn't
 // saved yet), and the printed TOTAL is always order.totalAmount itself
 // — the one real number already charged — never recomputed here.
+//
+// UPDATE 2: added `isInStore` — walk-in cashier sales have no shipping
+// leg at all, so printing "Shipping: FREE" on those receipts was
+// misleading (there's no delivery to be free/not-free about). The
+// Shipping row is now only printed for real delivery (online) orders.
 // ================================================
 
 class ReceiptPdfService {
@@ -47,10 +52,17 @@ class ReceiptPdfService {
   // GENERATE AND UPLOAD
   // Returns the public URL of the stored PDF.
   // Also persists receipt_url to the payment row.
+  //
+  // isInStore: pass true for walk-in cashier sales (cash or
+  // in-store QR). Suppresses the Shipping line on the printed
+  // receipt, since there's no delivery leg for those orders.
   // ================================================
-  Future<String> generateAndUpload(Order order) async {
+  Future<String> generateAndUpload(
+    Order order, {
+    bool isInStore = false,
+  }) async {
     try {
-      final pw.Document pdf   = await _buildPdf(order);
+      final pw.Document pdf   = await _buildPdf(order, isInStore: isInStore);
       final Uint8List bytes = Uint8List.fromList(await pdf.save());
       final String      path  = 'receipts/${order.orderId}.pdf';
 
@@ -84,7 +96,10 @@ class ReceiptPdfService {
   // ================================================
   // BUILD PDF DOCUMENT
   // ================================================
-  Future<pw.Document> _buildPdf(Order order) async {
+  Future<pw.Document> _buildPdf(
+    Order order, {
+    bool isInStore = false,
+  }) async {
     // Load the Unicode-capable fonts once per build.
     final ByteData regularData =
         await rootBundle.load('assets/fonts/NotoSans-Regular.ttf');
@@ -251,7 +266,8 @@ class ReceiptPdfService {
               pw.SizedBox(height: 6),
 
               // ── Real breakdown — subtotal, discount (if any),
-              // shipping, then the TOTAL that was actually charged.
+              // shipping (online orders only), then the TOTAL that
+              // was actually charged.
               _row('Subtotal', '₱${subtotal.toStringAsFixed(0)}', notoRegular),
               if (order.discountAmount > 0) ...[
                 pw.SizedBox(height: 4),
@@ -261,14 +277,20 @@ class ReceiptPdfService {
                   notoRegular,
                 ),
               ],
-              pw.SizedBox(height: 4),
-              _row(
-                'Shipping',
-                order.shipping > 0
-                    ? '₱${order.shipping.toStringAsFixed(0)}'
-                    : 'FREE',
-                notoRegular,
-              ),
+              // Shipping only applies to real deliveries. In-store
+              // walk-in sales have no delivery leg, so there's
+              // nothing to label "FREE" — showing that row on a
+              // counter receipt was misleading.
+              if (!isInStore) ...[
+                pw.SizedBox(height: 4),
+                _row(
+                  'Shipping',
+                  order.shipping > 0
+                      ? '₱${order.shipping.toStringAsFixed(0)}'
+                      : 'FREE',
+                  notoRegular,
+                ),
+              ],
               pw.SizedBox(height: 6),
               pw.Divider(),
               pw.SizedBox(height: 6),
