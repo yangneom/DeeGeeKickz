@@ -4,6 +4,7 @@ import 'package:flutter_riverpod/flutter_riverpod.dart';
 import '../../providers/auth/auth_provider.dart';
 import '../customer/homescreen/home_screen.dart';
 import '../../providers/customer/customer_cart_provider.dart';
+import 'login_screen.dart';
 
 enum _OtpStep { email, phone }
 
@@ -154,6 +155,227 @@ class _OtpVerificationScreenState extends ConsumerState<OtpVerificationScreen> {
     }
   }
 
+  Future<void> _handleEditPhoneNumber() async {
+    final pending = ref.read(pendingRegistrationProvider);
+    if (pending == null) return;
+
+    final controller = TextEditingController(text: pending.phone);
+
+    final String? newPhone = await showDialog<String>(
+      context: context,
+      barrierColor: Colors.black.withOpacity(0.6),
+      builder: (dialogContext) {
+        return Dialog(
+          backgroundColor: Colors.white,
+          shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(4)),
+          insetPadding: const EdgeInsets.symmetric(horizontal: 24),
+          child: Padding(
+            padding: const EdgeInsets.all(24),
+            child: Column(
+              mainAxisSize: MainAxisSize.min,
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                const Text(
+                  'EDIT PHONE NUMBER',
+                  style: TextStyle(
+                    fontSize: 16,
+                    fontWeight: FontWeight.bold,
+                    letterSpacing: 0.5,
+                    color: Colors.black,
+                  ),
+                ),
+                const SizedBox(height: 6),
+                Text(
+                  'We\'ll send a new code to the corrected number.',
+                  style: TextStyle(fontSize: 13, color: Colors.grey.shade600),
+                ),
+                const SizedBox(height: 20),
+                TextField(
+                  controller: controller,
+                  keyboardType: TextInputType.phone,
+                  autofocus: true,
+                  style: const TextStyle(fontSize: 15, color: Colors.black),
+                  decoration: InputDecoration(
+                    hintText: 'e.g. 09171234567',
+                    hintStyle: TextStyle(color: Colors.grey.shade400),
+                    filled: true,
+                    fillColor: const Color(0xFFF5F5F5),
+                    contentPadding: const EdgeInsets.symmetric(horizontal: 14, vertical: 14),
+                    border: OutlineInputBorder(
+                      borderRadius: BorderRadius.circular(4),
+                      borderSide: BorderSide.none,
+                    ),
+                    focusedBorder: OutlineInputBorder(
+                      borderRadius: BorderRadius.circular(4),
+                      borderSide: const BorderSide(color: Colors.black, width: 1.5),
+                    ),
+                  ),
+                ),
+                const SizedBox(height: 24),
+                Row(
+                  children: [
+                    Expanded(
+                      child: OutlinedButton(
+                        onPressed: () => Navigator.of(dialogContext).pop(),
+                        style: OutlinedButton.styleFrom(
+                          foregroundColor: Colors.black,
+                          side: BorderSide(color: Colors.grey.shade400),
+                          padding: const EdgeInsets.symmetric(vertical: 14),
+                          shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(4)),
+                        ),
+                        child: const Text('Cancel', style: TextStyle(fontSize: 14)),
+                      ),
+                    ),
+                    const SizedBox(width: 12),
+                    Expanded(
+                      child: ElevatedButton(
+                        onPressed: () => Navigator.of(dialogContext).pop(controller.text.trim()),
+                        style: ElevatedButton.styleFrom(
+                          backgroundColor: Colors.black,
+                          foregroundColor: Colors.white,
+                          elevation: 0,
+                          padding: const EdgeInsets.symmetric(vertical: 14),
+                          shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(4)),
+                        ),
+                        child: const Text(
+                          'SAVE & RESEND',
+                          style: TextStyle(fontSize: 13, fontWeight: FontWeight.w600, letterSpacing: 0.5),
+                        ),
+                      ),
+                    ),
+                  ],
+                ),
+              ],
+            ),
+          ),
+        );
+      },
+    );
+
+    if (newPhone == null || newPhone.isEmpty || !mounted) return;
+
+    setState(() {
+      _isLoading = true;
+      _errorMessage = null;
+    });
+
+    // Update the pending registration with the corrected phone —
+    // keeps their email verification progress intact, only the
+    // phone number changes.
+    ref.read(pendingRegistrationProvider.notifier).set(
+      PendingRegistration(
+        firstName: pending.firstName,
+        lastName: pending.lastName,
+        email: pending.email,
+        phone: newPhone,
+      ),
+    );
+
+    final bool smsSent = await ref.read(iprogSmsServiceProvider).sendOtp(newPhone);
+
+    setState(() => _isLoading = false);
+
+    if (!smsSent) {
+      setState(() => _errorMessage = 'We couldn\'t send a code to that number. Please check it and try again.');
+      return;
+    }
+
+    setState(() {
+      _codeController.clear();
+      _errorMessage = null;
+    });
+    _startTimer();
+
+    if (mounted) {
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(content: Text('A new code was sent to $newPhone.')),
+      );
+    }
+  }
+
+  Future<void> _handleCancelSignup() async {
+    final bool? confirmed = await showDialog<bool>(
+      context: context,
+      barrierColor: Colors.black.withOpacity(0.6),
+      builder: (dialogContext) => Dialog(
+        backgroundColor: Colors.white,
+        shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(4)),
+        insetPadding: const EdgeInsets.symmetric(horizontal: 24),
+        child: Padding(
+          padding: const EdgeInsets.all(24),
+          child: Column(
+            mainAxisSize: MainAxisSize.min,
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: [
+              const Text(
+                'CANCEL SIGNUP?',
+                style: TextStyle(
+                  fontSize: 16,
+                  fontWeight: FontWeight.bold,
+                  letterSpacing: 0.5,
+                  color: Colors.black,
+                ),
+              ),
+              const SizedBox(height: 10),
+              Text(
+                'This will stop your registration. You\'ll need to sign up again from the start if you change your mind.',
+                style: TextStyle(fontSize: 13, color: Colors.grey.shade600, height: 1.5),
+              ),
+              const SizedBox(height: 24),
+              Row(
+                children: [
+                  Expanded(
+                    child: OutlinedButton(
+                      onPressed: () => Navigator.of(dialogContext).pop(false),
+                      style: OutlinedButton.styleFrom(
+                        foregroundColor: Colors.black,
+                        side: BorderSide(color: Colors.grey.shade400),
+                        padding: const EdgeInsets.symmetric(vertical: 14),
+                        shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(4)),
+                      ),
+                      child: const Text('Keep going', style: TextStyle(fontSize: 14)),
+                    ),
+                  ),
+                  const SizedBox(width: 12),
+                  Expanded(
+                    child: ElevatedButton(
+                      onPressed: () => Navigator.of(dialogContext).pop(true),
+                      style: ElevatedButton.styleFrom(
+                        backgroundColor: const Color(0xFFBA1A1A),
+                        foregroundColor: Colors.white,
+                        elevation: 0,
+                        padding: const EdgeInsets.symmetric(vertical: 14),
+                        shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(4)),
+                      ),
+                      child: const Text(
+                        'CANCEL SIGNUP',
+                        style: TextStyle(fontSize: 12, fontWeight: FontWeight.w600, letterSpacing: 0.5),
+                      ),
+                    ),
+                  ),
+                ],
+              ),
+            ],
+          ),
+        ),
+      ),
+    );
+
+    if (confirmed != true || !mounted) return;
+
+    if (confirmed != true || !mounted) return;
+
+    await ref.read(authServiceProvider).logout();
+    ref.read(pendingRegistrationProvider.notifier).clear();
+
+    if (mounted) {
+      Navigator.of(context).pushAndRemoveUntil(
+        MaterialPageRoute(builder: (_) => const LoginScreen()),
+        (route) => false,
+      );
+    }
+  }
+
   Future<void> _handleResend() async {
     final pending = ref.read(pendingRegistrationProvider);
     if (pending == null || _secondsLeft > 0) return;
@@ -216,7 +438,7 @@ class _OtpVerificationScreenState extends ConsumerState<OtpVerificationScreen> {
               ),
               const SizedBox(height: 24),
 
-              Text(
+            Text(
                 isEmailStep ? 'Verify your email' : 'Verify your phone',
                 style: const TextStyle(fontSize: 22, fontWeight: FontWeight.bold),
               ),
@@ -227,6 +449,24 @@ class _OtpVerificationScreenState extends ConsumerState<OtpVerificationScreen> {
                     : 'Enter the 6-digit code sent to $destination',
                 style: const TextStyle(fontSize: 14, color: Colors.grey),
               ),
+
+              // ── Wrong number? Edit — only on the phone step ──
+              if (!isEmailStep) ...[
+                const SizedBox(height: 8),
+                GestureDetector(
+                  onTap: _isLoading ? null : _handleEditPhoneNumber,
+                  child: const Text(
+                    'Wrong number? Edit',
+                    style: TextStyle(
+                      fontSize: 13,
+                      fontWeight: FontWeight.w600,
+                      color: Colors.black,
+                      decoration: TextDecoration.underline,
+                    ),
+                  ),
+                ),
+              ],
+
               const SizedBox(height: 24),
 
               TextFormField(
@@ -263,7 +503,6 @@ class _OtpVerificationScreenState extends ConsumerState<OtpVerificationScreen> {
                 ),
               ],
 
-              const SizedBox(height: 24),
               SizedBox(
                 width: double.infinity,
                 height: 50,
@@ -274,12 +513,23 @@ class _OtpVerificationScreenState extends ConsumerState<OtpVerificationScreen> {
                     foregroundColor: Colors.white,
                     shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(8)),
                   ),
-               child: _isLoading
+                  child: _isLoading
                       ? const SizedBox(
                           height: 20, width: 20,
                           child: CircularProgressIndicator(color: Colors.white, strokeWidth: 2))
                       : Text(isEmailStep ? 'Verify Email' : 'Verify Phone',
                           style: const TextStyle(fontSize: 16, fontWeight: FontWeight.bold)),
+                ),
+              ),
+              // ── Cancel signup — small, low-emphasis, always available ──
+              const SizedBox(height: 16),
+              Center(
+                child: TextButton(
+                  onPressed: _isLoading ? null : _handleCancelSignup,
+                  child: Text(
+                    'Cancel signup',
+                    style: TextStyle(fontSize: 12, color: Colors.grey.shade500),
+                  ),
                 ),
               ),
             ],

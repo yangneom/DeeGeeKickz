@@ -84,7 +84,7 @@ class ChatService {
   // caller is responsible for that check before calling this (see
   // chat_provider.dart sendMessage). message_text is NOT NULL in the
   // DB, so an image-only message still inserts '' rather than null.
-  Future<void> sendMessage({
+Future<void> sendMessage({
     required String conversationId,
     required String senderId,
     required String senderRole,
@@ -92,6 +92,7 @@ class ChatService {
     String? imageUrl,
     String? productId,
   }) async {
+    print('📨 sendMessage called with senderRole="$senderRole"');
     await _client.from('messages').insert({
       'conversation_id': int.parse(conversationId),
       'sender_id':       senderId,
@@ -175,40 +176,18 @@ Future<void> _notifyStaffNewMessage({
     String? imageUrl,
     String? productId,
   }) async {
+    print('🔔🔔🔔 _notifyStaffNewMessage CALLED 🔔🔔🔔');
     try {
-      String customerName = 'A customer';
-      try {
-        final row = await _client
-            .from('users')
-            .select('first_name, last_name')
-            .eq('id', customerId)
-            .single();
-        final firstName = row['first_name']?.toString() ?? '';
-        final lastName = row['last_name']?.toString() ?? '';
-        final full = '$firstName $lastName'.trim();
-        if (full.isNotEmpty) customerName = full;
-      } catch (_) {
-        // fall back to the generic label above
-      }
-
-      final String preview = _buildPreview(text, imageUrl, productId);
-
-      final staff = await _client
-          .from('users')
-          .select('id')
-          .eq('role', 'Admin');
-
-      if ((staff as List).isEmpty) return;
-
-      final rows = staff.map((u) => {
-            'customer_id': u['id'],
-            'type': 'new_message',
-            'title': 'New message from $customerName',
-            'body': preview,
-            'recipient_role': 'admin',
-          }).toList();
-
-      await _client.from('notifications').insert(rows); // NO .select() !
+      // Single round trip — the DB does the name lookup, staff lookup,
+      // and inserts in one atomic call, so a fast account switch on the
+      // client can no longer cut it off mid-flight.
+      await _client.rpc('notify_staff_new_message', params: {
+        'p_customer_id': customerId,
+        'p_text': text,
+        'p_image_url': imageUrl,
+        'p_product_id': productId == null ? null : int.parse(productId),
+      });
+      print('🔔 RPC completed successfully');
     } catch (error) {
       print('_notifyStaffNewMessage error: $error');
     }

@@ -1,6 +1,7 @@
 // lib/providers/customer/notification_provider.dart
 
 import 'package:flutter_riverpod/flutter_riverpod.dart';
+import 'package:supabase_flutter/supabase_flutter.dart' show RealtimeChannel, Supabase;
 import '../../models/notification_model.dart';
 import '../../services/customer/notification/notification_service.dart';
 
@@ -37,6 +38,7 @@ class NotificationState {
 }
 
 // ── Notifier: Customer ──────────────────────────────────────────────────────────
+// (unchanged — not part of this fix)
 class NotificationNotifier extends Notifier<NotificationState> {
   @override
   NotificationState build() {
@@ -94,11 +96,19 @@ final notificationProvider =
 
 // ── Notifier: Admin ──────────────────────────────────────────────────────────────
 class AdminNotificationNotifier extends Notifier<NotificationState> {
+  RealtimeChannel? _channel;
+
   @override
   NotificationState build() {
-    Future.microtask(loadNotifications);
+    ref.onDispose(_cancelSubscription);
+    Future.microtask(() async {
+      await loadNotifications();
+      if (!ref.mounted) return;
+      _subscribeRealtime();
+    });
     return const NotificationState(isLoading: true);
   }
+  
 
   NotificationService get _service =>
       ref.read(notificationServiceProvider);
@@ -107,12 +117,40 @@ class AdminNotificationNotifier extends Notifier<NotificationState> {
     state = state.copyWith(isLoading: true, error: null);
     try {
       final list = await _service.fetchAdminNotifications();
+      if (!ref.mounted) return;
       state = state.copyWith(notifications: list, isLoading: false);
     } catch (e) {
       state = state.copyWith(
         isLoading: false,
         error: 'Failed to load notifications.',
       );
+    }
+  }
+
+  // ── Realtime: live-insert new notifications as Admin ────────────
+  void _subscribeRealtime() {
+    final userId = Supabase.instance.client.auth.currentUser?.id;
+    if (userId == null) return;
+
+    // Avoid double-subscribing if this ever gets called twice
+    _cancelSubscription();
+
+    _channel = _service.subscribeToAdminNotifications(userId, (notification) {
+      if (!ref.mounted) return;
+      final alreadyPresent =
+          state.notifications.any((n) => n.id == notification.id);
+      if (!alreadyPresent) {
+        state = state.copyWith(
+          notifications: [notification, ...state.notifications],
+        );
+      }
+    });
+  }
+
+  void _cancelSubscription() {
+    if (_channel != null) {
+      _service.unsubscribe(_channel!);
+      _channel = null;
     }
   }
 
@@ -150,9 +188,15 @@ final adminNotificationProvider =
 
 // ── Notifier: Super Admin (shared inbox) ──────────────────────────────────────────
 class SuperAdminNotificationNotifier extends Notifier<NotificationState> {
+  RealtimeChannel? _channel;
+
   @override
   NotificationState build() {
-    Future.microtask(loadNotifications);
+    ref.onDispose(_cancelSubscription);
+    Future.microtask(() async {
+      await loadNotifications();
+      _subscribeRealtime();
+    });
     return const NotificationState(isLoading: true);
   }
 
@@ -169,6 +213,28 @@ class SuperAdminNotificationNotifier extends Notifier<NotificationState> {
         isLoading: false,
         error: 'Failed to load notifications.',
       );
+    }
+  }
+
+  // ── Realtime: shared inbox, not scoped to one user ───────────────
+  void _subscribeRealtime() {
+    _cancelSubscription();
+
+    _channel = _service.subscribeToSuperAdminNotifications((notification) {
+      final alreadyPresent =
+          state.notifications.any((n) => n.id == notification.id);
+      if (!alreadyPresent) {
+        state = state.copyWith(
+          notifications: [notification, ...state.notifications],
+        );
+      }
+    });
+  }
+
+  void _cancelSubscription() {
+    if (_channel != null) {
+      _service.unsubscribe(_channel!);
+      _channel = null;
     }
   }
 

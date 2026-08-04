@@ -73,6 +73,12 @@ class CustomerChatState {
 
 class CustomerChatNotifier extends Notifier<CustomerChatState> {
   RealtimeChannel? _channel;
+  // Created directly, not via ref — ChatService has no dependencies
+  // of its own (it just uses Supabase.instance.client internally),
+  // so there's no need to route it through the provider system, and
+  // this sidesteps ref-safety issues entirely (safe to use even
+  // during onDispose, since it never touches ref).
+  final ChatService _service = ChatService();
 
   @override
   CustomerChatState build() {
@@ -80,8 +86,6 @@ class CustomerChatNotifier extends Notifier<CustomerChatState> {
     Future.microtask(initConversation);
     return const CustomerChatState(isLoading: true);
   }
-
-  ChatService get _service => ref.read(chatServiceProvider);
 
   // ── Init: get/create conversation then load messages ──────────
   Future<void> initConversation() async {
@@ -253,6 +257,7 @@ class AdminChatState {
 class AdminChatNotifier extends Notifier<AdminChatState> {
   RealtimeChannel? _conversationChannel;
   RealtimeChannel? _messageChannel;
+  final ChatService _service = ChatService();
 
   @override
   AdminChatState build() {
@@ -260,8 +265,6 @@ class AdminChatNotifier extends Notifier<AdminChatState> {
     Future.microtask(loadConversations);
     return const AdminChatState(isLoading: true);
   }
-
-  ChatService get _service => ref.read(chatServiceProvider);
 
   // ── Load all conversations ────────────────────────────────────
   Future<void> loadConversations() async {

@@ -312,11 +312,13 @@ class _OrderDetailsDialogState extends State<OrderDetailsDialog> {
 // ================================================
   // ITEMS + SUMMARY — merged into one visual block
   //
-  // Previously two separate boxes (Item Purchase table, then a
-  // second Order Summary box below it with its own header/border).
-  // Now a single container: items table on top, totals directly
-  // below with no visual break — reads as one connected breakdown
-  // instead of two disconnected cards.
+  // UPDATE: Shipping row no longer collapses "no coordinates on
+  // file" and "genuinely ₱0 shipping fee" into the same "FREE"
+  // label. Checkout now blocks placing an order until a real
+  // Lalamove quote succeeds (see CheckoutStep1Shipping), so this
+  // mainly protects against legacy orders placed before that fix
+  // existed — for those, shipping = 0 with no coordinates almost
+  // certainly means "never calculated", not "confirmed free".
   // ================================================
   Widget _buildItemsAndSummary() {
     final List<OrderItem> items = widget.order.items;
@@ -324,6 +326,14 @@ class _OrderDetailsDialogState extends State<OrderDetailsDialog> {
     final double displaySubtotal = widget.order.subtotal > 0
         ? widget.order.subtotal
         : widget.order.items.fold<double>(0, (sum, item) => sum + item.total);
+
+    // True "FREE" only when there IS a confirmed quote (coordinates
+    // on file) and that quote came back ₱0. If there are no
+    // coordinates at all, shipping was never actually calculated —
+    // showing "FREE" in that case would mislead the admin into
+    // thinking delivery was confirmed as free when it simply
+    // wasn't priced.
+    final bool shippingNotCalculated = !_hasCoordinates && widget.order.shipping <= 0;
 
     return Container(
       decoration: BoxDecoration(
@@ -406,10 +416,25 @@ class _OrderDetailsDialogState extends State<OrderDetailsDialog> {
                 const SizedBox(height: 8),
                 _summaryRow(
                   'Shipping',
-                  widget.order.shipping > 0
-                      ? '₱${widget.order.shipping.toStringAsFixed(0)}'
-                      : 'FREE',
+                  shippingNotCalculated
+                      ? 'Not calculated'
+                      : widget.order.shipping > 0
+                          ? '₱${widget.order.shipping.toStringAsFixed(0)}'
+                          : 'FREE',
+                  valueColor: shippingNotCalculated
+                      ? const Color(0xFF92400E)
+                      : null,
                 ),
+                if (shippingNotCalculated) ...[
+                  const SizedBox(height: 4),
+                  const Text(
+                    'This order has no map coordinates on file, so a '
+                    'shipping fee was never calculated at checkout — '
+                    'this is likely a legacy order. Verify the real '
+                    'fee with the customer before treating it as free.',
+                    style: TextStyle(fontSize: 11, color: Color(0xFF92400E), height: 1.4),
+                  ),
+                ],
                 const SizedBox(height: 12),
                 const Divider(height: 1, color: Color(0xFFE5E7EB)),
                 const SizedBox(height: 12),

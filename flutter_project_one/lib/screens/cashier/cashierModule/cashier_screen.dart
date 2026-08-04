@@ -534,6 +534,11 @@ void _addToCart({
 
           // Generate + upload the receipt now that the webhook has
           // confirmed payment and marked the order Completed.
+          //
+          // isInStore: true — this is still a walk-in/in-store sale,
+          // just paid via QR at the counter rather than cash. No
+          // delivery leg, so the receipt shouldn't show a Shipping
+          // row (previously showed "Shipping: FREE" here too).
           try {
             final List<OrderItem> orderItems = cartItemsMap.map((item) {
               final int parsedSize =
@@ -562,7 +567,10 @@ void _addToCart({
               items:         orderItems,
             );
 
-            await ReceiptPdfService().generateAndUpload(receiptOrder);
+            await ReceiptPdfService().generateAndUpload(
+              receiptOrder,
+              isInStore: true,
+            );
           } catch (receiptErr) {
             print('Cashier QR receipt error: $receiptErr');
           }

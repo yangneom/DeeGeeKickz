@@ -104,54 +104,31 @@ class StockService {
   }
 
   // ── Low/out-of-stock notification ────────────────────────────────
-  // Fires after a stock removal. Notifies every Admin + Super Admin
-  // when the new quantity crosses into low-stock or out-of-stock range.
+  // Fires after a stock removal. Notifies every Admin when the new
+  // quantity crosses into low-stock or out-of-stock range.
   //
-  // FIX: previously only queried role = 'Admin', silently excluding
-  // Super Admin accounts despite the comment/intent saying both should
-  // be notified. Now queries both roles.
+  // FIX (this round): the insert was missing the `recipient_role`
+  // field entirely. The notifications table defaults that column to
+  // 'customer', so every low-stock/out-of-stock row was silently
+  // filed under the wrong bucket and could never appear on the Admin
+  // notification screen (which filters recipient_role = 'admin').
+  // No error was ever thrown — it just wrote to a bucket nobody reads.
+  //
+  // Also narrowed the staff query back to Admin only (previously
+  // queried Admin + Super Admin) — stock alerts are operational and
+  // Super Admin's notification scope is feedback-only, matching the
+  // same pattern used for order and chat notifications elsewhere.
   Future<void> _checkAndNotifyLowStock({
     required int sizeId,
     required String label,
   }) async {
+    print('🔔🔔🔔 _checkAndNotifyLowStock CALLED for size #$sizeId 🔔🔔🔔');
     try {
-      final row = await _supabase
-          .from('product_variant_size')
-          .select('stock_quantity')
-          .eq('size_id', sizeId)
-          .single();
-
-      final int quantity = (row['stock_quantity'] as num?)?.toInt() ?? 0;
-
-      if (quantity > _lowStockThreshold) {
-        return;
-      }
-
-      final bool isOutOfStock = quantity == 0;
-
-      final staff = await _supabase
-          .from('users')
-          .select('id')
-          .inFilter('role', ['Admin', 'Super Admin']);
-
-      if ((staff as List).isEmpty) {
-        return;
-      }
-
-      final String title = isOutOfStock ? 'Out of stock' : 'Low stock alert';
-      final String body = isOutOfStock
-          ? '$label is now out of stock.'
-          : '$label is running low ($quantity left).';
-      final String type = isOutOfStock ? 'out_of_stock' : 'low_stock';
-
-      final rows = staff.map((u) => {
-            'customer_id': u['id'],
-            'type': type,
-            'title': title,
-            'body': body,
-          }).toList();
-
-      await _supabase.from('notifications').insert(rows);
+      await _supabase.rpc('notify_staff_low_stock', params: {
+        'p_size_id': sizeId,
+        'p_label': label,
+      });
+      print('🔔 Low stock RPC completed successfully');
     } catch (error) {
       print('_checkAndNotifyLowStock error: $error');
     }

@@ -127,34 +127,14 @@ class OrderService {
     required double total,
     required String paymentMethod,
   }) async {
+    print('🔔🔔🔔 _notifyStaffNewOrder CALLED for order #$orderId 🔔🔔🔔');
     try {
-      final staff = await _supabase
-          .from('users')
-          .select('id')
-          .eq('role', 'Admin');
-
-      if ((staff as List).isEmpty) return;
-
-      final String methodLabel = switch (paymentMethod) {
-        'cod' => 'COD',
-        'gcash' => 'GCash',
-        'card' => 'Card',
-        _ => paymentMethod,
-      };
-
-      final rows = staff
-          .map((u) => {
-                'customer_id': u['id'],
-                'type': 'order',
-                'title': 'New order placed',
-                'body':
-                    'Order #$orderId — ₱${total.toStringAsFixed(2)} via $methodLabel.',
-                'order_id': orderId,
-                'recipient_role': 'admin',
-              })
-          .toList();
-
-      await _supabase.from('notifications').insert(rows);
+      await _supabase.rpc('notify_staff_new_order', params: {
+        'p_order_id': orderId,
+        'p_total': total,
+        'p_payment_method': paymentMethod,
+      });
+      print('🔔 Order RPC completed successfully');
     } catch (error) {
       print('_notifyStaffNewOrder error: $error');
     }

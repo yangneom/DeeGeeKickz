@@ -6,15 +6,23 @@
 // Naming note: the table is called `feedback` in Supabase
 // but the customer-facing concept is "review".
 //
-// BUG FIX this round — submitReview():
+// BUG FIX — submitReview():
 //   Now that the DB has a unique (user_id, product_id) constraint,
 //   a raced double-submit (double-tap, or a retry after a timeout
 //   that actually succeeded) will hit the insert AFTER the
 //   pre-check passes, and Postgres will reject it with error code
-//   23505 (unique_violation). Previously this fell through to the
-//   generic catch and returned the raw exception string. It's now
-//   caught specifically and returns the same friendly
-//   "already reviewed" message as the pre-check does.
+//   23505 (unique_violation). Caught specifically and returns the
+//   same friendly "already reviewed" message as the pre-check does.
+//
+// BUG FIX — _notifyStaffNewFeedback() / _notifyStaffFeedbackReply():
+//   Both used to do 2-3 sequential network calls (name/product
+//   lookup, then staff lookup, then insert) before anything
+//   committed. If the browser switched accounts mid-sequence
+//   (common during rapid admin/customer testing), the request got
+//   cut off with no error and no notification ever written.
+//   Both are now single RPC calls — the whole lookup+insert
+//   sequence runs atomically on the server in one request, so a
+//   fast account switch on the client can no longer interrupt it.
 // ================================================
 
 import 'package:supabase_flutter/supabase_flutter.dart';
@@ -166,6 +174,14 @@ class ReviewService {
         'reply_text':  trimmed,
       });
 
+      // Fire-and-forget: notify staff. Never let a notification
+      // failure make the reply look like it failed to post — the
+      // reply itself already committed successfully above.
+      await _notifyStaffFeedbackReply(
+        feedbackId: feedbackId,
+        replyText: trimmed,
+      );
+
       return null;
     } catch (error) {
       print('addReply error: $error');
@@ -176,43 +192,49 @@ class ReviewService {
   // ================================================
   // NOTIFY STAFF — NEW FEEDBACK
   // Recipient: Admin + Super Admin (both have a feedback screen).
+  //
+  // Single RPC call — see file header for why.
   // ================================================
   Future<void> _notifyStaffNewFeedback({
     required int productId,
     required int rating,
   }) async {
+    print('🔔🔔🔔 _notifyStaffNewFeedback CALLED for product #$productId 🔔🔔🔔');
     try {
-      String productName = 'a product';
-      try {
-        final row = await _supabase
-            .from('product')
-            .select('product_name')
-            .eq('product_id', productId)
-            .single();
-        productName = row['product_name']?.toString() ?? productName;
-      } catch (_) {
-        // fall back to the generic label above
-      }
-final staff = await _supabase
-          .from('users')
-          .select('id, role')
-          .inFilter('role', ['Admin', 'Super Admin']);
-
-      if ((staff as List).isEmpty) return;
-
-      final rows = staff.map((u) => {
-            'customer_id': u['id'],
-            'type': 'new_feedback',
-            'title': 'New feedback received',
-            'body': '$productName received a $rating-star review.',
-            'recipient_role': u['role'] == 'Super Admin' ? 'super_admin' : 'admin',
-          }).toList();
-
-      await _supabase.from('notifications').insert(rows); // NO .select() !
+      await _supabase.rpc('notify_staff_new_feedback', params: {
+        'p_product_id': productId,
+        'p_rating': rating,
+      });
+      print('🔔 Feedback RPC completed successfully');
     } catch (error) {
       print('_notifyStaffNewFeedback error: $error');
     }
   }
+
+  // ================================================
+  // NOTIFY STAFF — REPLY POSTED ON A REVIEW
+  // Recipient: Admin + Super Admin — Super Admin has full feedback
+  // moderation access (updateStatus, saveReply in FeedbackService),
+  // so they should see reply activity too, not just new submissions.
+  //
+  // Single RPC call — see file header for why.
+  // ================================================
+  Future<void> _notifyStaffFeedbackReply({
+    required int feedbackId,
+    required String replyText,
+  }) async {
+    print('🔔🔔🔔 _notifyStaffFeedbackReply CALLED for feedback #$feedbackId 🔔🔔🔔');
+    try {
+      await _supabase.rpc('notify_staff_feedback_reply', params: {
+        'p_feedback_id': feedbackId,
+        'p_reply_text': replyText,
+      });
+      print('🔔 Reply RPC completed successfully');
+    } catch (error) {
+      print('_notifyStaffFeedbackReply error: $error');
+    }
+  }
+
   // ================================================
   // UPDATE REVIEW
   // Customer can edit their own review text / rating.

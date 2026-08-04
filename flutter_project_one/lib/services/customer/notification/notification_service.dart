@@ -6,9 +6,7 @@ import '../../../models/notification_model.dart';
 class NotificationService {
   final SupabaseClient _client = Supabase.instance.client;
 
-  // ── Fetch all notifications for current user ───────────────────
-// ── Fetch all notifications for current user ───────────────────
-// ── Fetch: Customer's own notifications ─────────────────────────
+  // ── Fetch: Customer's own notifications ─────────────────────────
   Future<List<AppNotification>> fetchNotifications() async {
     final userId = _client.auth.currentUser?.id;
     if (userId == null) return [];
@@ -63,8 +61,7 @@ class NotificationService {
         .eq('notification_id', int.parse(notificationId));
   }
 
-  // ── Mark all notifications as read ────────────────────────────
- // ── Mark all as read: Customer ────────────────────────────────
+  // ── Mark all as read: Customer ────────────────────────────────
   Future<void> markAllRead() async {
     final userId = _client.auth.currentUser?.id;
     if (userId == null) return;
@@ -97,5 +94,62 @@ class NotificationService {
         .update({'is_read': true})
         .eq('recipient_role', 'super_admin')
         .eq('is_read', false);
+  }
+
+  // ── Realtime: Admin's own notifications ─────────────────────────
+  // Filtered server-side by customer_id (this admin's UUID) since
+  // that's the column Supabase realtime filters on here. recipient_role
+  // is double-checked client-side as a safety net.
+  RealtimeChannel subscribeToAdminNotifications(
+    String userId,
+    void Function(AppNotification notification) onInsert,
+  ) {
+    return _client
+        .channel('notifications:admin:$userId')
+        .onPostgresChanges(
+          event:  PostgresChangeEvent.insert,
+          schema: 'public',
+          table:  'notifications',
+          filter: PostgresChangeFilter(
+            type:   PostgresChangeFilterType.eq,
+            column: 'customer_id',
+            value:  userId,
+          ),
+          callback: (payload) {
+            final row = payload.newRecord;
+            if (row['recipient_role'] == 'admin') {
+              onInsert(AppNotification.fromMap(row));
+            }
+          },
+        )
+        .subscribe();
+  }
+
+  // ── Realtime: Super Admin shared inbox ──────────────────────────
+  // Not scoped to one customer_id — filtered by recipient_role instead,
+  // matching the RLS policy added for the shared inbox.
+  RealtimeChannel subscribeToSuperAdminNotifications(
+    void Function(AppNotification notification) onInsert,
+  ) {
+    return _client
+        .channel('notifications:super_admin')
+        .onPostgresChanges(
+          event:  PostgresChangeEvent.insert,
+          schema: 'public',
+          table:  'notifications',
+          filter: PostgresChangeFilter(
+            type:   PostgresChangeFilterType.eq,
+            column: 'recipient_role',
+            value:  'super_admin',
+          ),
+          callback: (payload) {
+            onInsert(AppNotification.fromMap(payload.newRecord));
+          },
+        )
+        .subscribe();
+  }
+
+  void unsubscribe(RealtimeChannel channel) {
+    _client.removeChannel(channel);
   }
 }

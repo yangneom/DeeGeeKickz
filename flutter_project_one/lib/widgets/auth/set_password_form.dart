@@ -62,7 +62,10 @@ class _SetPasswordFormState extends State<SetPasswordForm> {
       if (userId != null) {
         await supabase
             .from('users')
-            .update({'password_set': true})
+            .update({
+              'password_set': true,
+              'password_changed_at': DateTime.now().toIso8601String(),
+            })
             .eq('id', userId);
       }
 

@@ -17,6 +17,8 @@ import 'providers/customer/notification_provider.dart';
 import 'screens/admin/admin_layout.dart';
 import 'screens/super/super_layout.dart';
 import 'screens/cashier/cashier_layout.dart';
+import 'providers/customer/chat_provider.dart';
+
 
 // Global navigator key — lets any file navigate without needing a
 // local BuildContext that might get unmounted mid-flow (e.g. checkout
@@ -298,6 +300,8 @@ class _MyAppState extends ConsumerState<MyApp> {
           ref.invalidate(notificationProvider);
           ref.invalidate(adminNotificationProvider);
           ref.invalidate(superAdminNotificationProvider);
+          ref.invalidate(customerChatProvider);
+          ref.invalidate(adminChatProvider);
         } catch (e) {
           print('Auth event profile check error: $e');
         }

@@ -1,9 +1,10 @@
 import 'package:flutter_riverpod/flutter_riverpod.dart';
+import 'package:flutter_riverpod/legacy.dart';
 
 import '../../models/product.dart';
 import '../../widgets/customer/shop/shop_filter_drawer.dart' show ShopFilterState;
 import '../../widgets/customer/shop/shop_sort_dropdown.dart' show ShopSortOption;
-import 'product_provider.dart';
+import '../../providers/product/product_provider.dart';
 
 /// Current filter selection (brands, categories, size, max price).
 /// Read/write this from the Shop screen, the filter drawer/sidebar,
