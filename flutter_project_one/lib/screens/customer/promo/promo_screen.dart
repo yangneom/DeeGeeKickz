@@ -83,12 +83,16 @@ class _PromoScreenState extends ConsumerState<PromoScreen> {
             .any((v) => v.sizes.any((s) => s.size == _filters.size));
         if (!hasSize) return false;
       }
-      final minPrice = p.variants.isEmpty
-          ? 0.0
-          : p.variants
-              .map((v) => v.retailPrice)
-              .reduce((a, b) => a < b ? a : b);
-      if (minPrice > _filters.maxPrice) return false;
+      // Same fix as shop_screen.dart — maxPrice == 5000 is the
+      // slider's "₱5000+" position, meaning no ceiling, not literally 5000.
+      if (_filters.maxPrice < 5000) {
+        final minPrice = p.variants.isEmpty
+            ? 0.0
+            : p.variants
+                .map((v) => v.retailPrice)
+                .reduce((a, b) => a < b ? a : b);
+        if (minPrice > _filters.maxPrice) return false;
+      }
       return true;
     }).toList();
 

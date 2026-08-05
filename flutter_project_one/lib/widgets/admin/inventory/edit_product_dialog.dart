@@ -1141,15 +1141,34 @@ class _EditProductDialogState extends ConsumerState<EditProductDialog> {
                       child: TextFormField(
                         controller: row.stockController,
                         keyboardType: TextInputType.number,
+                        // Existing sizes (sizeId != null) are locked here —
+                        // stock changes on an existing size must go through
+                        // Stock Adjustment instead, which has the
+                        // reserved-quantity safety check, activity log
+                        // entry, and low-stock notification that a direct
+                        // edit here would silently skip. Only brand-new
+                        // size rows (sizeId == null) can set stock here,
+                        // since there's no other way to give them an
+                        // initial value.
+                        readOnly: row.sizeId != null,
                         inputFormatters: [
                           FilteringTextInputFormatter
                               .digitsOnly
                         ],
-                        style: const TextStyle(fontSize: 12),
+                        style: TextStyle(
+                          fontSize: 12,
+                          color: row.sizeId != null
+                              ? const Color(0xFF9CA3AF)
+                              : Colors.black,
+                        ),
                         decoration: _inputDecoration(
-                                'Enter Stock')
+                                row.sizeId != null
+                                    ? 'Use Stock Adjustment'
+                                    : 'Enter Stock')
                             .copyWith(
-                          fillColor: Colors.white,
+                          fillColor: row.sizeId != null
+                              ? const Color(0xFFF3F4F6)
+                              : Colors.white,
                           contentPadding:
                               const EdgeInsets.symmetric(
                                   horizontal: 10,

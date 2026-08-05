@@ -58,12 +58,19 @@ class _ShopScreenState extends ConsumerState<ShopScreen> {
         );
         if (!hasSize) return false;
       }
-      final minPrice = p.variants.isEmpty
-          ? 0.0
-          : p.variants
-              .map((v) => v.retailPrice)
-              .reduce((a, b) => a < b ? a : b);
-      if (minPrice > _filters.maxPrice) return false;
+      // maxPrice == 5000 is the slider's rightmost position, labeled
+      // "₱5000+" in the UI — meaning "no ceiling," not "exactly 5000."
+      // Without this check, any product priced above ₱5000 was
+      // invisible in the shop even at the slider's max setting, with
+      // no way for a customer to ever see it.
+      if (_filters.maxPrice < 5000) {
+        final minPrice = p.variants.isEmpty
+            ? 0.0
+            : p.variants
+                .map((v) => v.retailPrice)
+                .reduce((a, b) => a < b ? a : b);
+        if (minPrice > _filters.maxPrice) return false;
+      }
       return true;
     }).toList();
 
