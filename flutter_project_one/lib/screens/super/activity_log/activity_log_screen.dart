@@ -304,66 +304,6 @@ class _ActivityLogScreenState extends ConsumerState<ActivityLogScreen> {
                     },
                   ),
 
-                  const SizedBox(width: 8),
-
-                  // filter button + panel
-                  Stack(
-                    clipBehavior: Clip.none,
-                    children: [
-
-                      // filter icon button
-                      GestureDetector(
-                        onTap: () {
-                          setState(() {
-                            _showFilterPanel = !_showFilterPanel;
-                          });
-                        },
-                        child: Container(
-                          height: 42,
-                          width: 42,
-                          decoration: BoxDecoration(
-                            color: _showFilterPanel
-                                ? const Color(0xFFEFF6FF)
-                                : Colors.white,
-                            borderRadius: BorderRadius.circular(8),
-                            border: Border.all(
-                              color: _showFilterPanel
-                                  ? const Color(0xFF2563EB)
-                                  : const Color(0xFFD1D5DB),
-                            ),
-                          ),
-                          child: Icon(
-                            Icons.filter_list,
-                            size: 18,
-                            color: _showFilterPanel
-                                ? const Color(0xFF2563EB)
-                                : const Color(0xFF6B7280),
-                          ),
-                        ),
-                      ),
-
-                      // filter panel — separated widget
-                      if (_showFilterPanel)
-                        ActivityLogFilterPanel(
-                          selectedRole: _selectedRole,
-                          selectedModule: _selectedModule,
-                          selectedStartDate: _selectedStartDate,
-                          selectedEndDate: _selectedEndDate,
-                          onRoleChanged: (value) {
-                            setState(() => _selectedRole = value);
-                          },
-                          onModuleChanged: (value) {
-                            setState(() => _selectedModule = value);
-                          },
-                          onPickStartDate: () => _pickDate(isStart: true),
-                          onPickEndDate: () => _pickDate(isStart: false),
-                          onClear: _clearFilters,
-                          onApply: () {
-                            setState(() => _showFilterPanel = false);
-                          },
-                        ),
-                    ],
-                  ),
                 ],
               ),
 

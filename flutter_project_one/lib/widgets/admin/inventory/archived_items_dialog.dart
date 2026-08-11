@@ -113,6 +113,7 @@ class _ArchivedItemsDialogState extends ConsumerState<ArchivedItemsDialog> {
       child: Container(
         width: screenWidth < 1000 ? screenWidth * 0.90 : 900,
         height: screenHeight * 0.85,
+        clipBehavior: Clip.antiAlias,
         decoration: BoxDecoration(
           color: Colors.white,
           borderRadius: BorderRadius.circular(12),
@@ -243,7 +244,7 @@ class _ArchivedItemsDialogState extends ConsumerState<ArchivedItemsDialog> {
                       ),
                     ),
                     child: const Text(
-                      'Back',
+                      'Cancel',
                       style: TextStyle(
                         fontSize: 13,
                         fontWeight: FontWeight.w500,

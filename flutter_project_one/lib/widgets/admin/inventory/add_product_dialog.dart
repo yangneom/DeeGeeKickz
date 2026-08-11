@@ -1173,9 +1173,10 @@ class _AddProductDialogState extends ConsumerState<AddProductDialog> {
     return Dialog(
       insetPadding: EdgeInsets.zero,
       shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
-      child: Container(
+child: Container(
         width: screenWidth < 700 ? screenWidth * 0.95 : 600,
         height: screenHeight * 0.90,
+        clipBehavior: Clip.antiAlias,
         decoration: BoxDecoration(
           color: Colors.white,
           borderRadius: BorderRadius.circular(12),
@@ -1194,7 +1195,7 @@ class _AddProductDialogState extends ConsumerState<AddProductDialog> {
                   crossAxisAlignment: CrossAxisAlignment.start,
                   children: const [
                     Text(
-                      'ADD PRODUCT',
+                      'Add Product',
                       style: TextStyle(
                         fontSize: 20,
                         fontWeight: FontWeight.bold,

@@ -33,9 +33,10 @@ class _TransactionDetailsDialogState extends State<TransactionDetailsDialog> {
       insetPadding: EdgeInsets.zero,
       backgroundColor: Colors.white,
       shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
-      child: Container(
+     child: Container(
         width: screenWidth < 700 ? screenWidth * 0.95 : 700,
         height: screenHeight * 0.90,
+        clipBehavior: Clip.antiAlias,
         decoration: BoxDecoration(color: Colors.white, borderRadius: BorderRadius.circular(12)),
         child: FutureBuilder<Map<String, dynamic>>(
           future: _detailsFuture,
@@ -64,18 +65,9 @@ class _TransactionDetailsDialogState extends State<TransactionDetailsDialog> {
                   child: Column(
                     crossAxisAlignment: CrossAxisAlignment.start,
                     children: [
-                      Row(
-                        mainAxisAlignment: MainAxisAlignment.spaceBetween,
-                        children: [
-                          const Text(
-                            'Transaction Details',
-                            style: TextStyle(fontSize: 22, fontWeight: FontWeight.bold, color: Color(0xFF111827)),
-                          ),
-                          GestureDetector(
-                            onTap: () => Navigator.pop(context),
-                            child: const Icon(Icons.close, size: 22, color: Color(0xFF6B7280)),
-                          ),
-                        ],
+                      const Text(
+                        'Transaction Details',
+                        style: TextStyle(fontSize: 22, fontWeight: FontWeight.bold, color: Color(0xFF111827)),
                       ),
                       const SizedBox(height: 4),
                       Text(
@@ -122,7 +114,7 @@ class _TransactionDetailsDialogState extends State<TransactionDetailsDialog> {
                           padding: const EdgeInsets.symmetric(horizontal: 20, vertical: 12),
                           shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(8)),
                         ),
-                        child: const Text('Back', style: TextStyle(fontSize: 13, fontWeight: FontWeight.w500)),
+                        child: const Text('Cancel', style: TextStyle(fontSize: 13, fontWeight: FontWeight.w500)),
                       ),
                     ],
                   ),

@@ -2,6 +2,7 @@
 
 import 'package:flutter/material.dart';
 import '../../../models/notification_model.dart';
+import '../../../screens/customer/promo/promo_screen.dart';
 
 /// Notification card for [NotificationType.promotion].
 class NotificationTileOffer extends StatelessWidget {
@@ -116,7 +117,12 @@ class NotificationTileOffer extends StatelessWidget {
 
                   GestureDetector(
                     onTap: () {
-                      // TODO: navigate to promo/shop screen
+                      onMarkRead();
+                      Navigator.of(context).push(
+                        MaterialPageRoute(
+                          builder: (_) => const PromoScreen(),
+                        ),
+                      );
                     },
                     child: Container(
                       padding: const EdgeInsets.symmetric(

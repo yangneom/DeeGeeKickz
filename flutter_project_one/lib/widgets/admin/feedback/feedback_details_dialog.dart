@@ -185,6 +185,7 @@ class _FeedbackDetailsDialogState extends State<FeedbackDetailsDialog> {
       child: Container(
         width:  screenWidth < 700 ? screenWidth * 0.95 : 500,
         height: screenHeight * 0.85,
+        clipBehavior: Clip.antiAlias,
         decoration: BoxDecoration(
           color:        Colors.white,
           borderRadius: BorderRadius.circular(12),

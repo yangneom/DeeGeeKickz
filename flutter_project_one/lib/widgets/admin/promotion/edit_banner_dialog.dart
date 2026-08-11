@@ -155,27 +155,22 @@ class _EditBannerDialogState extends State<EditBannerDialog> {
           mainAxisSize: MainAxisSize.min,
           crossAxisAlignment: CrossAxisAlignment.start,
           children: [
-            // ── TITLE ROW ──
-            Row(
-              mainAxisAlignment: MainAxisAlignment.spaceBetween,
-              children: [
-                const Text(
-                  'Edit Promotion Banner',
-                  style: TextStyle(
-                    fontSize: 18,
-                    fontWeight: FontWeight.w600,
-                    color: Color(0xFF111827),
-                  ),
-                ),
-                GestureDetector(
-                  onTap: _isSaving ? null : () => Navigator.pop(context),
-                  child: const Icon(
-                    Icons.close,
-                    size: 20,
-                    color: Color(0xFF6B7280),
-                  ),
-                ),
-              ],
+            // ── TITLE ──
+            const Text(
+              'Edit Promotion Banner',
+              style: TextStyle(
+                fontSize: 18,
+                fontWeight: FontWeight.w600,
+                color: Color(0xFF111827),
+              ),
+            ),
+            const SizedBox(height: 4),
+            const Text(
+              'Update the banner image or status.',
+              style: TextStyle(
+                fontSize: 13,
+                color: Color(0xFF6B7280),
+              ),
             ),
 
             const SizedBox(height: 24),

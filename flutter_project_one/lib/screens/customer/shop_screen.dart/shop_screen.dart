@@ -409,7 +409,19 @@ class _ProductGrid extends StatelessWidget {
   Discount? _discountFor(Product product) {
     final int? pid = int.tryParse(product.productId);
     if (pid == null) return null;
-    return discounts.resolve(productId: pid);
+
+    final Discount? wholeProduct = discounts.resolve(productId: pid);
+    if (wholeProduct != null) return wholeProduct;
+
+    for (final ProductVariant v in product.variants) {
+      final int? variantId = v.variantId;
+      if (variantId != null) {
+        final Discount? variantDiscount =
+            discounts.resolve(productId: pid, variantId: variantId);
+        if (variantDiscount != null) return variantDiscount;
+      }
+    }
+    return null;
   }
 
   @override

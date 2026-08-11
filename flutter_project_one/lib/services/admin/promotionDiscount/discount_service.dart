@@ -29,6 +29,7 @@ class ActiveDiscounts {
   bool get isEmpty => byProduct.isEmpty && byVariant.isEmpty;
 }
 
+
 // ==========================================
 // DISCOUNT SERVICE
 //
@@ -83,7 +84,11 @@ class DiscountService {
             product_name,
             is_archived,
             product_variant (
-              retail_price
+              retail_price,
+              product_variant_size (
+                stock_quantity,
+                reserved_quantity
+              )
             )
           ''')
           .eq('is_archived', false)
@@ -99,14 +104,30 @@ class DiscountService {
         if (variants.isEmpty) continue;
 
         double? minPrice;
+        bool hasAvailableStock = false;
+
         for (final variant in variants) {
           final double price = (variant['retail_price'] as num).toDouble();
           if (minPrice == null || price < minPrice) {
             minPrice = price;
           }
+
+          final List<dynamic> sizes =
+              (variant['product_variant_size'] as List<dynamic>?) ?? [];
+          for (final size in sizes) {
+            final int stock = (size['stock_quantity'] as num?)?.toInt() ?? 0;
+            final int reserved = (size['reserved_quantity'] as num?)?.toInt() ?? 0;
+            if (stock - reserved > 0) {
+              hasAvailableStock = true;
+            }
+          }
         }
 
         if (minPrice == null) continue;
+        // Out-of-stock products don't appear in discount search at all —
+        // a discount can only ever be created on something a customer
+        // could actually buy right now.
+        if (!hasAvailableStock) continue;
 
         results.add({
           'productId': item['product_id'] as int,
@@ -121,7 +142,41 @@ class DiscountService {
       return [];
     }
   }
+// ==========================================
+  // CHECK PRODUCT HAS STOCK
+  // Used before creating a discount — warns the admin instead of
+  // silently letting them create a discount on something with
+  // nothing to actually sell.
+  // ==========================================
+  Future<bool> productHasStock(int productId) async {
+    try {
+      final List<dynamic> variants = await _supabase
+          .from('product_variant')
+          .select('product_variant_size(stock_quantity, reserved_quantity)')
+          .eq('product_id', productId);
 
+      for (final variant in variants) {
+        final List<dynamic> sizes =
+            variant['product_variant_size'] as List<dynamic>? ?? [];
+        for (final size in sizes) {
+          final int stock = (size['stock_quantity'] as num?)?.toInt() ?? 0;
+          final int reserved = (size['reserved_quantity'] as num?)?.toInt() ?? 0;
+          final int available = stock - reserved;
+          // FIX: previously only checked raw stock_quantity, ignoring
+          // reservations — a fully-reserved size (e.g. 19 stock, 19
+          // reserved) was wrongly reported as "has stock" since
+          // availableQty was never actually computed here, unlike
+          // SizeEntry.availableQty elsewhere in the app.
+          if (available > 0) return true;
+        }
+      }
+      return false;
+    } catch (error) {
+      print('productHasStock error: $error');
+      return true; // fail open — don't block on a check-itself failure
+    }
+  }
+  
 // ==========================================
 // CHECK FOR OVERLAPPING DISCOUNT
 // Prevents creating a duplicate/overlapping discount for the
@@ -355,20 +410,89 @@ Future<bool> hasOverlappingDiscount({
         },
       );
 
-      // Only announce to customers if this discount is actually live
-      // now — a Scheduled/Draft discount shouldn't notify yet.
-      if (status == 'Active') {
-        await _notifyCustomersNewPromotion(
-          productId: productId,
-          discountType: discountType,
-          discountValue: discountValue,
-        );
-      }
+      // Notify immediately ONLY if this discount is live starting today
+      // (start_date <= today) — otherwise the customer would wait for
+      // the next daily cron run even though the discount is already
+      // visible/active right now. Future-dated discounts are still
+      // left to notify_customers_promotion_start() on their actual
+      // start date, so nobody gets notified early for a discount that
+      // hasn't started yet.
+      final DateTime todayManila =
+          DateTime.now().toUtc().add(const Duration(hours: 8));
+      final DateTime startDateOnly =
+          DateTime(startDate.year, startDate.month, startDate.day);
+      final DateTime todayOnly =
+          DateTime(todayManila.year, todayManila.month, todayManila.day);
 
+      if (status == 'Active' && !startDateOnly.isAfter(todayOnly)) {
+        final bool hasStock = await productHasStock(productId);
+        if (hasStock) {
+          await _notifyCustomersDiscountLive(
+            productId: productId,
+            discountType: discountType,
+            discountValue: discountValue,
+          );
+        }
+        // Out-of-stock products don't notify customers at all — matches
+        // Promo's own totalAvailable == 0 exclusion. The discount still
+        // gets created either way (admin may be prepping ahead of a
+        // restock); it just won't announce itself to customers until
+        // there's actually something to buy.
+      }
       return null;
     } catch (error) {
       print('addDiscount error: $error');
       return error.toString();
+    }
+  }
+
+  // ================================================
+  // NOTIFY CUSTOMERS — DISCOUNT LIVE NOW
+  // Fires immediately when an admin creates a discount that's active
+  // starting today, so customers don't have to wait for the daily
+  // cron job. Uses type 'discount' — separate from the promotion
+  // banner's 'promotion' type, so the two are distinguishable.
+  // ================================================
+  Future<void> _notifyCustomersDiscountLive({
+    required int productId,
+    required String discountType,
+    required double discountValue,
+  }) async {
+    try {
+      String productName = 'A product';
+      try {
+        final row = await _supabase
+            .from('product')
+            .select('product_name')
+            .eq('product_id', productId)
+            .single();
+        productName = row['product_name']?.toString() ?? productName;
+      } catch (_) {
+        // fall back to the generic label above
+      }
+
+      final String valueLabel = discountType == 'Percentage'
+          ? '${discountValue.toStringAsFixed(0)}% off'
+          : '₱${discountValue.toStringAsFixed(2)} off';
+
+      final customers = await _supabase
+          .from('users')
+          .select('id')
+          .eq('role', 'Customer');
+
+      if ((customers as List).isEmpty) return;
+
+      final rows = customers.map((u) => {
+            'customer_id': u['id'],
+            'type': 'discount',
+            'title': 'New discount available',
+            'body': '$productName is now $valueLabel. Shop now before it ends!',
+            'recipient_role': 'customer',
+          }).toList();
+
+      await _supabase.from('notifications').insert(rows);
+    } catch (error) {
+      print('_notifyCustomersDiscountLive error: $error');
     }
   }
 

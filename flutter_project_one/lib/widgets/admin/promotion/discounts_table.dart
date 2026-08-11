@@ -111,23 +111,47 @@ class _DiscountsTableState extends State<DiscountsTable> {
     await _fetchDiscounts();
   }
 
-  Widget _buildStatusBadge(String status) {
-    final bool isActive = status == 'Active';
+ Widget _buildStatusBadge(String status, DateTime endDate) {
+    // A discount can have status='Active' in the DB but already be
+    // past its end_date — fetchActiveDiscounts() correctly excludes
+    // these from customer-facing pages, but this table was showing
+    // the raw DB status, so admins couldn't tell an "Active" discount
+    // had actually already lapsed.
+    final bool isExpired = status == 'Active' &&
+        endDate.isBefore(DateTime.now().subtract(const Duration(days: 1)).add(const Duration(days: 1)));
+    final bool trulyExpired = status == 'Active' && DateTime(endDate.year, endDate.month, endDate.day)
+        .isBefore(DateTime(DateTime.now().year, DateTime.now().month, DateTime.now().day));
+
+    final String displayLabel = trulyExpired ? 'Expired' : status;
+    final bool isActive = status == 'Active' && !trulyExpired;
+
     return Container(
       padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 4),
       decoration: BoxDecoration(
-        color: isActive ? const Color(0xFFDCFCE7) : const Color(0xFFF3F4F6),
+        color: isActive
+            ? const Color(0xFFDCFCE7)
+            : trulyExpired
+                ? const Color(0xFFFEF3C7)
+                : const Color(0xFFF3F4F6),
         borderRadius: BorderRadius.circular(20),
         border: Border.all(
-          color: isActive ? const Color(0xFF86EFAC) : const Color(0xFFD1D5DB),
+          color: isActive
+              ? const Color(0xFF86EFAC)
+              : trulyExpired
+                  ? const Color(0xFFFCD34D)
+                  : const Color(0xFFD1D5DB),
         ),
       ),
       child: Text(
-        status,
+        displayLabel,
         style: TextStyle(
           fontSize: 12,
           fontWeight: FontWeight.w500,
-          color: isActive ? const Color(0xFF16A34A) : const Color(0xFF6B7280),
+          color: isActive
+              ? const Color(0xFF16A34A)
+              : trulyExpired
+                  ? const Color(0xFFB45309)
+                  : const Color(0xFF6B7280),
         ),
       ),
     );
@@ -359,7 +383,7 @@ class _DiscountsTableState extends State<DiscountsTable> {
                           flex: 2,
                           child: Align(
                             alignment: Alignment.centerLeft,
-                            child: _buildStatusBadge(_discounts[i].status),
+                            child: _buildStatusBadge(_discounts[i].status, _discounts[i].endDate),
                           ),
                         ),
 

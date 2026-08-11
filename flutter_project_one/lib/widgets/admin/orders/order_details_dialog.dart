@@ -1175,6 +1175,7 @@ class _OrderDetailsDialogState extends State<OrderDetailsDialog> {
     return Dialog(
       backgroundColor: Colors.white,
       shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
+      clipBehavior: Clip.antiAlias,
       insetPadding: const EdgeInsets.symmetric(horizontal: 40, vertical: 24),
       child: ConstrainedBox(
         constraints: BoxConstraints(
@@ -1182,7 +1183,7 @@ class _OrderDetailsDialogState extends State<OrderDetailsDialog> {
           maxHeight: MediaQuery.of(context).size.height * 0.90,
         ),
         child: Column(
-          mainAxisSize: MainAxisSize.min,
+          mainAxisSize: MainAxisSize.max,
           children: [
 
             Container(
@@ -1231,7 +1232,7 @@ class _OrderDetailsDialogState extends State<OrderDetailsDialog> {
               ),
             ),
 
-            Flexible(
+            Expanded(
               child: SingleChildScrollView(
                 padding: const EdgeInsets.all(24),
                 child: Column(
@@ -1246,16 +1247,27 @@ class _OrderDetailsDialogState extends State<OrderDetailsDialog> {
                     _buildPaymentSection(),
                     const SizedBox(height: 16),
                     _buildAdminFields(),
-                    const SizedBox(height: 24),
-                    if (!_isReadOnly)
-                      Row(
-                        mainAxisAlignment: MainAxisAlignment.end,
-                        children: [_buildActionButtons()],
-                      ),
                   ],
                 ),
               ),
             ),
+
+            // ── FIXED FOOTER — action buttons stay pinned while the
+            // content above scrolls, matching Transaction Details /
+            // Feedback Details. Hidden entirely for read-only orders
+            // (Cancelled/Completed) since there's nothing to act on.
+            if (!_isReadOnly)
+              Container(
+                padding: const EdgeInsets.fromLTRB(24, 16, 24, 20),
+                decoration: const BoxDecoration(
+                  color: Colors.white,
+                  border: Border(top: BorderSide(color: Color(0xFFE5E7EB))),
+                ),
+                child: Row(
+                  mainAxisAlignment: MainAxisAlignment.end,
+                  children: [_buildActionButtons()],
+                ),
+              ),
           ],
         ),
       ),

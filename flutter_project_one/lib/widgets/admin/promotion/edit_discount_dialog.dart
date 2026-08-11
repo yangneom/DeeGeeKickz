@@ -129,9 +129,18 @@ class _EditDiscountDialogState extends State<EditDiscountDialog> {
       _showError('End date must be after start date.');
       return;
     }
+    
     final double? discountValue = double.tryParse(_valueController.text);
     if (discountValue == null) {
       _showError('Discount value must be a number.');
+      return;
+    }
+    if (_discountType == 'Percentage' && discountValue > 100) {
+      _showError('Percentage discount cannot exceed 100%.');
+      return;
+    }
+    if (discountValue <= 0) {
+      _showError('Discount value must be greater than 0.');
       return;
     }
 
@@ -176,18 +185,14 @@ class _EditDiscountDialogState extends State<EditDiscountDialog> {
             mainAxisSize: MainAxisSize.min,
             crossAxisAlignment: CrossAxisAlignment.start,
             children: [
-              Row(
-                mainAxisAlignment: MainAxisAlignment.spaceBetween,
-                children: [
-                  const Text(
-                    'Edit Discount',
-                    style: TextStyle(fontSize: 18, fontWeight: FontWeight.w600, color: Color(0xFF111827)),
-                  ),
-                  GestureDetector(
-                    onTap: _isSaving ? null : () => Navigator.pop(context),
-                    child: const Icon(Icons.close, size: 20, color: Color(0xFF6B7280)),
-                  ),
-                ],
+              const Text(
+                'Edit Discount',
+                style: TextStyle(fontSize: 18, fontWeight: FontWeight.w600, color: Color(0xFF111827)),
+              ),
+              const SizedBox(height: 4),
+              const Text(
+                'Update discount value, duration, or status.',
+                style: TextStyle(fontSize: 13, color: Color(0xFF6B7280)),
               ),
 
               const SizedBox(height: 24),

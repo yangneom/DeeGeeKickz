@@ -187,26 +187,22 @@ class _AddBannerDialogState extends State<AddBannerDialog> {
           crossAxisAlignment: CrossAxisAlignment.start,
           children: [
             // ── TITLE ROW ──
-            Row(
-              mainAxisAlignment: MainAxisAlignment.spaceBetween,
-              children: [
-                const Text(
-                  'Add Promotion Banner',
-                  style: TextStyle(
-                    fontSize: 18,
-                    fontWeight: FontWeight.w600,
-                    color: Color(0xFF111827),
-                  ),
-                ),
-                GestureDetector(
-                  onTap: _isUploading ? null : () => Navigator.pop(context),
-                  child: const Icon(
-                    Icons.close,
-                    size: 20,
-                    color: Color(0xFF6B7280),
-                  ),
-                ),
-              ],
+            // ── TITLE ──
+            const Text(
+              'Add Promotion Banner',
+              style: TextStyle(
+                fontSize: 18,
+                fontWeight: FontWeight.w600,
+                color: Color(0xFF111827),
+              ),
+            ),
+            const SizedBox(height: 4),
+            const Text(
+              'Upload a new banner for the homepage slider.',
+              style: TextStyle(
+                fontSize: 13,
+                color: Color(0xFF6B7280),
+              ),
             ),
 
             const SizedBox(height: 24),

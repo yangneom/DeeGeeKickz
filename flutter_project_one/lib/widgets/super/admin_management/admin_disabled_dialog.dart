@@ -3,6 +3,18 @@ import '../../common/tables/common_table.dart';
 import '../../common/dialog/confirm_dialog.dart';
 import '../../../models/admin_account.dart';
 
+// ================================================
+// CHANGES this round:
+//   - Enable no longer closes the whole dialog — it now removes
+//     just that one row and stays open, matching
+//     customer_disabled_dialog.dart. Previously re-enabling one
+//     account closed the entire list, forcing the admin to reopen
+//     this dialog again for every additional account they wanted
+//     to re-enable.
+//   - Removed the redundant X close icon in the header — Cancel/
+//     Close in the footer already does the same thing.
+// ================================================
+
 class AdminDisabledDialog extends StatefulWidget {
   final List<AdminAccount> disabledAccounts;
   final Function(AdminAccount) onEnable;
@@ -21,9 +33,15 @@ class _AdminDisabledDialogState extends State<AdminDisabledDialog> {
   final TextEditingController _searchController = TextEditingController();
   String _searchQuery = '';
 
+  // Local mutable copy — lets us remove a row immediately on Enable
+  // without needing the parent screen to refetch and rebuild this
+  // dialog from scratch.
+  late List<AdminAccount> _accounts;
+
   @override
   void initState() {
     super.initState();
+    _accounts = List.of(widget.disabledAccounts);
     _searchController.addListener(() {
       setState(() => _searchQuery = _searchController.text.toLowerCase());
     });
@@ -37,8 +55,8 @@ class _AdminDisabledDialogState extends State<AdminDisabledDialog> {
 
   // ── Filter accounts by search query ──────────
   List<AdminAccount> get _filtered {
-    if (_searchQuery.isEmpty) return widget.disabledAccounts;
-    return widget.disabledAccounts.where((a) {
+    if (_searchQuery.isEmpty) return _accounts;
+    return _accounts.where((a) {
       final name = '${a.firstName} ${a.lastName}'.toLowerCase();
       final email = a.email.toLowerCase();
       final role = a.role.toLowerCase();
@@ -59,10 +77,14 @@ class _AdminDisabledDialogState extends State<AdminDisabledDialog> {
       confirmColor: const Color(0xFF16A34A),
     );
 
-    if (confirmed == true) {
-      widget.onEnable(account);
-      if (mounted) Navigator.pop(context);
-    }
+    if (confirmed != true) return;
+
+    widget.onEnable(account);
+
+    if (!mounted) return;
+    setState(() {
+      _accounts.removeWhere((a) => a.id == account.id);
+    });
   }
 
   List<List<Widget>> _buildRows() {
@@ -115,8 +137,8 @@ class _AdminDisabledDialogState extends State<AdminDisabledDialog> {
       insetPadding: const EdgeInsets.symmetric(horizontal: 40, vertical: 24),
       child: ConstrainedBox(
         constraints: BoxConstraints(
-          maxWidth: 700,
-          maxHeight: MediaQuery.of(context).size.height * 0.85,
+          maxWidth: 1100,
+          maxHeight: MediaQuery.of(context).size.height * 0.9,
         ),
         child: Column(
           mainAxisSize: MainAxisSize.min,
@@ -124,7 +146,8 @@ class _AdminDisabledDialogState extends State<AdminDisabledDialog> {
 
             // ── HEADER ──
             Container(
-              padding: const EdgeInsets.fromLTRB(24, 20, 16, 16),
+              width: double.infinity,
+              padding: const EdgeInsets.fromLTRB(24, 20, 24, 16),
               decoration: const BoxDecoration(
                 color: Colors.white,
                 border: Border(bottom: BorderSide(color: Color(0xFFE5E7EB))),
@@ -133,30 +156,21 @@ class _AdminDisabledDialogState extends State<AdminDisabledDialog> {
                   topRight: Radius.circular(12),
                 ),
               ),
-              child: Row(
-                mainAxisAlignment: MainAxisAlignment.spaceBetween,
+              child: const Column(
+                crossAxisAlignment: CrossAxisAlignment.start,
                 children: [
-                  const Column(
-                    crossAxisAlignment: CrossAxisAlignment.start,
-                    children: [
-                      Text(
-                        'Disabled Accounts',
-                        style: TextStyle(
-                          fontSize: 18,
-                          fontWeight: FontWeight.bold,
-                          color: Color(0xFF111827),
-                        ),
-                      ),
-                      SizedBox(height: 2),
-                      Text(
-                        'Manage and review disabled admin accounts.',
-                        style: TextStyle(fontSize: 12, color: Color(0xFF9CA3AF)),
-                      ),
-                    ],
+                  Text(
+                    'Disabled Accounts',
+                    style: TextStyle(
+                      fontSize: 18,
+                      fontWeight: FontWeight.bold,
+                      color: Color(0xFF111827),
+                    ),
                   ),
-                  IconButton(
-                    onPressed: () => Navigator.pop(context),
-                    icon: const Icon(Icons.close, size: 20, color: Color(0xFF6B7280)),
+                  SizedBox(height: 2),
+                  Text(
+                    'Manage and review disabled admin accounts.',
+                    style: TextStyle(fontSize: 12, color: Color(0xFF9CA3AF)),
                   ),
                 ],
               ),
@@ -211,7 +225,7 @@ class _AdminDisabledDialogState extends State<AdminDisabledDialog> {
             Flexible(
               child: SingleChildScrollView(
                 padding: const EdgeInsets.all(24),
-                child: widget.disabledAccounts.isEmpty
+                child: _accounts.isEmpty
                     ? const Center(
                         child: Padding(
                           padding: EdgeInsets.all(32),
@@ -272,7 +286,7 @@ class _AdminDisabledDialogState extends State<AdminDisabledDialog> {
                         borderRadius: BorderRadius.circular(8),
                       ),
                     ),
-                    child: const Text('Close', style: TextStyle(fontSize: 13)),
+                    child: const Text('Cancel', style: TextStyle(fontSize: 13)),
                   ),
                 ],
               ),

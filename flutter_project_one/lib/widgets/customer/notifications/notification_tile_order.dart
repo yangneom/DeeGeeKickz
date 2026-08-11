@@ -4,27 +4,66 @@ import 'package:flutter/material.dart';
 import '../../../models/notification_model.dart';
 import '../../../models/order.dart';
 import '../../../screens/customer/orders/order_tracking_screen.dart';
+import '../../../services/customer/History/order_history_service.dart';
 
 /// Notification card for [NotificationType.order].
-class NotificationTileOrder extends StatelessWidget {
+///
+/// FIX: previously expected an `order` parameter that was NEVER
+/// actually passed in from notifications_screen.dart, so the
+/// "TRACK SHIPMENT" button never rendered for any order notification.
+/// Now fetches the order by ID (carried on the notification itself)
+/// only when tapped, instead of requiring it upfront.
+class NotificationTileOrder extends StatefulWidget {
   final AppNotification notification;
   final VoidCallback onMarkRead;
-
-  /// The resolved Order object for this notification.
-  /// Pass null if order hasn't loaded yet.
-  final Order? order;
 
   const NotificationTileOrder({
     super.key,
     required this.notification,
     required this.onMarkRead,
-    this.order,
   });
 
   @override
+  State<NotificationTileOrder> createState() => _NotificationTileOrderState();
+}
+
+class _NotificationTileOrderState extends State<NotificationTileOrder> {
+  bool _isLoadingOrder = false;
+
+  Future<void> _goToOrder() async {
+    final String? orderId = widget.notification.orderId;
+    if (orderId == null) return;
+
+    widget.onMarkRead();
+    setState(() => _isLoadingOrder = true);
+
+    final Order? order =
+        await OrderHistoryService().fetchOrderById(orderId);
+
+    if (!mounted) return;
+    setState(() => _isLoadingOrder = false);
+
+    if (order == null) {
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(
+          content: Text('Could not load this order. It may have been removed.'),
+          backgroundColor: Colors.red,
+        ),
+      );
+      return;
+    }
+
+    Navigator.of(context).push(
+      MaterialPageRoute(builder: (_) => OrderTrackingScreen(order: order)),
+    );
+  }
+
+  @override
   Widget build(BuildContext context) {
+    final bool hasOrderId = widget.notification.orderId != null;
+
     return GestureDetector(
-      onTap: onMarkRead,
+      onTap: hasOrderId ? _goToOrder : widget.onMarkRead,
       child: Container(
         margin: const EdgeInsets.only(bottom: 12),
         padding: const EdgeInsets.all(20),
@@ -35,7 +74,6 @@ class NotificationTileOrder extends StatelessWidget {
         child: Row(
           crossAxisAlignment: CrossAxisAlignment.start,
           children: [
-            // ── Icon ────────────────────────────────────────────
             Container(
               width: 48,
               height: 48,
@@ -52,7 +90,6 @@ class NotificationTileOrder extends StatelessWidget {
 
             const SizedBox(width: 16),
 
-            // ── Content ──────────────────────────────────────────
             Expanded(
               child: Column(
                 crossAxisAlignment: CrossAxisAlignment.start,
@@ -72,7 +109,7 @@ class NotificationTileOrder extends StatelessWidget {
                       ),
                       Row(
                         children: [
-                          if (notification.isUnread)
+                          if (widget.notification.isUnread)
                             Container(
                               width: 8,
                               height: 8,
@@ -83,7 +120,7 @@ class NotificationTileOrder extends StatelessWidget {
                               ),
                             ),
                           Text(
-                            notification.timeAgo,
+                            widget.notification.timeAgo,
                             style: const TextStyle(
                               fontFamily: 'Inter',
                               fontSize: 12,
@@ -98,7 +135,7 @@ class NotificationTileOrder extends StatelessWidget {
                   const SizedBox(height: 6),
 
                   Text(
-                    notification.title,
+                    widget.notification.title,
                     style: const TextStyle(
                       fontFamily: 'Archivo Narrow',
                       fontSize: 18,
@@ -110,7 +147,7 @@ class NotificationTileOrder extends StatelessWidget {
                   const SizedBox(height: 4),
 
                   Text(
-                    notification.body,
+                    widget.notification.body,
                     style: const TextStyle(
                       fontFamily: 'Inter',
                       fontSize: 14,
@@ -119,33 +156,35 @@ class NotificationTileOrder extends StatelessWidget {
                     ),
                   ),
 
-                  if (order != null) ...[
+                  if (hasOrderId) ...[
                     const SizedBox(height: 14),
                     GestureDetector(
-                      onTap: () {
-                        Navigator.of(context).push(
-                          MaterialPageRoute(
-                            builder: (_) =>
-                                OrderTrackingScreen(order: order!),
-                          ),
-                        );
-                      },
+                      onTap: _goToOrder,
                       child: Container(
                         padding: const EdgeInsets.symmetric(
                             horizontal: 16, vertical: 10),
                         decoration: BoxDecoration(
                           border: Border.all(color: Colors.black, width: 1),
                         ),
-                        child: const Text(
-                          'TRACK SHIPMENT',
-                          style: TextStyle(
-                            fontFamily: 'Inter',
-                            fontSize: 12,
-                            fontWeight: FontWeight.w600,
-                            letterSpacing: 1.0,
-                            color: Colors.black,
-                          ),
-                        ),
+                        child: _isLoadingOrder
+                            ? const SizedBox(
+                                width: 14,
+                                height: 14,
+                                child: CircularProgressIndicator(
+                                  strokeWidth: 2,
+                                  color: Colors.black,
+                                ),
+                              )
+                            : const Text(
+                                'TRACK SHIPMENT',
+                                style: TextStyle(
+                                  fontFamily: 'Inter',
+                                  fontSize: 12,
+                                  fontWeight: FontWeight.w600,
+                                  letterSpacing: 1.0,
+                                  color: Colors.black,
+                                ),
+                              ),
                       ),
                     ),
                   ],

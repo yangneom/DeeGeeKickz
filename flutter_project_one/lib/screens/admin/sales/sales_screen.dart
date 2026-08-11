@@ -103,28 +103,46 @@ class _SalesScreenState extends ConsumerState<SalesScreen> {
   _loadSales();
 }
 
-  Widget _buildStatusBadge(String status) {
+Widget _buildStatusBadge(String status) {
     Color backgroundColor = Colors.grey.shade100;
     Color textColor = Colors.grey;
+    Color borderColor = Colors.grey.shade300;
 
     if (status == 'Completed') {
       backgroundColor = const Color(0xFFDCFCE7);
       textColor = const Color(0xFF16A34A);
+      borderColor = const Color(0xFF6EE7B7);
+    }
+    if (status == 'Confirmed') {
+      backgroundColor = const Color(0xFFDBEAFE);
+      textColor = const Color(0xFF1D4ED8);
+      borderColor = const Color(0xFF93C5FD);
+    }
+    if (status == 'Preparing') {
+      backgroundColor = const Color(0xFFF3F4F6);
+      textColor = const Color(0xFF6B7280);
+      borderColor = const Color(0xFFD1D5DB);
     }
     if (status == 'Shipped') {
       backgroundColor = const Color(0xFFFEF3C7);
       textColor = const Color(0xFFD97706);
+      borderColor = const Color(0xFFFCD34D);
     }
     if (status == 'Cancelled') {
       backgroundColor = const Color(0xFFFEE2E2);
       textColor = const Color(0xFFDC2626);
+      borderColor = const Color(0xFFFCA5A5);
     }
 
     return Align(
       alignment: Alignment.centerLeft,
       child: Container(
         padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 4),
-        decoration: BoxDecoration(color: backgroundColor, borderRadius: BorderRadius.circular(20)),
+        decoration: BoxDecoration(
+          color: backgroundColor,
+          borderRadius: BorderRadius.circular(20),
+          border: Border.all(color: borderColor),
+        ),
         child: Text(status, style: TextStyle(fontSize: 12, fontWeight: FontWeight.w500, color: textColor)),
       ),
     );

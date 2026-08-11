@@ -15,6 +15,7 @@ import '../../../services/customer/receipt/receipt_pdf_service.dart';
 
 import '../../../services/cashier/onlinepayment/cashier_online_payment_service.dart';
 import '../../../widgets/cashier/receipt/qr_payment_dialog.dart';
+import '../../../widgets/common/dialog/confirm_dialog.dart';
 // ================================================
 // CASHIER SCREEN
 //
@@ -141,6 +142,15 @@ class _CashierScreenState extends ConsumerState<CashierScreen> {
     return true;
   }
 
+  // True when cash paid is disproportionate to the total — likely a
+  // typo (extra digit) rather than an intentionally large bill. Not
+  // an outright block, since cashiers legitimately do accept large
+  // bills sometimes — this just asks for a second confirmation.
+  bool get _isSuspiciouslyLargeCash {
+    if (_paymentMethod != PaymentMethod.cash) return false;
+    if (_total <= 0) return false;
+    return _cashPaid > _total * 20 && _cashPaid > 5000;
+  }
   // ================================================
   // TOTAL ITEM COUNT in cart
   // ================================================
@@ -433,9 +443,24 @@ void _addToCart({
   // cash   → save sale → clear cart → show receipt
   // online → PayMongo placeholder (future)
   // ================================================
- Future<void> _handleCheckout() async {
+Future<void> _handleCheckout() async {
     if (_cartItems.isEmpty) return;
     if (_isCheckingOut) return; // block double-submission from a fast double-tap
+
+    if (_isSuspiciouslyLargeCash) {
+      final bool? confirmed = await showConfirmDialog(
+        context: context,
+        title: 'Confirm cash amount',
+        message: 'Cash paid is ₱${_cashPaid.toStringAsFixed(0)} for a '
+            '₱${_total.toStringAsFixed(0)} total — that\'s a large '
+            'amount compared to the sale. Please confirm this is correct '
+            'before continuing.',
+        confirmLabel: 'Yes, this is correct',
+        confirmColor: const Color(0xFF2563EB),
+      );
+      if (confirmed != true) return;
+    }
+
     setState(() => _isCheckingOut = true);
 
    if (_paymentMethod == PaymentMethod.cash) {
@@ -1289,7 +1314,8 @@ void _addToCart({
                     controller: _cashPaidController,
                     keyboardType: TextInputType.number,
                     inputFormatters: [
-                      FilteringTextInputFormatter.digitsOnly
+                      FilteringTextInputFormatter.digitsOnly,
+                      LengthLimitingTextInputFormatter(7),
                     ],
                     textAlign: TextAlign.right,
                     style: const TextStyle(

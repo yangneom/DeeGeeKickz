@@ -9,7 +9,7 @@ import 'package:supabase_flutter/supabase_flutter.dart';
 import 'package:flutter_project_one/widgets/common/dialog/confirm_dialog.dart';
 import 'package:flutter_project_one/services/admin/inventory/inventory_service.dart';
 
-// ================================================
+// ===============================================
 // SHOW EDIT PRODUCT DIALOG
 // ================================================
 class _ImageUploadResult {
@@ -1295,7 +1295,7 @@ class _EditProductDialogState extends ConsumerState<EditProductDialog> {
                 child: Column(
                   crossAxisAlignment: CrossAxisAlignment.start,
                   children: const [
-                    Text('EDIT PRODUCT',
+                    Text('Edit Product',
                         style: TextStyle(
                             fontSize: 20,
                             fontWeight: FontWeight.bold,

@@ -125,6 +125,32 @@ class NotificationService {
         .subscribe();
   }
 
+  // ── Realtime: Customer's own notifications ──────────────────────
+  RealtimeChannel subscribeToCustomerNotifications(
+    String userId,
+    void Function(AppNotification notification) onInsert,
+  ) {
+    return _client
+        .channel('notifications:customer:$userId')
+        .onPostgresChanges(
+          event:  PostgresChangeEvent.insert,
+          schema: 'public',
+          table:  'notifications',
+          filter: PostgresChangeFilter(
+            type:   PostgresChangeFilterType.eq,
+            column: 'customer_id',
+            value:  userId,
+          ),
+          callback: (payload) {
+            final row = payload.newRecord;
+            if (row['recipient_role'] == 'customer') {
+              onInsert(AppNotification.fromMap(row));
+            }
+          },
+        )
+        .subscribe();
+  }
+
   // ── Realtime: Super Admin shared inbox ──────────────────────────
   // Not scoped to one customer_id — filtered by recipient_role instead,
   // matching the RLS policy added for the shared inbox.

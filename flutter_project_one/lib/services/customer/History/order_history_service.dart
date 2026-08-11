@@ -147,4 +147,124 @@ class OrderHistoryService {
       return [];
     }
   }
+
+  // ================================================
+  // FETCH SINGLE ORDER BY ID
+  // Used when a notification needs to navigate straight to one
+  // order (e.g. "TRACK SHIPMENT") without loading the entire order
+  // history just to find it.
+  // ================================================
+  Future<Order?> fetchOrderById(String orderId) async {
+    final user = _supabase.auth.currentUser;
+    if (user == null) return null;
+
+    try {
+      final int? parsedId = int.tryParse(orderId);
+      if (parsedId == null) return null;
+
+      final dynamic row = await _supabase
+          .from('orders')
+          .select('''
+            order_id,
+            total_amount,
+            payment_method,
+            order_status,
+            tracking_url,
+            created_at,
+            address (
+              street,
+              city,
+              zip_code,
+              landmark
+            ),
+            order_item (
+              product_name_snapshot,
+              brand_snapshot,
+              size_snapshot,
+              quantity,
+              unit_price,
+              subtotal
+            )
+          ''')
+          .eq('order_id', parsedId)
+          .eq('user_id', user.id) // safety: only this customer's own order
+          .maybeSingle();
+
+      if (row == null) return null;
+
+      final Map<String, dynamic> map = row as Map<String, dynamic>;
+
+      final dynamic payment = await _supabase
+          .from('payment')
+          .select('payment_status, receipt_url')
+          .eq('order_id', parsedId)
+          .maybeSingle();
+
+      final String paymentStatus =
+          payment?['payment_status'] as String? ?? 'Pending';
+      final String? receiptUrl = payment?['receipt_url'] as String?;
+
+      final dynamic userProfile = await _supabase
+          .from('users')
+          .select('first_name, last_name, phone')
+          .eq('id', user.id)
+          .single();
+
+      final String firstName = userProfile['first_name'] ?? '';
+      final String lastName  = userProfile['last_name']  ?? '';
+      final String phone     = userProfile['phone']      ?? '';
+      final String fullName  = '$firstName $lastName'.trim().isEmpty
+          ? 'Customer'
+          : '$firstName $lastName'.trim();
+
+      final dynamic rawAddr = map['address'];
+      final Map<String, dynamic> addr =
+          rawAddr is Map<String, dynamic> ? rawAddr : {};
+
+      final String street   = addr['street']   ?? '';
+      final String city     = addr['city']      ?? '';
+      final String zip      = addr['zip_code']  ?? '';
+      final String landmark = addr['landmark']  ?? '';
+      final String fullAddress = [street, city, zip]
+          .where((s) => s.isNotEmpty)
+          .join(', ');
+
+      final List<dynamic>   rawItems = map['order_item'] ?? [];
+      final List<OrderItem> items    = rawItems
+          .map((dynamic i) => OrderItem.fromMap(i as Map<String, dynamic>))
+          .toList();
+
+      String dateTime = '';
+      if (map['created_at'] != null) {
+        final DateTime dt  =
+            DateTime.parse(map['created_at'].toString()).toLocal();
+        final String month = dt.month.toString().padLeft(2, '0');
+        final String day   = dt.day.toString().padLeft(2, '0');
+        final String year  = dt.year.toString();
+        final int    h12   = dt.hour % 12 == 0 ? 12 : dt.hour % 12;
+        final String min   = dt.minute.toString().padLeft(2, '0');
+        final String amPm  = dt.hour < 12 ? 'am' : 'pm';
+        dateTime = '$month/$day/$year ${h12}:$min $amPm';
+      }
+
+      return Order(
+        orderId:       parsedId.toString(),
+        customerName:  fullName,
+        contact:       phone,
+        landmark:      landmark,
+        address:       fullAddress,
+        totalAmount:   (map['total_amount'] as num).toDouble(),
+        paymentMethod: map['payment_method'] ?? '',
+        paymentStatus: paymentStatus,
+        orderStatus:   map['order_status'] ?? 'Pending',
+        dateTime:      dateTime,
+        items:         items,
+        trackingUrl:   map['tracking_url'] as String?,
+        receiptUrl:    receiptUrl,
+      );
+    } catch (e) {
+      print('OrderHistoryService.fetchOrderById error: $e');
+      return null;
+    }
+  }
 }

@@ -240,8 +240,9 @@ class _AdminEditDialogState extends State<AdminEditDialog> {
           mainAxisSize: MainAxisSize.min,
           children: [
 
-            // ── HEADER ──
+           // ── HEADER ──
             Container(
+              width: double.infinity,
               padding: const EdgeInsets.fromLTRB(24, 20, 16, 16),
               decoration: const BoxDecoration(
                 color: Colors.white,
@@ -251,30 +252,21 @@ class _AdminEditDialogState extends State<AdminEditDialog> {
                   topRight: Radius.circular(12),
                 ),
               ),
-              child: Row(
-                mainAxisAlignment: MainAxisAlignment.spaceBetween,
+              child: const Column(
+                crossAxisAlignment: CrossAxisAlignment.start,
                 children: [
-                  const Column(
-                    crossAxisAlignment: CrossAxisAlignment.start,
-                    children: [
-                      Text(
-                        'Edit & View',
-                        style: TextStyle(
-                          fontSize: 18,
-                          fontWeight: FontWeight.bold,
-                          color: Color(0xFF111827),
-                        ),
-                      ),
-                      SizedBox(height: 2),
-                      Text(
-                        'Update admin account details',
-                        style: TextStyle(fontSize: 12, color: Color(0xFF9CA3AF)),
-                      ),
-                    ],
+                  Text(
+                    'Edit & View',
+                    style: TextStyle(
+                      fontSize: 18,
+                      fontWeight: FontWeight.bold,
+                      color: Color(0xFF111827),
+                    ),
                   ),
-                  IconButton(
-                    onPressed: () => Navigator.pop(context),
-                    icon: const Icon(Icons.close, size: 20, color: Color(0xFF6B7280)),
+                  SizedBox(height: 2),
+                  Text(
+                    'Update admin account details',
+                    style: TextStyle(fontSize: 12, color: Color(0xFF9CA3AF)),
                   ),
                 ],
               ),

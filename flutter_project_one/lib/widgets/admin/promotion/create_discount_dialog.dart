@@ -211,7 +211,6 @@ class _CreateDiscountDialogState extends State<CreateDiscountDialog> {
 
   // ================================================
   // HANDLE APPLY
-  // ================================================
 Future<void> _handleApply() async {
   if (_selectedProductId == null) {
     _showError('Please select a product.');
@@ -237,6 +236,14 @@ Future<void> _handleApply() async {
   final double? discountValue = double.tryParse(_valueController.text);
   if (discountValue == null) {
     _showError('Discount value must be a number.');
+    return;
+  }
+  if (_discountType == 'Percentage' && discountValue > 100) {
+    _showError('Percentage discount cannot exceed 100%.');
+    return;
+  }
+  if (discountValue <= 0) {
+    _showError('Discount value must be greater than 0.');
     return;
   }
 
@@ -342,22 +349,21 @@ Future<void> _handleApply() async {
             mainAxisSize: MainAxisSize.min,
             crossAxisAlignment: CrossAxisAlignment.start,
             children: [
-              Row(
-                mainAxisAlignment: MainAxisAlignment.spaceBetween,
-                children: [
-                  const Text(
-                    'Create Discount',
-                    style: TextStyle(
-                      fontSize: 18,
-                      fontWeight: FontWeight.w600,
-                      color: Color(0xFF111827),
-                    ),
-                  ),
-                  GestureDetector(
-                    onTap: _isSaving ? null : () => Navigator.pop(context),
-                    child: const Icon(Icons.close, size: 20, color: Color(0xFF6B7280)),
-                  ),
-                ],
+              const Text(
+                'Create Discount',
+                style: TextStyle(
+                  fontSize: 18,
+                  fontWeight: FontWeight.w600,
+                  color: Color(0xFF111827),
+                ),
+              ),
+              const SizedBox(height: 4),
+              const Text(
+                'Set up a new discount for a product.',
+                style: TextStyle(
+                  fontSize: 13,
+                  color: Color(0xFF6B7280),
+                ),
               ),
 
               const SizedBox(height: 24),
@@ -429,11 +435,6 @@ Future<void> _handleApply() async {
                   ),
                 ],
               ),
-
-              const SizedBox(height: 16),
-
-              _buildCountdownCheckbox(),
-
               const SizedBox(height: 28),
 
               Row(
@@ -523,6 +524,18 @@ Future<void> _handleApply() async {
             ),
           ),
         ),
+        if (_searchController.text.trim().isNotEmpty &&
+            _searchResults.isEmpty &&
+            !_isSearching &&
+            _selectedProductId == null)
+          Padding(
+            padding: const EdgeInsets.only(top: 6),
+            child: Text(
+              'No matching in-stock products found. Products with no '
+              'available stock can\'t be discounted until restocked.',
+              style: TextStyle(fontSize: 11, color: Colors.grey.shade600),
+            ),
+          ),
         if (_searchResults.isNotEmpty)
           Container(
             margin: const EdgeInsets.only(top: 4),

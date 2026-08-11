@@ -64,7 +64,8 @@ class AppNotification {
   static NotificationType _typeFromString(String? raw) {
     switch (raw) {
       case 'order':              return NotificationType.order;
-      case 'promotion':          return NotificationType.promotion;
+      case 'discount':           return NotificationType.promotion;
+      case 'promotion':          return NotificationType.promotion; // legacy — old rows before the rename
       case 'low_stock':          return NotificationType.lowStock;
       case 'out_of_stock':       return NotificationType.outOfStock;
       case 'new_feedback':       return NotificationType.newFeedback;

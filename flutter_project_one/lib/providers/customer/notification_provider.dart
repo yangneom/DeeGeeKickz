@@ -38,21 +38,54 @@ class NotificationState {
 }
 
 // ── Notifier: Customer ──────────────────────────────────────────────────────────
-// (unchanged — not part of this fix)
 class NotificationNotifier extends Notifier<NotificationState> {
+  RealtimeChannel? _channel;
+
   @override
   NotificationState build() {
-    Future.microtask(loadNotifications);
+    ref.onDispose(_cancelSubscription);
+    Future.microtask(() async {
+      await loadNotifications();
+      if (!ref.mounted) return;
+      _subscribeRealtime();
+    });
     return const NotificationState(isLoading: true);
   }
 
   NotificationService get _service =>
       ref.read(notificationServiceProvider);
 
+  // ── Realtime: live-insert new notifications as Customer ─────────
+  void _subscribeRealtime() {
+    final userId = Supabase.instance.client.auth.currentUser?.id;
+    if (userId == null) return;
+
+    _cancelSubscription();
+
+    _channel = _service.subscribeToCustomerNotifications(userId, (notification) {
+      if (!ref.mounted) return;
+      final alreadyPresent =
+          state.notifications.any((n) => n.id == notification.id);
+      if (!alreadyPresent) {
+        state = state.copyWith(
+          notifications: [notification, ...state.notifications],
+        );
+      }
+    });
+  }
+
+  void _cancelSubscription() {
+    if (_channel != null) {
+      _service.unsubscribe(_channel!);
+      _channel = null;
+    }
+  }
+
   Future<void> loadNotifications() async {
     state = state.copyWith(isLoading: true, error: null);
     try {
       final list = await _service.fetchNotifications();
+      if (!ref.mounted) return;
       state = state.copyWith(notifications: list, isLoading: false);
     } catch (e) {
       state = state.copyWith(
@@ -108,7 +141,6 @@ class AdminNotificationNotifier extends Notifier<NotificationState> {
     });
     return const NotificationState(isLoading: true);
   }
-  
 
   NotificationService get _service =>
       ref.read(notificationServiceProvider);
@@ -132,7 +164,6 @@ class AdminNotificationNotifier extends Notifier<NotificationState> {
     final userId = Supabase.instance.client.auth.currentUser?.id;
     if (userId == null) return;
 
-    // Avoid double-subscribing if this ever gets called twice
     _cancelSubscription();
 
     _channel = _service.subscribeToAdminNotifications(userId, (notification) {
@@ -195,6 +226,7 @@ class SuperAdminNotificationNotifier extends Notifier<NotificationState> {
     ref.onDispose(_cancelSubscription);
     Future.microtask(() async {
       await loadNotifications();
+      if (!ref.mounted) return;
       _subscribeRealtime();
     });
     return const NotificationState(isLoading: true);
@@ -207,6 +239,7 @@ class SuperAdminNotificationNotifier extends Notifier<NotificationState> {
     state = state.copyWith(isLoading: true, error: null);
     try {
       final list = await _service.fetchSuperAdminNotifications();
+      if (!ref.mounted) return;
       state = state.copyWith(notifications: list, isLoading: false);
     } catch (e) {
       state = state.copyWith(
@@ -221,6 +254,7 @@ class SuperAdminNotificationNotifier extends Notifier<NotificationState> {
     _cancelSubscription();
 
     _channel = _service.subscribeToSuperAdminNotifications((notification) {
+      if (!ref.mounted) return;
       final alreadyPresent =
           state.notifications.any((n) => n.id == notification.id);
       if (!alreadyPresent) {

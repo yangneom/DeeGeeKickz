@@ -111,7 +111,13 @@ void _navigateToDetail(BuildContext context) {
                       color: const Color(0xFFBA1A1A),
                     ),
                   )
-                else if (product.totalAvailable <= 10)
+                // Matches the same threshold used for Admin's
+                // low-stock notifications (stock_service.dart,
+                // _lowStockThreshold = 5) — previously this badge
+                // fired at 10, so a product could show "Low Stock"
+                // to customers well before Admin even got alerted
+                // about it.
+                else if (product.totalAvailable <= 5)
                   Positioned(
                     top: 8,
                     left: 8,
