@@ -1,7 +1,7 @@
 import 'package:flutter/material.dart';
 
 import '../../../screens/customer/cart/cart_screen.dart';
-import '../../../screens/customer/search/search_screen.dart';
+import '../../../screens/customer/shop_screen.dart/shop_screen.dart';
 import '../../../screens/customer/orders/order_history_screen.dart';
 import '../../../screens/customer/profile/profile_screen.dart';
 import '../../../core/utils/auth_gate.dart';
@@ -10,16 +10,25 @@ import '../../../providers/auth/auth_provider.dart';
 
 /// Bottom navigation bar shown ONLY on mobile widths (< 768px).
 ///
-/// Index map:
+/// Index map (this MUST match the _items list below — a stale copy of
+/// this comment previously listed "1 → Search", which doesn't exist in
+/// _items, and caused at least one screen to pass the wrong
+/// currentIndex and highlight the wrong tab):
 ///   0 → Home      → pops to root
-///   1 → Search    → SearchScreen
+///   1 → Shop      → ShopScreen
 ///   2 → Bag       → CartScreen
 ///   3 → Orders    → OrderHistoryScreen
 ///   4 → Profile   → ProfileScreen
 ///
-/// All navigation is now handled internally — pass currentIndex only.
-/// Pass currentIndex: -1 on screens that don't correspond to any tab
-/// (e.g. ShopScreen) so nothing is falsely highlighted.
+/// All navigation is handled internally — pass currentIndex only.
+/// Pass currentIndex: -1 on screens that don't correspond to any tab.
+///
+/// Tapping a tab that's already open in the stack (e.g. tapping Shop
+/// while a screen pushed on top of Shop, like Product Detail, is
+/// showing) pops back to the existing Shop screen instead of pushing a
+/// visually-identical duplicate on top — previously this made Shop
+/// *look* broken, since pushing a duplicate is indistinguishable from
+/// doing nothing.
 ///
 /// Self-hides (returns SizedBox.shrink) on desktop/tablet.
 class BottomNavBar extends ConsumerWidget {
@@ -39,18 +48,76 @@ class BottomNavBar extends ConsumerWidget {
 
   static const List<_NavItem> _items = [
     _NavItem(icon: Icons.home_outlined,           label: 'Home'),
-    _NavItem(icon: Icons.search,                  label: 'Search'),
+    _NavItem(icon: Icons.storefront_outlined,     label: 'Shop'),
     _NavItem(icon: Icons.shopping_bag_outlined,   label: 'Bag'),
     _NavItem(icon: Icons.receipt_long_outlined,   label: 'Orders'),
     _NavItem(icon: Icons.person_outline,          label: 'Profile'),
   ];
 
+  // Route name used to find an already-open screen in the stack so we
+  // can pop back to it instead of pushing a duplicate. Index 0 (Home)
+  // and 4 (Profile, which goes through requireAuth) are handled
+  // separately below and don't need an entry here.
+  static const Map<int, String> _routeNames = {
+    1: 'shop',
+    2: 'bag',
+    3: 'orders',
+  };
 
+  void _navigateTo(BuildContext context, int index) {
+    if (index == 0) {
+      Navigator.of(context).popUntil((r) => r.isFirst);
+      return;
+    }
+
+    if (index == 4) {
+      requireAuth(context, const ProfileScreen());
+      return;
+    }
+
+    final String? routeName = _routeNames[index];
+    if (routeName == null) return;
+
+    final navigator = Navigator.of(context);
+    bool foundExisting = false;
+
+    navigator.popUntil((r) {
+      if (r.settings.name == routeName) {
+        foundExisting = true;
+        return true;
+      }
+      return r.isFirst;
+    });
+
+    if (foundExisting) return;
+
+    switch (index) {
+      case 1:
+        navigator.push(MaterialPageRoute(
+          settings: const RouteSettings(name: 'shop'),
+          builder: (_) => const ShopScreen(),
+        ));
+        break;
+      case 2:
+        navigator.push(MaterialPageRoute(
+          settings: const RouteSettings(name: 'bag'),
+          builder: (_) => const CartScreen(),
+        ));
+        break;
+      case 3:
+        navigator.push(MaterialPageRoute(
+          settings: const RouteSettings(name: 'orders'),
+          builder: (_) => const OrderHistoryScreen(),
+        ));
+        break;
+    }
+  }
 
   @override
   Widget build(BuildContext context, WidgetRef ref) {
     final authState = ref.watch(authStateProvider);
-  final isLoggedIn = authState.value?.session?.user != null;
+    final isLoggedIn = authState.value?.session?.user != null;
+
     return LayoutBuilder(
       builder: (context, constraints) {
         if (constraints.maxWidth >= _mdBreakpoint) {
@@ -75,42 +142,25 @@ class BottomNavBar extends ConsumerWidget {
               final isActive = index == currentIndex;
 
               return InkWell(
-                onTap: () {
-                  switch (index) {
-                    case 0: // Home
-                      Navigator.of(context).popUntil((r) => r.isFirst);
-                      break;
-                    case 1: // Search
-                      Navigator.of(context).push(
-                        MaterialPageRoute(
-                            builder: (_) => const SearchScreen()),
-                      );
-                      break;
-                    case 2: // Bag
-                      Navigator.of(context).push(
-                        MaterialPageRoute(
-                            builder: (_) => const CartScreen()),
-                      );
-                      break;
-                    case 3: // Orders
-                      Navigator.of(context).push(
-                        MaterialPageRoute(
-                            builder: (_) => const OrderHistoryScreen()),
-                      );
-                      break;
-                    case 4: // Profile
-                      requireAuth(context, const ProfileScreen());
-                      break;
-                    default:
-                      onTap?.call(index);
-                  }
-                },
+                onTap: () => _navigateTo(context, index),
                 child: Padding(
                   padding: const EdgeInsets.symmetric(
                       horizontal: 16, vertical: 8),
                   child: Column(
                     mainAxisSize: MainAxisSize.min,
                     children: [
+                      // Active-tab indicator bar — mirrors the black
+                      // underline used for active links in the desktop
+                      // top bar, so mobile and desktop use the same
+                      // visual language for "you are here" instead of
+                      // relying on icon size/weight alone.
+                      AnimatedContainer(
+                        duration: const Duration(milliseconds: 150),
+                        width: isActive ? 20 : 0,
+                        height: 2,
+                        margin: const EdgeInsets.only(bottom: 4),
+                        color: Colors.black,
+                      ),
                       Icon(
                         item.icon,
                         size: isActive ? 26 : 24,

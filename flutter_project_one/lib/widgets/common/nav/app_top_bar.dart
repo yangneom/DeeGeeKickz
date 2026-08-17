@@ -45,21 +45,52 @@ class AppTopBar extends ConsumerWidget implements PreferredSizeWidget {
   @override
   Size get preferredSize => const Size.fromHeight(_navHeight);
 
+  // Tapping Home/Shop/Promo always lands you on that screen — reusing
+  // it if it's already in the navigation stack (e.g. you're on Product
+  // Detail, which was pushed on top of Shop) rather than always
+  // stacking a brand new copy on top, or — with the old
+  // `if (route == activeRoute) return;` guard — doing nothing at all
+  // when the current screen was merely a SUB-screen that happened to
+  // share the same activeRoute label (Product Detail also sets
+  // activeRoute: 'shop', which made the old guard misfire).
+  //
+  // IMPORTANT: this only works for a target screen if it was actually
+  // pushed with a matching RouteSettings(name: ...) at some point —
+  // see ShopScreen/PromoScreen below. If your app's very first/root
+  // route was never given a name, popUntil here can't find it and
+  // will fall through to pushing a new one instead. Check main.dart's
+  // initial route if Shop/Promo ever seem to "do nothing" from here.
   void _onNavTap(BuildContext context, String route) {
-    if (route == activeRoute) return;
+    if (route == 'home') {
+      Navigator.of(context).popUntil((r) => r.isFirst);
+      return;
+    }
+
+    final navigator = Navigator.of(context);
+    bool foundExisting = false;
+
+    navigator.popUntil((r) {
+      if (r.settings.name == route) {
+        foundExisting = true;
+        return true;
+      }
+      return r.isFirst;
+    });
+
+    if (foundExisting) return;
+
     switch (route) {
       case 'shop':
-        Navigator.of(context).push(
-          MaterialPageRoute(builder: (_) => const ShopScreen()),
-        );
+        navigator.push(MaterialPageRoute(
+          settings: const RouteSettings(name: 'shop'),
+          builder: (_) => const ShopScreen(),
+        ));
         break;
       case 'promo':
-        Navigator.of(context).push(
-          MaterialPageRoute(builder: (_) => const PromoScreen()),
-        );
-        break;
-      case 'home':
-        Navigator.of(context).popUntil((r) => r.isFirst);
+        navigator.push(MaterialPageRoute(
+          settings: const RouteSettings(name: 'promo'),
+          builder: (_) => const PromoScreen(),
+        ));
         break;
     }
   }
@@ -125,14 +156,18 @@ class AppTopBar extends ConsumerWidget implements PreferredSizeWidget {
                     ),
 
                     // ── Logo ──────────────────────────────────
-                    const Text(
-                      'DEEGEEKICKZ',
-                      style: TextStyle(
-                        fontFamily: 'Archivo Narrow',
-                        fontSize: 32,
-                        fontWeight: FontWeight.w600,
-                        letterSpacing: -0.5,
-                        color: Colors.black,
+                    Flexible(
+                      child: Text(
+                        'DEEGEEKICKZ',
+                        overflow: TextOverflow.ellipsis,
+                        maxLines: 1,
+                        style: TextStyle(
+                          fontFamily: 'Archivo Narrow',
+                          fontSize: isDesktop ? 32 : 20,
+                          fontWeight: FontWeight.w600,
+                          letterSpacing: -0.5,
+                          color: Colors.black,
+                        ),
                       ),
                     ),
 
@@ -185,6 +220,7 @@ class AppTopBar extends ConsumerWidget implements PreferredSizeWidget {
                             onTap: onBagTap ??
                                 () => Navigator.of(context).push(
                                       MaterialPageRoute(
+                                        settings: const RouteSettings(name: 'bag'),
                                         builder: (_) => const CartScreen(),
                                       ),
                                     ),
@@ -231,13 +267,44 @@ class AppTopBar extends ConsumerWidget implements PreferredSizeWidget {
                               );
                             },
                           ),
+                        ] else ...[
+                          // Mobile: notification bell (same login gate
+                          // as desktop) + Search. Shop, Bag, Orders, and
+                          // Profile live in BottomNavBar — kept out of
+                          // here so nothing is reachable two ways.
+                          Consumer(
+                            builder: (context, ref, _) {
+                              final authState = ref.watch(authStateProvider);
+                              final isLoggedIn = authState.value?.session?.user != null;
+
+                              if (!isLoggedIn) return const SizedBox.shrink();
+
+                              return Padding(
+                                padding: const EdgeInsets.only(right: 16),
+                                child: _IconButton(
+                                  icon: Icons.notifications_outlined,
+                                  showBadge: unreadCount > 0,
+                                  onTap: onNotificationsTap ??
+                                      () => requireAuth(
+                                            context,
+                                            const NotificationsScreen(),
+                                          ),
+                                ),
+                              );
+                            },
+                          ),
+                          _IconButton(
+                            icon: Icons.search,
+                            onTap: onSearchTap ??
+                                () => Navigator.of(context).push(
+                                      MaterialPageRoute(
+                                        builder: (_) => const SearchScreen(),
+                                      ),
+                                    ),
+                          ),
                         ],
-                        // Mobile: intentionally empty. Search, Bag, Orders,
-                        // and Profile all live in BottomNavBar already.
                       ],
                     ),
-
-                    
                   ],
                 ),
               ),

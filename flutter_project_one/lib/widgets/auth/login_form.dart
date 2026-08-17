@@ -27,6 +27,8 @@ import '../../screens/super/super_layout.dart'; // ← ADD THIS
 
 import '../../screens/customer/homescreen/home_screen.dart';
 
+import 'package:flutter/foundation.dart' show kIsWeb;
+
 // ================================================
 // LOGIN FORM WIDGET
 // ================================================
@@ -121,10 +123,20 @@ class _LoginFormState extends ConsumerState<LoginForm> {
         ref.read(errorMessageProvider.notifier).setError(errorMessage);
         return;
       }
+final String? role = await authService.getUserRole();
 
-      final String? role = await authService.getUserRole();
-
-      // ✅ REPLACE the role check section with this:
+      // Staff roles (Admin/Cashier/Super Admin) are web-only — the
+      // mobile app is Customer-only by design. Block here rather than
+      // letting them reach a staff layout that assumes web-only
+      // features (CSV/Excel export, etc.) are available.
+      if (!kIsWeb && role != 'Customer' && role != null) {
+        await authService.logout();
+        ref.read(errorMessageProvider.notifier).setError(
+          'This account type isn\'t supported on the mobile app. '
+          'Please use the web version to log in as $role.',
+        );
+        return;
+      }
 
       if (role == 'Admin') {
         Navigator.pushReplacement(

@@ -133,21 +133,15 @@ Future<void> _notifyCustomerAdminReply({
     String? imageUrl,
     String? productId,
   }) async {
+    print('🔔🔔🔔 _notifyCustomerAdminReply CALLED 🔔🔔🔔');
     try {
-      final convo = await _client
-          .from('conversations')
-          .select('customer_id')
-          .eq('conversation_id', int.parse(conversationId))
-          .single();
-
-      final String preview = _buildPreview(text, imageUrl, productId);
-
-      await _client.from('notifications').insert({
-        'customer_id': convo['customer_id'],
-        'type': 'admin_reply',
-        'title': 'New reply from support',
-        'body': preview,
+      await _client.rpc('notify_customer_admin_reply', params: {
+        'p_conversation_id': int.parse(conversationId),
+        'p_text': text,
+        'p_image_url': imageUrl,
+        'p_product_id': productId == null ? null : int.parse(productId),
       });
+      print('🔔 RPC completed successfully');
     } catch (error) {
       print('_notifyCustomerAdminReply error: $error');
     }

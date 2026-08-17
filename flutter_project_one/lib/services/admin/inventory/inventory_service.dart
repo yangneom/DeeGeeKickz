@@ -174,6 +174,17 @@ class InventoryService {
         metadata: {'brand': brandName, 'category': categoryName},
       );
 
+      // Notify customers only — Super Admin already sees this via
+      // Activity Log, so a separate notification would be redundant
+      // for them (per confirmed scope decision).
+      try {
+        await _supabase.rpc('notify_customers_new_product', params: {
+          'p_product_id': productId,
+        });
+      } catch (notifyError) {
+        print('notify_customers_new_product error: $notifyError');
+      }
+
       return null;
     } on PostgrestException catch (error) {
       print('addProduct error: $error');

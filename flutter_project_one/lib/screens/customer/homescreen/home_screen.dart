@@ -58,18 +58,10 @@ class HomeScreen extends StatelessWidget {
         ),
       ),
       // Bottom nav bar: shared/common widget, self-hides on tablet/desktop.
-      bottomNavigationBar: BottomNavBar(
-        currentIndex: 0,
-        onTap: (index) {
-          if (index == 2) {
-            Navigator.of(context).push(
-              MaterialPageRoute(
-                builder: (_) => const ShopScreen(),
-              ),
-            );
-          }
-        },
-      ),
+      // Bottom nav bar: shared/common widget, self-hides on tablet/desktop.
+      // Navigation is now handled entirely inside BottomNavBar itself
+      // (see bottom_nav_bar.dart) — no onTap override needed here.
+      bottomNavigationBar: const BottomNavBar(currentIndex: 0),
     );
   }
 }

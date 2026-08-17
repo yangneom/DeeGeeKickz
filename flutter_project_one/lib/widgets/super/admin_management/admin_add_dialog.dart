@@ -1,5 +1,5 @@
 import 'package:flutter/material.dart';
-
+import '../../common/dialog/confirm_dialog.dart';
 // ================================================
 // ADMIN ADD DIALOG
 //
@@ -63,7 +63,7 @@ class _AdminAddDialogState extends State<AdminAddDialog> {
   // ================================================
   // HANDLE ADD
   // ================================================
-  Future<void> _handleAdd() async {
+Future<void> _handleAdd() async {
     // validate
     if (_firstNameController.text.trim().isEmpty ||
         _lastNameController.text.trim().isEmpty ||
@@ -72,23 +72,37 @@ class _AdminAddDialogState extends State<AdminAddDialog> {
         _errorMessage = 'Please fill in all required fields.';
       });
       return;
-    
-
     }
 
+    final String firstName = _firstNameController.text.trim();
+    final String lastName = _lastNameController.text.trim();
+
+    final bool? confirmed = await showConfirmDialog(
+      context: context,
+      title: 'Create this account?',
+      message: '$firstName $lastName will be added as $_selectedRole '
+          'and will be able to log in with the email provided.',
+      confirmLabel: 'Create Account',
+      confirmColor: const Color(0xFF2563EB),
+    );
+
+    if (confirmed != true) return;
+    // Cancelling here leaves the form exactly as it was — nothing is
+    // cleared, so the admin can adjust details and try again without
+    // retyping everything.
+
+    if (!mounted) return;
 
     await widget.onAdd(
-      firstName: _firstNameController.text.trim(),
-      lastName: _lastNameController.text.trim(),
+      firstName: firstName,
+      lastName: lastName,
       email: _emailController.text.trim(),
       role: _selectedRole,
     );
 
-    print('onAdd FINISHED');
-
     if (mounted) {
       Navigator.pop(context);
-}
+    }
   }
 
   // ================================================

@@ -63,6 +63,43 @@ class ReviewService {
     )
   ''';
 
+  // ── Realtime: new replies on any review (used to refresh whichever
+  // product page is currently open, since feedback_replies has no
+  // product_id column to filter on directly) ──
+  RealtimeChannel subscribeToFeedbackReplies(void Function() onInsert) {
+    return _supabase
+        .channel('feedback_replies:all')
+        .onPostgresChanges(
+          event: PostgresChangeEvent.insert,
+          schema: 'public',
+          table: 'feedback_replies',
+          callback: (_) => onInsert(),
+        )
+        .subscribe();
+  }
+
+  // ── Realtime: new reviews for THIS product specifically ──
+  RealtimeChannel subscribeToNewFeedback(int productId, void Function() onInsert) {
+    return _supabase
+        .channel('feedback:product:$productId')
+        .onPostgresChanges(
+          event: PostgresChangeEvent.insert,
+          schema: 'public',
+          table: 'feedback',
+          filter: PostgresChangeFilter(
+            type: PostgresChangeFilterType.eq,
+            column: 'product_id',
+            value: productId,
+          ),
+          callback: (_) => onInsert(),
+        )
+        .subscribe();
+  }
+
+  void unsubscribe(RealtimeChannel channel) {
+    _supabase.removeChannel(channel);
+  }
+
   // ================================================
   // FETCH PRODUCT REVIEWS
   // Returns only Visible reviews for customers.
@@ -177,9 +214,17 @@ class ReviewService {
       // Fire-and-forget: notify staff. Never let a notification
       // failure make the reply look like it failed to post — the
       // reply itself already committed successfully above.
+      // Fire-and-forget: notify staff (always) AND the original
+      // reviewer, if someone other than them just replied. Neither
+      // failure should make the reply look like it failed to post.
       await _notifyStaffFeedbackReply(
         feedbackId: feedbackId,
         replyText: trimmed,
+      );
+      await _notifyCustomerFeedbackReply(
+        feedbackId: feedbackId,
+        replyText: trimmed,
+        replierId: userId,
       );
 
       return null;
@@ -232,6 +277,22 @@ class ReviewService {
       print('🔔 Reply RPC completed successfully');
     } catch (error) {
       print('_notifyStaffFeedbackReply error: $error');
+    }
+  }
+
+  Future<void> _notifyCustomerFeedbackReply({
+    required int feedbackId,
+    required String replyText,
+    required String replierId,
+  }) async {
+    try {
+      await _supabase.rpc('notify_customer_feedback_reply', params: {
+        'p_feedback_id': feedbackId,
+        'p_reply_text': replyText,
+        'p_replier_id': replierId,
+      });
+    } catch (error) {
+      print('_notifyCustomerFeedbackReply error: $error');
     }
   }
 

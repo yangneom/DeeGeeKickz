@@ -14,6 +14,8 @@ enum NotificationType {
   adminActivity,
   salesAlert,
   adminReply,
+  newArrival, // ← add this
+
 }
 class AppNotification {
   final String id;          // notification_id as string
@@ -74,7 +76,9 @@ class AppNotification {
       case 'admin_activity':     return NotificationType.adminActivity;
       case 'sales_alert':        return NotificationType.salesAlert;
       case 'admin_reply':        return NotificationType.adminReply;
+      case 'new_arrival':        return NotificationType.newArrival;
       default:                   return NotificationType.promotion;
+
     }
   }
 

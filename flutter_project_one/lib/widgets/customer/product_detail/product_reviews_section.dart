@@ -7,6 +7,7 @@ import '../../../providers/customer/review_providers.dart';
 import '../../../providers/auth/auth_provider.dart';
 import '../../../screens/customer/product_detail/write_review_screen.dart';
 import '../../../screens/auth/login_screen.dart';
+import 'package:supabase_flutter/supabase_flutter.dart' show RealtimeChannel;
 
 class ProductReviewsSection extends ConsumerStatefulWidget {
   final int productId;
@@ -26,6 +27,32 @@ class ProductReviewsSection extends ConsumerStatefulWidget {
 class _ProductReviewsSectionState
     extends ConsumerState<ProductReviewsSection> {
   static const double _mdBreakpoint = 768;
+
+  RealtimeChannel? _repliesChannel;
+  RealtimeChannel? _newFeedbackChannel;
+
+  @override
+  void initState() {
+    super.initState();
+    final service = ref.read(reviewServiceProvider);
+    _repliesChannel = service.subscribeToFeedbackReplies(() {
+      if (!mounted) return;
+      ref.invalidate(productReviewsProvider(widget.productId));
+    });
+    _newFeedbackChannel = service.subscribeToNewFeedback(widget.productId, () {
+      if (!mounted) return;
+      ref.invalidate(productReviewsProvider(widget.productId));
+      ref.invalidate(productRatingStatsProvider(widget.productId));
+    });
+  }
+
+  @override
+  void dispose() {
+    final service = ref.read(reviewServiceProvider);
+    if (_repliesChannel != null) service.unsubscribe(_repliesChannel!);
+    if (_newFeedbackChannel != null) service.unsubscribe(_newFeedbackChannel!);
+    super.dispose();
+  }
 
   int? _selectedStarFilter;
   _SortOption _sort = _SortOption.mostRecent;

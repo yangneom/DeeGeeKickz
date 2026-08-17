@@ -9,29 +9,37 @@ import 'package:flutter/material.dart';
 class AnnouncementBar extends StatelessWidget {
   const AnnouncementBar({super.key});
 
+  static const double _mdBreakpoint = 768;
+
   @override
   Widget build(BuildContext context) {
-    return Container(
-      width: double.infinity,
-      color: Colors.black, // bg-primary
-      padding: const EdgeInsets.symmetric(
-        vertical: 4, // py-xs (4px)
-        horizontal: 16, // px-margin-mobile (16px)
-      ),
-      child: const Text(
-        'FREE SHIPPING ON ALL ORDERS OVER \$150 • SHOP THE NEW PERFORMANCE ELITE COLLECTION',
-        textAlign: TextAlign.center,
-        maxLines: 1,
-        overflow: TextOverflow.ellipsis,
-        style: TextStyle(
-          color: Colors.white, // text-on-primary
-          fontFamily: 'Inter',
-          fontSize: 12, // label-sm
-          fontWeight: FontWeight.w500,
-          letterSpacing: 1.5, // tracking-widest
-          height: 16 / 12,
-        ),
-      ),
+    return LayoutBuilder(
+      builder: (context, constraints) {
+        final bool isDesktop = constraints.maxWidth >= _mdBreakpoint;
+
+        return Container(
+          width: double.infinity,
+          color: Colors.black, // bg-primary
+          padding: EdgeInsets.symmetric(
+            vertical: 4,
+            horizontal: isDesktop ? 16 : 10,
+          ),
+          child: Text(
+            'FREE SHIPPING ON ALL ORDERS OVER \$150 • SHOP THE NEW PERFORMANCE ELITE COLLECTION',
+            textAlign: TextAlign.center,
+            maxLines: 1,
+            overflow: TextOverflow.ellipsis,
+            style: TextStyle(
+              color: Colors.white,
+              fontFamily: 'Inter',
+              fontSize: isDesktop ? 12 : 10,
+              fontWeight: FontWeight.w500,
+              letterSpacing: isDesktop ? 1.5 : 0.4,
+              height: isDesktop ? 16 / 12 : 14 / 10,
+            ),
+          ),
+        );
+      },
     );
   }
 }

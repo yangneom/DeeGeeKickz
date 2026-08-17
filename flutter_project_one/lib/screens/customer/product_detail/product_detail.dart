@@ -180,7 +180,7 @@ class _DesktopHero extends StatelessWidget {
     return Row(
       crossAxisAlignment: CrossAxisAlignment.start,
       children: [
-        Expanded(
+       Expanded(
           flex: 58,
           child: ProductImageGallery(imageUrls: imageUrls),
         ),
@@ -224,5 +224,13 @@ class _MobileHero extends StatelessWidget {
     );
   }
 }
+
+// ── Back bar ──────────────────────────────────────────────────────
+// Matches the monochrome Inter/uppercase/letter-spaced theme used in
+// WriteReviewForm and the review screen's app bar (thin grey bottom
+// border, black arrow). maybePop() is used instead of pop() so this
+// never crashes if the screen is ever reached with no back stack.
+// ── Floating back button — sits on top of the product image, top-left ──
+
 
 // ── "Ask about this item" — stages a product attachment then opens chat ──

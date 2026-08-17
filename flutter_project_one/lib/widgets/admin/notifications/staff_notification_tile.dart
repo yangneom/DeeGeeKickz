@@ -36,6 +36,8 @@ class StaffNotificationTile extends StatelessWidget {
         return Icons.local_offer_outlined;
       case NotificationType.adminReply:
         return Icons.chat_bubble_outline;
+        case NotificationType.newArrival:
+        return Icons.new_releases_outlined;
     }
   }
   

@@ -3,11 +3,8 @@ import 'package:flutter_riverpod/flutter_riverpod.dart';
 
 import '../../../screens/customer/promo/promo_screen.dart';
 import '../../../screens/customer/messages/customer_chat_screen.dart';
-import '../../../screens/customer/notifications/notifications_screen.dart';
 import '../../../screens/auth/login_screen.dart';
-import '../../../core/utils/auth_gate.dart';
 import '../../../providers/auth/auth_provider.dart';
-import '../../../providers/customer/notification_provider.dart';
 import '../../../providers/customer/customer_cart_provider.dart';
 
 /// Shared navigation drawer shown on mobile widths.
@@ -16,8 +13,6 @@ class AppDrawer extends ConsumerWidget {
 
   @override
   Widget build(BuildContext context, WidgetRef ref) {
-    final unreadCount = ref.watch(notificationProvider).unreadCount;
-
     return Drawer(
       backgroundColor: const Color(0xFFF9F9F9),
       child: SafeArea(
@@ -64,15 +59,6 @@ class AppDrawer extends ConsumerWidget {
                         MaterialPageRoute(
                             builder: (_) => const PromoScreen()),
                       );
-                    },
-                  ),
-                  _DrawerItem(
-                    icon: Icons.notifications_outlined,
-                    label: 'Notifications',
-                    showBadge: unreadCount > 0,
-                    onTap: () {
-                      Navigator.of(context).pop(); // close drawer first
-                      requireAuth(context, const NotificationsScreen());
                     },
                   ),
                   _DrawerItem(

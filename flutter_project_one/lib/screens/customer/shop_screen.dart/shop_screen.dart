@@ -192,12 +192,7 @@ class _ShopScreenState extends ConsumerState<ShopScreen> {
           ],
         ),
       ),
-      bottomNavigationBar: BottomNavBar(
-        currentIndex: 2,
-        onTap: (index) {
-          if (index == 0) Navigator.of(context).pop();
-        },
-      ),
+      bottomNavigationBar: const BottomNavBar(currentIndex: 1),
     );
   }
 }

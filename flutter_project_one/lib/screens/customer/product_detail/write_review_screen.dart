@@ -123,7 +123,6 @@ class WriteReviewScreen extends ConsumerWidget {
 
     return Scaffold(
       backgroundColor: const Color(0xFFF9F9F9),
-      appBar: _ReviewAppBar(productName: productName),
       body: SafeArea(
         child: LayoutBuilder(
           builder: (context, constraints) {
@@ -145,6 +144,10 @@ class WriteReviewScreen extends ConsumerWidget {
                     crossAxisAlignment:
                         CrossAxisAlignment.start,
                     children: [
+                      const _SimpleBackButton(),
+
+                      const SizedBox(height: 16),
+
                       const Text(
                         'WRITE A\nREVIEW',
                         style: TextStyle(
@@ -203,77 +206,34 @@ class WriteReviewScreen extends ConsumerWidget {
 
 // ── Custom AppBar ─────────────────────────────────────────────────
 
-class _ReviewAppBar extends StatelessWidget
-    implements PreferredSizeWidget {
-  final String productName;
-  const _ReviewAppBar({required this.productName});
-
-  @override
-  Size get preferredSize => const Size.fromHeight(64);
+// ── Simple back button — no bar, no border, no logo ────────────────
+class _SimpleBackButton extends StatelessWidget {
+  const _SimpleBackButton();
 
   @override
   Widget build(BuildContext context) {
-    return Container(
-      height: 64,
-      decoration: const BoxDecoration(
-        color: Color(0xFFF9F9F9),
-        border: Border(
-          bottom:
-              BorderSide(color: Color(0xFFCFC4C5), width: 1),
+    return InkWell(
+      onTap: () => Navigator.of(context).maybePop(),
+      borderRadius: BorderRadius.circular(4),
+      child: const Padding(
+        padding: EdgeInsets.symmetric(vertical: 4),
+        child: Row(
+          mainAxisSize: MainAxisSize.min,
+          children: [
+            Icon(Icons.arrow_back, color: Colors.black, size: 22),
+            SizedBox(width: 6),
+            Text(
+              'BACK',
+              style: TextStyle(
+                fontFamily: 'Inter',
+                fontSize: 12,
+                fontWeight: FontWeight.w600,
+                letterSpacing: 1,
+                color: Colors.black,
+              ),
+            ),
+          ],
         ),
-      ),
-      padding: const EdgeInsets.symmetric(horizontal: 8),
-      child: Row(
-        children: [
-          IconButton(
-            icon: const Icon(Icons.arrow_back,
-                color: Colors.black, size: 24),
-            onPressed: () => Navigator.of(context).pop(),
-            tooltip: 'Back',
-          ),
-          const SizedBox(width: 8),
-          Expanded(
-            child: Column(
-              mainAxisAlignment: MainAxisAlignment.center,
-              crossAxisAlignment: CrossAxisAlignment.start,
-              children: [
-                const Text(
-                  'REVIEW',
-                  style: TextStyle(
-                    fontFamily: 'Archivo Narrow',
-                    fontSize: 20,
-                    fontWeight: FontWeight.w700,
-                    letterSpacing: 1,
-                    color: Colors.black,
-                  ),
-                ),
-                Text(
-                  productName.toUpperCase(),
-                  style: const TextStyle(
-                    fontFamily: 'Inter',
-                    fontSize: 11,
-                    fontWeight: FontWeight.w500,
-                    letterSpacing: 0.8,
-                    color: Color(0xFF4C4546),
-                  ),
-                  maxLines: 1,
-                  overflow: TextOverflow.ellipsis,
-                ),
-              ],
-            ),
-          ),
-          const Text(
-            'DEEGEEKICKZ',
-            style: TextStyle(
-              fontFamily: 'Archivo Narrow',
-              fontSize: 18,
-              fontWeight: FontWeight.w700,
-              letterSpacing: -0.3,
-              color: Colors.black,
-            ),
-          ),
-          const SizedBox(width: 8),
-        ],
       ),
     );
   }
