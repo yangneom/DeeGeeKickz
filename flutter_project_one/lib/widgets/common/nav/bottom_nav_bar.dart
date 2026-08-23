@@ -64,7 +64,7 @@ class BottomNavBar extends ConsumerWidget {
     3: 'orders',
   };
 
-  void _navigateTo(BuildContext context, int index) {
+    void _navigateTo(BuildContext context, int index) {
     if (index == 0) {
       Navigator.of(context).popUntil((r) => r.isFirst);
       return;
@@ -75,21 +75,11 @@ class BottomNavBar extends ConsumerWidget {
       return;
     }
 
-    final String? routeName = _routeNames[index];
-    if (routeName == null) return;
-
+    // Always return to the root, then push fresh — avoids the
+    // predicate-based popUntil race that could crash mid-transition
+    // (see: Assertion failed / Duplicate GlobalKey errors).
     final navigator = Navigator.of(context);
-    bool foundExisting = false;
-
-    navigator.popUntil((r) {
-      if (r.settings.name == routeName) {
-        foundExisting = true;
-        return true;
-      }
-      return r.isFirst;
-    });
-
-    if (foundExisting) return;
+    navigator.popUntil((r) => r.isFirst);
 
     switch (index) {
       case 1:
@@ -112,7 +102,6 @@ class BottomNavBar extends ConsumerWidget {
         break;
     }
   }
-
   @override
   Widget build(BuildContext context, WidgetRef ref) {
     final authState = ref.watch(authStateProvider);

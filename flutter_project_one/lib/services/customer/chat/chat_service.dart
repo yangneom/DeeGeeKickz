@@ -263,4 +263,45 @@ Future<void> _notifyStaffNewMessage({
   void unsubscribe(RealtimeChannel channel) {
     _client.removeChannel(channel);
   }
+
+
+    // ── Admin: fetch ALL customers, regardless of whether they have
+  // a conversation yet — used so admin can search/start a chat with
+  // anyone, not just people who already messaged first.
+  Future<List<Map<String, dynamic>>> fetchAllCustomers() async {
+    final response = await _client
+        .from('users')
+        .select('id, first_name, last_name')
+        .eq('role', 'Customer')
+        .order('first_name', ascending: true);
+
+    return (response as List).cast<Map<String, dynamic>>();
+  }
+
+  // ── Admin: get or create a conversation with a specific customer.
+  // Mirrors getOrCreateConversation() (the customer-side version)
+  // but admin-initiated, keyed by an explicit customerId instead of
+  // the currently logged-in user.
+  Future<Conversation> getOrCreateConversationWithCustomer(
+    String customerId,
+  ) async {
+    final existing = await _client
+        .from('conversations')
+        .select()
+        .eq('customer_id', customerId)
+        .eq('status', 'open')
+        .maybeSingle();
+
+    if (existing != null) {
+      return Conversation.fromMap(existing as Map<String, dynamic>);
+    }
+
+    final created = await _client
+        .from('conversations')
+        .insert({'customer_id': customerId, 'status': 'open'})
+        .select()
+        .single();
+
+    return Conversation.fromMap(created as Map<String, dynamic>);
+  }
 }

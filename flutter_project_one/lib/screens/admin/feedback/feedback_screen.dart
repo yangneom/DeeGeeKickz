@@ -7,6 +7,7 @@ import '../../../widgets/common/buttons/search_bar.dart';
 import '../../../widgets/common/buttons/filter_button.dart';
 import '../../../widgets/common/buttons/filter_panel.dart';
 import '../../../widgets/admin/feedback/feedback_details_dialog.dart';
+import 'package:supabase_flutter/supabase_flutter.dart' show RealtimeChannel;
 
 class FeedbackScreen extends ConsumerStatefulWidget {
   const FeedbackScreen({super.key});
@@ -20,6 +21,17 @@ class _FeedbackScreenState extends ConsumerState<FeedbackScreen> {
   final TextEditingController _searchController =
       TextEditingController();
   bool _showFilterPanel = false;
+  RealtimeChannel? _feedbackChannel;
+
+  @override
+  void initState() {
+    super.initState();
+    _feedbackChannel = ref.read(feedbackServiceProvider).subscribeToFeedbackChanges(() {
+      if (!mounted) return;
+      ref.invalidate(feedbackProvider);
+      ref.invalidate(recentFeedbackProvider);
+    });
+  }
 
   // Pending selection — mirrors the pattern every other screen uses
   // (_selectedStatus/_selectedCategory etc.), so a chip tap only
@@ -28,8 +40,11 @@ class _FeedbackScreenState extends ConsumerState<FeedbackScreen> {
   // otherwise the list refiltered the instant a chip was tapped,
   // with no Apply needed, unlike every other screen.
   String? _pendingStatus;
-  @override
+    @override
   void dispose() {
+    if (_feedbackChannel != null) {
+      ref.read(feedbackServiceProvider).unsubscribe(_feedbackChannel!);
+    }
     _searchController.dispose();
     super.dispose();
   }
@@ -162,7 +177,7 @@ class _FeedbackScreenState extends ConsumerState<FeedbackScreen> {
                             context: context,
                             builder: (_) => FeedbackDetailsDialog(
                               feedback: item.toAdminMap(),
-                              onSave:
+                                                            onSave:
                                   (newStatus, adminReply) async {
                                 await ref
                                     .read(
@@ -174,18 +189,7 @@ class _FeedbackScreenState extends ConsumerState<FeedbackScreen> {
                                       currentStatus: item.status,
                                       adminReply: adminReply,
                                     );
-                                // BUG FIX: saveReply() records its
-                                // result in provider state rather
-                                // than throwing or returning a
-                                // value — without this check, a
-                                // failed save (RLS rejection,
-                                // network drop, etc.) would
-                                // silently close the dialog as if
-                                // it had succeeded. Throwing here
-                                // lets the dialog's catch block
-                                // (see feedback_details_dialog.dart)
-                                // keep the dialog open and show the
-                                // real error instead.
+                                if (!mounted) return;
                                 final String? error = ref
                                     .read(feedbackModerationProvider)
                                     .errorMessage;

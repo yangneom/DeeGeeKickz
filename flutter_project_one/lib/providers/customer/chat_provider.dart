@@ -219,6 +219,11 @@ class AdminChatState {
   // Per-conversation unread counts
   final Map<String, int> unreadCounts;
 
+  // ALL customers (role = Customer), regardless of whether they have
+  // a conversation yet. Used so admin can search/start a chat with
+  // anyone, not just people who already messaged first.
+  final List<Map<String, dynamic>> allCustomers;
+
   const AdminChatState({
     this.conversations          = const [],
     this.selectedConversationId,
@@ -227,13 +232,14 @@ class AdminChatState {
     this.isMessagesLoading      = false,
     this.error,
     this.unreadCounts           = const {},
+    this.allCustomers           = const [],
   });
 
   Conversation? get selectedConversation => conversations
       .where((c) => c.id == selectedConversationId)
       .firstOrNull;
 
-  AdminChatState copyWith({
+     AdminChatState copyWith({
     List<Conversation>? conversations,
     String? selectedConversationId,
     List<Message>? messages,
@@ -241,6 +247,7 @@ class AdminChatState {
     bool? isMessagesLoading,
     String? error,
     Map<String, int>? unreadCounts,
+    List<Map<String, dynamic>>? allCustomers,
   }) {
     return AdminChatState(
       conversations:            conversations          ?? this.conversations,
@@ -250,6 +257,7 @@ class AdminChatState {
       isMessagesLoading:        isMessagesLoading      ?? this.isMessagesLoading,
       error:                    error,
       unreadCounts:             unreadCounts           ?? this.unreadCounts,
+      allCustomers:             allCustomers           ?? this.allCustomers,
     );
   }
 }
@@ -266,11 +274,16 @@ class AdminChatNotifier extends Notifier<AdminChatState> {
     return const AdminChatState(isLoading: true);
   }
 
-  // ── Load all conversations ────────────────────────────────────
+   // ── Load all conversations ────────────────────────────────────
   Future<void> loadConversations() async {
     state = state.copyWith(isLoading: true, error: null);
     try {
-      final conversations = await _service.fetchAllConversations();
+      final results = await Future.wait([
+        _service.fetchAllConversations(),
+        _service.fetchAllCustomers(),
+      ]);
+      final conversations = results[0] as List<Conversation>;
+      final allCustomers  = results[1] as List<Map<String, dynamic>>;
 
       // Load unread counts in parallel
       final counts = await Future.wait(
@@ -283,6 +296,7 @@ class AdminChatNotifier extends Notifier<AdminChatState> {
 
       state = state.copyWith(
         conversations: conversations,
+        allCustomers:  allCustomers,
         isLoading:     false,
         unreadCounts:  unreadMap,
       );
@@ -326,6 +340,33 @@ class AdminChatNotifier extends Notifier<AdminChatState> {
       _subscribeMessages(conversationId);
     } catch (_) {
       state = state.copyWith(isMessagesLoading: false);
+    }
+  }
+
+    // ── Start (or resume) a chat with a specific customer, even if
+  // they have no conversation yet. Creates one on the fly, adds it
+  // to the conversations list if it's new, then selects it.
+  Future<void> startChatWithCustomer(String customerId, String customerName) async {
+    final existing = state.conversations
+        .where((c) => c.customerId == customerId)
+        .toList();
+
+    if (existing.isNotEmpty) {
+      await selectConversation(existing.first.id);
+      return;
+    }
+
+    try {
+      final conversation =
+          await _service.getOrCreateConversationWithCustomer(customerId);
+
+      state = state.copyWith(
+        conversations: [conversation, ...state.conversations],
+      );
+
+      await selectConversation(conversation.id);
+    } catch (e) {
+      state = state.copyWith(error: 'Could not start chat.');
     }
   }
 

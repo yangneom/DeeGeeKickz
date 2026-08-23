@@ -14,12 +14,19 @@ import '../../../widgets/customer/checkout/checkout_progress_bar.dart';
 import 'checkout_step1_shipping.dart';
 import 'checkout_step2_review.dart';
 import 'checkout_step3_payment.dart';
+import '../../../models/customer_cart_item.dart';
 
 /// Checkout shell — manages the 3-step flow.
 /// Holds all shared state (shipping info, payment method)
 /// and passes it down to each step screen.
 class CheckoutScreen extends ConsumerStatefulWidget {
-  const CheckoutScreen({super.key});
+  /// NEW — when provided, checkout is for THIS item only ("Buy Now"),
+  /// completely bypassing the saved cart. When null (default), checkout
+  /// behaves as before — the full saved cart ("Add to Bag" → Cart →
+  /// Checkout).
+  final CustomerCartItem? buyNowItem;
+
+  const CheckoutScreen({super.key, this.buyNowItem});
 
   @override
   ConsumerState<CheckoutScreen> createState() => _CheckoutScreenState();
@@ -130,7 +137,7 @@ class _CheckoutScreenState extends ConsumerState<CheckoutScreen> {
 
   void _onReviewContinue() => setState(() => _currentStep = 3);
 
-  Future<int> _onPlaceOrder() async {
+    Future<int> _onPlaceOrder() async {
     final user = Supabase.instance.client.auth.currentUser;
 
     if (user == null) {
@@ -139,8 +146,11 @@ class _CheckoutScreenState extends ConsumerState<CheckoutScreen> {
       );
     }
 
-    final items = ref.read(customerCartProvider);
-
+    // Buy Now → just the one item, never the saved cart.
+    // Add to Bag flow → the full saved cart, same as before.
+    final items = widget.buyNowItem != null
+        ? [widget.buyNowItem!]
+        : ref.read(customerCartProvider);
     final double subtotal = items.fold<double>(
       0,
       (sum, item) => sum + item.subtotal,
@@ -153,7 +163,7 @@ class _CheckoutScreenState extends ConsumerState<CheckoutScreen> {
     final double shipping = _shippingFee;
     final double total    = subtotal + shipping;
 
-  final int orderId = await OrderService().createOrder(
+    final int orderId = await OrderService().createOrder(
   userId:        user.id,
   addressId:     addressId,
   street:        street,
@@ -167,7 +177,12 @@ class _CheckoutScreenState extends ConsumerState<CheckoutScreen> {
   paymentMethod: paymentMethod,
 );
 
-ref.read(customerCartProvider.notifier).clearCart();
+// Buy Now never touched the saved cart, so there's nothing to
+// clear — clearing it here would wipe out unrelated items the
+// customer separately added via "Add to Bag" but hasn't bought yet.
+if (widget.buyNowItem == null) {
+  ref.read(customerCartProvider.notifier).clearCart();
+}
 
 // Stock was just reserved for these items — refresh the shop's
 // product list so anyone browsing (including this same customer,
@@ -190,12 +205,17 @@ return orderId;
       return const Scaffold(body: Center(child: CircularProgressIndicator()));
     }
 
-    final items = ref.watch(customerCartProvider);
+        // Buy Now → just the one item, never the saved cart.
+    final items = widget.buyNowItem != null
+        ? [widget.buyNowItem!]
+        : ref.watch(customerCartProvider);
 
     final double subtotal = items.fold<double>(
       0,
       (sum, item) => sum + item.subtotal,
     );
+
+    // Tax removed on purpose
 
     // Tax removed on purpose — only item price + Lalamove shipping
     // fee are charged. `tax` stays as a param passed to Step 2/3
@@ -206,11 +226,13 @@ return orderId;
     final double total    = subtotal + shipping;
 
 
-   if (items.isEmpty) {
-      // Safety net only — CartSummaryCard now blocks navigation here
-      // with a snackbar before this screen is ever reached normally.
-      // This just covers edge cases like the cart emptying in another
-      // tab while this screen is already open.
+      if (items.isEmpty) {
+      // Safety net only — for Buy Now this should never actually be
+      // empty (a single item is always passed in). For the cart flow,
+      // CartSummaryCard already blocks navigation here with a snackbar
+      // before this screen is normally reached — this just covers edge
+      // cases like the cart emptying in another tab while this screen
+      // is already open.
       WidgetsBinding.instance.addPostFrameCallback((_) {
         if (mounted) Navigator.of(context).pop();
       });

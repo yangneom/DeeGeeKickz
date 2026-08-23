@@ -33,7 +33,7 @@ class FeedbackReply {
   bool get isStaff => authorRole == 'Admin' || authorRole == 'Super Admin';
 
   factory FeedbackReply.fromSupabase(Map<String, dynamic> row) {
-    final userMap = row['users'] as Map<String, dynamic>? ?? {};
+    final userMap = row['user_public_profile'] as Map<String, dynamic>? ?? {};
     final String firstName = userMap['first_name'] as String? ?? '';
     final String lastName  = userMap['last_name']  as String? ?? '';
     final String role      = userMap['role'] as String? ?? 'Customer';
@@ -92,7 +92,7 @@ class ReviewModel {
   //     + feedback_replies (reply thread) via feedback_id FK
   factory ReviewModel.fromSupabase(Map<String, dynamic> row) {
     // Join data comes in as nested maps
-    final userMap = row['users'] as Map<String, dynamic>? ?? {};
+    final userMap = row['user_public_profile'] as Map<String, dynamic>? ?? {};
     final productMap = row['product'] as Map<String, dynamic>? ?? {};
 
     final String firstName = userMap['first_name'] as String? ?? '';

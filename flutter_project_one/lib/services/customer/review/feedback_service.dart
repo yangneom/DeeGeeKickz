@@ -19,9 +19,37 @@ import 'package:supabase_flutter/supabase_flutter.dart';
 import '../../../models/feedback_model.dart';
 import '../../super/activity_log/activity_log_service.dart';
 
+
+
 class FeedbackService {
   final SupabaseClient _supabase = Supabase.instance.client;
   final ActivityLogService _activityLog = ActivityLogService();
+
+
+  // Persistent broadcast channel — used to notify customer screens
+  // when a review's status changes, since Realtime's normal
+  // postgres_changes events are silently dropped for UPDATEs that
+  // move a row OUT of what the subscriber's RLS policy allows them
+  // to see (e.g. Visible -> Hidden). Broadcast isn't RLS-filtered,
+  // so it works for exactly this "row becomes invisible" case.
+  RealtimeChannel? _statusBroadcastChannel;
+
+  RealtimeChannel _ensureStatusBroadcastChannel() {
+    _statusBroadcastChannel ??= _supabase.channel('feedback_status_broadcast')
+      ..subscribe();
+    return _statusBroadcastChannel!;
+  }
+
+  Future<void> _broadcastStatusChange(int feedbackId) async {
+    try {
+      await _ensureStatusBroadcastChannel().sendBroadcastMessage(
+        event: 'status_changed',
+        payload: {'feedback_id': feedbackId},
+      );
+    } catch (error) {
+      print('_broadcastStatusChange error: $error');
+    }
+  }
 
   // ── SELECT helper ─────────────────────────────────────────────
  static const String _selectWithJoins = '''
@@ -36,7 +64,7 @@ class FeedbackService {
     admin_reply,
     created_at,
     updated_at,
-    users (
+        user_public_profile (
       first_name,
       last_name
     ),
@@ -47,7 +75,7 @@ class FeedbackService {
       reply_id,
       reply_text,
       created_at,
-      users (
+      user_public_profile (
         first_name,
         last_name,
         role
@@ -172,6 +200,10 @@ class FeedbackService {
         },
       );
 
+      // Tell any customer screen currently viewing this review
+      // to refetch — see _broadcastStatusChange doc comment above.
+      await _broadcastStatusChange(feedbackId);
+
       return null;
     } catch (error) {
       print('updateStatus error: $error');
@@ -220,18 +252,32 @@ class FeedbackService {
                          : null,
       });
 
-      // 2b. Append to the public reply thread (feedback_replies).
-      // This is additive — feedback.admin_reply above still holds
-      // the latest reply for any older code reading that single
-      // field, while feedback_replies is the new full thread.
-      if (trimmedReply.isNotEmpty) {
-        await _supabase.from('feedback_replies').insert({
-          'feedback_id': feedbackId,
-          'author_id':   adminId,
-          'reply_text':  trimmedReply,
-        });
-      }
+            // 2b. Append to the public reply thread (feedback_replies).
+      // Direct insert — mirrors ReviewService.addReply(), so both the
+      // admin path and the customer path write to feedback_replies
+      // through exactly one insert each. The RPC below is
+      // notification-only now.
+      if (trimmedReply.isNotEmpty && adminId != null) {
+        try {
+          await _supabase.from('feedback_replies').insert({
+            'feedback_id': feedbackId,
+            'author_id':   adminId,
+            'reply_text':  trimmedReply,
+          });
+        } catch (insertError) {
+          print('saveReply: feedback_replies insert failed: $insertError');
+        }
 
+        try {
+          await _supabase.rpc('notify_customer_feedback_reply', params: {
+            'p_feedback_id': feedbackId,
+            'p_reply_text': trimmedReply,
+            'p_replier_id': adminId,
+          });
+        } catch (notifyError) {
+          print('saveReply: customer notification failed: $notifyError');
+        }
+      }
       // 3. Write to the global Activity Log.
       // BUG FIX: these are now independent `if` blocks instead of
       // if/else-if, so a save that both replies AND changes status
@@ -269,6 +315,10 @@ class FeedbackService {
         );
       }
 
+      // Tell any customer screen currently viewing this review
+      // to refetch — see _broadcastStatusChange doc comment above.
+        await _broadcastStatusChange(feedbackId);
+
       return null;
     } catch (error) {
       print('saveReply error: $error');
@@ -298,6 +348,51 @@ class FeedbackService {
       return [];
     }
   }
+
+    // ── Realtime: any change to feedback or feedback_replies ────────
+  // Broad on purpose — Feedback Management shows every status, and
+  // a reply from ANY source (customer, other customer, admin) should
+  // refresh the list for every admin currently viewing it, not just
+  // whoever happened to submit the change.
+  RealtimeChannel subscribeToFeedbackChanges(void Function() onChange) {
+  return _supabase
+      .channel('admin_feedback_changes')
+      .onPostgresChanges(
+        event: PostgresChangeEvent.insert,
+        schema: 'public',
+        table: 'feedback',
+        callback: (payload) {
+          print('🟢 [admin] feedback INSERT received: ${payload.newRecord}');
+          onChange();
+        },
+      )
+      .onPostgresChanges(
+        event: PostgresChangeEvent.update,
+        schema: 'public',
+        table: 'feedback',
+        callback: (payload) {
+          print('🟢 [admin] feedback UPDATE received: ${payload.newRecord}');
+          onChange();
+        },
+      )
+      .onPostgresChanges(
+        event: PostgresChangeEvent.insert,
+        schema: 'public',
+        table: 'feedback_replies',
+        callback: (payload) {
+          print('🟢 [admin] feedback_replies INSERT received: ${payload.newRecord}');
+          onChange();
+        },
+      )
+      .subscribe((status, error) {
+        print('🔵 [admin] admin_feedback_changes channel status: $status, error: $error');
+      });
+}
+
+void unsubscribe(RealtimeChannel channel) {
+  _supabase.removeChannel(channel);
+}
+
 
   // ================================================
   // SEARCH FEEDBACK

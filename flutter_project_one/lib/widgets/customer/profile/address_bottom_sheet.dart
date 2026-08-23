@@ -1,6 +1,10 @@
 import 'package:flutter/material.dart';
 import 'package:supabase_flutter/supabase_flutter.dart';
+import 'package:latlong2/latlong.dart';
 import '../../../models/customer_address.dart';
+import '../../../services/customer/address/address_service.dart';
+import '../../common/dialog/confirm_dialog.dart';
+import 'address_pin_picker.dart';
 
 /// Shows a bottom sheet for adding a new address or editing an existing one.
 ///
@@ -46,6 +50,25 @@ class AddressBottomSheet extends StatefulWidget {
 }
 
 class _AddressBottomSheetState extends State<AddressBottomSheet> {
+  final AddressService _addressService = AddressService();
+
+  // ── Field length limits ─────────────────────────────────────
+  static const int _maxStreetLength   = 150;
+  static const int _maxBarangayLength = 100;
+  static const int _maxCityLength     = 100;
+  static const int _maxProvinceLength = 100;
+  static const int _maxLandmarkLength = 150;
+
+  // A text field is considered "meaningful" if it contains at least
+  // one letter — rejects pure-number or pure-special-character junk
+  // (e.g. "12345" or "!!!!!") while still allowing normal addresses
+  // that legitimately mix letters and numbers ("123 Buendia Ave",
+  // "Barangay 176").
+  bool _hasAtLeastOneLetter(String text) =>
+      RegExp(r'[a-zA-Z]').hasMatch(text);
+
+  // Philippine ZIP codes are exactly 4 digits.
+  bool _isValidZip(String text) => RegExp(r'^\d{4}$').hasMatch(text);
 
   late final TextEditingController _streetCtrl;
   late final TextEditingController _barangayCtrl;
@@ -53,7 +76,10 @@ class _AddressBottomSheetState extends State<AddressBottomSheet> {
   late final TextEditingController _provinceCtrl;
   late final TextEditingController _zipCodeCtrl;
   late final TextEditingController _landmarkCtrl;
-  late String _region;
+    // Nullable now — a new address starts with NO region selected, so
+  // the customer must explicitly pick one instead of silently
+  // defaulting to NCR without realizing it.
+  String? _region;
   bool _isDefault = false;
 
   // NEW — true while geocode-address is running, so the Save
@@ -102,7 +128,8 @@ class _AddressBottomSheetState extends State<AddressBottomSheet> {
     // Handles short forms like 'NCR' matching 'NCR – National Capital Region'.
     final String storedRegion = a?.region ?? '';
     if (storedRegion.isEmpty) {
-      _region = _regions.first;
+      // New address — leave unselected on purpose.
+      _region = null;
     } else {
       _region = _regions.firstWhere(
         (r) => r == storedRegion || r.startsWith(storedRegion),
@@ -136,10 +163,13 @@ class _AddressBottomSheetState extends State<AddressBottomSheet> {
   //   THIS case blocks saving, since it's not a transient problem,
   //   it's the address itself.
   // ================================================
-  Future<Map<String, double>?> _geocode() async {
-    late final dynamic responseData;
+  // NEW — carries the mismatch flag alongside coords, so _save()
+  // knows whether to show a warning on the confirmation map.
+  bool _lastGeocodeWasMismatch = false;
 
-    try {
+  Future<Map<String, double>?> _geocode() async {    late final dynamic responseData;
+
+        try {
       final response = await Supabase.instance.client.functions.invoke(
         'geocode-address',
         body: {
@@ -151,9 +181,38 @@ class _AddressBottomSheetState extends State<AddressBottomSheet> {
         },
       );
       responseData = response.data;
+    } on FunctionException catch (e) {
+      // The Supabase client throws for some non-2xx statuses (422,
+      // 404) instead of returning them in response.data — so check
+      // e.details for the SAME error text geocode-address returns,
+      // to catch a genuine "no results / too imprecise" address and
+      // still block saving, instead of misfiling it as a transient
+      // network hiccup.
+      final dynamic details = e.details;
+      final String? errorText =
+          (details is Map) ? details['error'] as String? : null;
+
+      if (errorText != null) {
+        final String lower = errorText.toLowerCase();
+        final bool isAddressQualityIssue =
+            lower.contains('no results found') ||
+            lower.contains('too imprecise') ||
+            lower.contains('no address fields');
+
+        if (isAddressQualityIssue) {
+          throw _AddressQualityException(
+            'We couldn\'t verify this as a real, deliverable address. '
+            'Please check the street, barangay, and city and try again.',
+          );
+        }
+      }
+
+      // Anything else (unexpected status, missing details) — treat
+      // as a transient hiccup, don't block.
+      print('AddressBottomSheet._geocode error: $e');
+      return null;
     } catch (e) {
-      // Network error, function completely unreachable, etc. — not
-      // an address-quality signal, don't block the save.
+      // Genuine network error, function completely unreachable, etc.
       print('AddressBottomSheet._geocode error: $e');
       return null;
     }
@@ -198,24 +257,97 @@ class _AddressBottomSheetState extends State<AddressBottomSheet> {
       return null;
     }
 
+     _lastGeocodeWasMismatch = data['locationMismatch'] == true;
+
     return {
       'lat': (data['lat'] as num).toDouble(),
       'lng': (data['lng'] as num).toDouble(),
     };
   }
 
+  // Checks whether the customer already has another saved address
+  // with the same street+barangay+city+province (case-insensitive,
+  // whitespace-trimmed). If editing an existing address, that same
+  // address is excluded from the comparison — editing something
+  // back to its own unchanged text shouldn't trigger a duplicate
+  // warning against itself.
+  Future<bool> _isDuplicate() async {
+    final String street   = _streetCtrl.text.trim().toLowerCase();
+    final String barangay = _barangayCtrl.text.trim().toLowerCase();
+    final String city     = _cityCtrl.text.trim().toLowerCase();
+    final String province = _provinceCtrl.text.trim().toLowerCase();
+
+    final List<CustomerAddress> existingAddresses =
+        await _addressService.getMyAddresses();
+
+    return existingAddresses.any((a) =>
+        a.id != (widget.existing?.id ?? '__new__') &&
+        a.street.trim().toLowerCase()   == street &&
+        a.barangay.trim().toLowerCase() == barangay &&
+        a.city.trim().toLowerCase()     == city &&
+        a.province.trim().toLowerCase() == province);
+  }
+
+    // Returns a specific, user-facing message if any field fails
+  // validation, or null if everything checks out. Centralizing this
+  // means _save() can show ONE clear reason instead of a generic
+  // "fill in required fields" message that doesn't say what's wrong.
+  String? _validationError() {
+    final String street   = _streetCtrl.text.trim();
+    final String barangay = _barangayCtrl.text.trim();
+    final String city     = _cityCtrl.text.trim();
+    final String province = _provinceCtrl.text.trim();
+    final String zip      = _zipCodeCtrl.text.trim();
+    final String landmark = _landmarkCtrl.text.trim();
+
+    if (street.isEmpty || barangay.isEmpty || city.isEmpty ||
+        province.isEmpty || zip.isEmpty) {
+      return 'Please fill in all required fields.';
+    }
+    if (_region == null) {
+      return 'Please select a region.';
+    }
+    if (!_hasAtLeastOneLetter(street)) {
+      return 'Street address doesn\'t look valid — please check it.';
+    }
+    if (!_hasAtLeastOneLetter(barangay)) {
+      return 'Barangay doesn\'t look valid — please check it.';
+    }
+    if (!_hasAtLeastOneLetter(city)) {
+      return 'City/Municipality doesn\'t look valid — please check it.';
+    }
+    if (!_hasAtLeastOneLetter(province)) {
+      return 'Province doesn\'t look valid — please check it.';
+    }
+    if (!_isValidZip(zip)) {
+      return 'ZIP code must be exactly 4 digits.';
+    }
+    if (street.length > _maxStreetLength) {
+      return 'Street address is too long (max $_maxStreetLength characters).';
+    }
+    if (barangay.length > _maxBarangayLength) {
+      return 'Barangay is too long (max $_maxBarangayLength characters).';
+    }
+    if (city.length > _maxCityLength) {
+      return 'City/Municipality is too long (max $_maxCityLength characters).';
+    }
+    if (province.length > _maxProvinceLength) {
+      return 'Province is too long (max $_maxProvinceLength characters).';
+    }
+    if (landmark.length > _maxLandmarkLength) {
+      return 'Landmark is too long (max $_maxLandmarkLength characters).';
+    }
+    return null;
+  }
+
   Future<void> _save() async {
-    // Validate required fields
-    if (_streetCtrl.text.trim().isEmpty ||
-        _barangayCtrl.text.trim().isEmpty ||
-        _cityCtrl.text.trim().isEmpty ||
-        _provinceCtrl.text.trim().isEmpty ||
-        _zipCodeCtrl.text.trim().isEmpty) {
+    final String? validationError = _validationError();
+    if (validationError != null) {
       ScaffoldMessenger.of(context).showSnackBar(
-        const SnackBar(
+        SnackBar(
           content: Text(
-            'Please fill in all required fields.',
-            style: TextStyle(fontFamily: 'Inter'),
+            validationError,
+            style: const TextStyle(fontFamily: 'Inter'),
           ),
           backgroundColor: Colors.black,
         ),
@@ -224,6 +356,20 @@ class _AddressBottomSheetState extends State<AddressBottomSheet> {
     }
 
     if (_isSaving) return;
+
+    // Check for a duplicate BEFORE burning a geocoding request on
+    // an address that might not even need saving again.
+    final bool duplicate = await _isDuplicate();
+    if (duplicate) {
+      if (!mounted) return;
+      final bool? proceedAnyway = await showConfirmDialog(
+        context: context,
+        title: 'You already have this address',
+        message: 'This exact address is already saved. Save it again anyway?',
+        confirmLabel: 'Save Anyway',
+      );
+      if (proceedAnyway != true) return;
+    }
     setState(() {
       _isSaving = true;
       _addressErrorMessage = null;
@@ -243,14 +389,40 @@ class _AddressBottomSheetState extends State<AddressBottomSheet> {
     double? lat = existing?.lat;
     double? lng = existing?.lng;
 
-    if (addressTextChanged) {
+       if (addressTextChanged) {
       try {
         final coords = await _geocode();
         lat = coords?['lat'];
         lng = coords?['lng'];
+
+        // Only show the map-confirm step when we actually have a
+        // point to show. A null result here means a transient
+        // service hiccup (not blocked) — nothing to confirm, so
+        // we just proceed without coordinates, same as before.
+        if (lat != null && lng != null) {
+          if (!mounted) return;
+          setState(() => _isSaving = false); // hide spinner while map is up
+
+          final LatLng? confirmed = await showAddressPinPicker(
+            context: context,
+            initialLat: lat,
+            initialLng: lng,
+            showMismatchWarning: _lastGeocodeWasMismatch,
+          );
+
+          if (confirmed == null) {
+            // User cancelled at the map step — don't save yet.
+            return;
+          }
+
+          lat = confirmed.latitude;
+          lng = confirmed.longitude;
+
+          if (!mounted) return;
+          setState(() => _isSaving = true); // resume spinner for actual save
+        }
       } on _AddressQualityException catch (e) {
-        // BLOCKED — this specifically means the address itself
-        // looks fake/unmatchable, not a transient failure.
+        // BLOCKED — no match at all found for this address text.
         if (mounted) {
           setState(() {
             _isSaving = false;
@@ -263,13 +435,13 @@ class _AddressBottomSheetState extends State<AddressBottomSheet> {
 
     if (!mounted) return;
 
-    final CustomerAddress result = CustomerAddress(
+        final CustomerAddress result = CustomerAddress(
       id:        widget.existing?.id ?? '',   // '' = new, not yet in Supabase
       street:    _streetCtrl.text.trim(),
       barangay:  _barangayCtrl.text.trim(),
       city:      _cityCtrl.text.trim(),
       province:  _provinceCtrl.text.trim(),
-      region:    _region,
+      region:    _region!,  // validated non-null in _validationError()
       zipCode:   _zipCodeCtrl.text.trim(),
       landmark:  _landmarkCtrl.text.trim(),
       isDefault: _isDefault,
@@ -342,18 +514,20 @@ class _AddressBottomSheetState extends State<AddressBottomSheet> {
                 children: [
 
                   // ── Street Address ──────────────────────────────
-                  _FormField(
+                     _FormField(
                     label: 'Street Address *',
                     controller: _streetCtrl,
                     hint: 'House no., Street name',
+                    maxLength: _maxStreetLength,
                   ),
                   const SizedBox(height: 16),
 
                   // ── Barangay ────────────────────────────────────
-                  _FormField(
-                    label: 'Barangay *',
-                    controller: _barangayCtrl,
-                    hint: 'e.g. Barangay Poblacion',
+                     _FormField(
+                    label: 'Province *',
+                    controller: _provinceCtrl,
+                    hint: 'e.g. Metro Manila',
+                    maxLength: _maxProvinceLength,
                   ),
                   const SizedBox(height: 16),
 
@@ -363,16 +537,17 @@ class _AddressBottomSheetState extends State<AddressBottomSheet> {
                     children: [
                       Expanded(
                         flex: 3,
-                        child: _FormField(
+                          child: _FormField(
                           label: 'City / Municipality *',
                           controller: _cityCtrl,
                           hint: 'e.g. Makati',
+                          maxLength: _maxCityLength,
                         ),
                       ),
                       const SizedBox(width: 12),
                       Expanded(
                         flex: 2,
-                        child: _FormField(
+                           child: _FormField(
                           label: 'Zip Code *',
                           controller: _zipCodeCtrl,
                           hint: 'e.g. 1200',
@@ -405,6 +580,14 @@ class _AddressBottomSheetState extends State<AddressBottomSheet> {
                       child: DropdownButton<String>(
                         value: _region,
                         isExpanded: true,
+                        hint: const Text(
+                          'Select a region',
+                          style: TextStyle(
+                            fontFamily: 'Inter',
+                            fontSize: 14,
+                            color: Color(0xFFCFC4C5),
+                          ),
+                        ),
                         style: const TextStyle(
                           fontFamily: 'Inter',
                           fontSize: 14,
@@ -417,17 +600,17 @@ class _AddressBottomSheetState extends State<AddressBottomSheet> {
                           ),
                         ).toList(),
                         onChanged: (String? v) =>
-                            setState(() => _region = v ?? _region),
+                            setState(() => _region = v),
                       ),
-                    ),
-                  ),
+                    ),                  ),
                   const SizedBox(height: 16),
 
                   // ── Landmark (optional) ─────────────────────────
-                  _FormField(
+                     _FormField(
                     label: 'Landmark (optional)',
                     controller: _landmarkCtrl,
                     hint: 'e.g. Near SM Megamall',
+                    maxLength: _maxLandmarkLength,
                   ),
                   const SizedBox(height: 20),
 
@@ -566,12 +749,14 @@ class _FormField extends StatelessWidget {
   final TextEditingController controller;
   final String? hint;
   final TextInputType keyboardType;
+  final int? maxLength;
 
   const _FormField({
     required this.label,
     required this.controller,
     this.hint,
     this.keyboardType = TextInputType.text,
+    this.maxLength,
   });
 
   @override
@@ -581,9 +766,10 @@ class _FormField extends StatelessWidget {
       children: [
         _label(label),
         const SizedBox(height: 6),
-        TextField(
+                TextField(
           controller: controller,
           keyboardType: keyboardType,
+          maxLength: maxLength,
           style: const TextStyle(
             fontFamily: 'Inter',
             fontSize: 15,
@@ -596,6 +782,7 @@ class _FormField extends StatelessWidget {
               fontSize: 14,
               color: Color(0xFFCFC4C5),
             ),
+            counterText: maxLength != null ? null : '', // hide counter unless a limit is set
             filled: true,
             fillColor: Colors.white,
             contentPadding: const EdgeInsets.symmetric(

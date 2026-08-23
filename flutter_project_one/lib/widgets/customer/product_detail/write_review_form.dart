@@ -2,6 +2,7 @@ import 'dart:io';
 import 'package:file_picker/file_picker.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter/foundation.dart' show kIsWeb;
+import 'package:supabase_flutter/supabase_flutter.dart';
 
 /// Stateful form for submitting a product review.
 /// - Interactive star rating picker
@@ -51,6 +52,11 @@ class _WriteReviewFormState extends State<WriteReviewForm> {
   double _rating = 0;
   double _hoverRating = 0;
   List<PlatformFile> _photos = [];
+
+   // Profanity check state — shown as an inline error under the
+  // review body, not a snackbar, and blocks submit until resolved.
+  bool _checkingProfanity = false;
+  String? _profanityError;
 
   static const int _maxPhotos = 3;
 
@@ -120,7 +126,7 @@ class _WriteReviewFormState extends State<WriteReviewForm> {
 
   // ── Submit ───────────────────────────────────────────────────
 
-  void _submit() {
+    Future<void> _submit() async {
     if (_rating == 0) {
       ScaffoldMessenger.of(context).showSnackBar(
         const SnackBar(
@@ -141,9 +147,45 @@ class _WriteReviewFormState extends State<WriteReviewForm> {
     }
     if (!_formKey.currentState!.validate()) return;
 
-    // FIX #1: no more fake delay — hand off straight to the real
-    // submission flow. The button's loading spinner is driven by
-    // widget.externalLoading (the provider's actual isLoading state).
+    setState(() {
+      _checkingProfanity = true;
+      _profanityError = null;
+    });
+
+    // Check both title and body against the server-side word list.
+    // The list itself never reaches the client — only a true/false.
+    bool flagged = false;
+    try {
+      final combinedText =
+          '${_titleController.text} ${_bodyController.text}';
+      final result = await Supabase.instance.client.rpc(
+        'contains_profanity',
+        params: {'p_text': combinedText},
+      );
+      flagged = result == true;
+    } catch (error) {
+      // If the check itself fails (network hiccup, etc.), don't block
+      // the customer — the server-side trigger on insert is still the
+      // real backstop regardless of whether this pre-check ran.
+      print('contains_profanity check error: $error');
+    }
+
+    if (!mounted) return;
+
+    if (flagged) {
+      setState(() {
+        _checkingProfanity = false;
+        _profanityError =
+            'Please remove inappropriate language before submitting.';
+      });
+      return;
+    }
+
+    setState(() {
+      _checkingProfanity = false;
+      _profanityError = null;
+    });
+
     widget.onSubmit(
       rating: _rating,
       title: _titleController.text.trim(),
@@ -217,7 +259,6 @@ class _WriteReviewFormState extends State<WriteReviewForm> {
               return null;
             },
           ),
-
           const SizedBox(height: 24),
 
           // ── Review body ───────────────────────────────────────
@@ -240,6 +281,17 @@ class _WriteReviewFormState extends State<WriteReviewForm> {
               return null;
             },
           ),
+          if (_profanityError != null) ...[
+            const SizedBox(height: 8),
+            Text(
+              _profanityError!,
+              style: const TextStyle(
+                fontFamily: 'Inter',
+                fontSize: 12,
+                color: Color(0xFFBA1A1A),
+              ),
+            ),
+          ],
 
           const SizedBox(height: 32),
 

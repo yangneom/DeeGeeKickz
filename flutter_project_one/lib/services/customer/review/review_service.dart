@@ -44,7 +44,7 @@ class ReviewService {
     admin_reply,
     created_at,
     updated_at,
-    users (
+        user_public_profile (
       first_name,
       last_name
     ),
@@ -55,7 +55,7 @@ class ReviewService {
       reply_id,
       reply_text,
       created_at,
-      users (
+      user_public_profile (
         first_name,
         last_name,
         role
@@ -64,42 +64,77 @@ class ReviewService {
   ''';
 
   // ── Realtime: new replies on any review (used to refresh whichever
-  // product page is currently open, since feedback_replies has no
-  // product_id column to filter on directly) ──
-  RealtimeChannel subscribeToFeedbackReplies(void Function() onInsert) {
+// product page is currently open, since feedback_replies has no
+// product_id column to filter on directly) ──
+RealtimeChannel subscribeToFeedbackReplies(void Function() onInsert) {
+  return _supabase
+      .channel('feedback_replies:all')
+      .onPostgresChanges(
+        event: PostgresChangeEvent.insert,
+        schema: 'public',
+        table: 'feedback_replies',
+        callback: (payload) {
+          print('🟢 feedback_replies INSERT received: ${payload.newRecord}');
+          onInsert();
+        },
+      )
+      .subscribe((status, error) {
+        print('🔵 feedback_replies channel status: $status, error: $error');
+      });
+}
+
+  // ── Realtime: status changes broadcast (Visible <-> Flagged/Hidden).
+  // Regular postgres_changes UPDATE events are silently dropped by
+  // Supabase Realtime when the new row no longer passes the
+  // subscriber's SELECT RLS policy — which is exactly what happens
+  // when a review flips out of 'Visible'. Broadcast sidesteps that.
+  RealtimeChannel subscribeToStatusChanges(void Function() onStatusChanged) {
     return _supabase
-        .channel('feedback_replies:all')
-        .onPostgresChanges(
-          event: PostgresChangeEvent.insert,
-          schema: 'public',
-          table: 'feedback_replies',
-          callback: (_) => onInsert(),
+        .channel('feedback_status_broadcast')
+        .onBroadcast(
+          event: 'status_changed',
+          callback: (payload) {
+            print('🟣 status_changed broadcast received: $payload');
+            onStatusChanged();
+          },
         )
         .subscribe();
   }
 
-  // ── Realtime: new reviews for THIS product specifically ──
-  RealtimeChannel subscribeToNewFeedback(int productId, void Function() onInsert) {
-    return _supabase
-        .channel('feedback:product:$productId')
-        .onPostgresChanges(
-          event: PostgresChangeEvent.insert,
-          schema: 'public',
-          table: 'feedback',
-          filter: PostgresChangeFilter(
-            type: PostgresChangeFilterType.eq,
-            column: 'product_id',
-            value: productId,
-          ),
-          callback: (_) => onInsert(),
-        )
-        .subscribe();
-  }
-
+  // ── Realtime: new reviews for THIS product specifically 
+  // ── Realtime: new reviews AND status changes for THIS product ──
+RealtimeChannel subscribeToNewFeedback(int productId, void Function() onInsert) {
+  return _supabase
+      .channel('feedback:product:$productId')
+      .onPostgresChanges(
+        event: PostgresChangeEvent.insert,
+        schema: 'public',
+        table: 'feedback',
+        filter: PostgresChangeFilter(
+          type: PostgresChangeFilterType.eq,
+          column: 'product_id',
+          value: productId,
+        ),
+        callback: (_) => onInsert(),
+      )
+      .onPostgresChanges(
+        event: PostgresChangeEvent.update,
+        schema: 'public',
+        table: 'feedback',
+        filter: PostgresChangeFilter(
+          type: PostgresChangeFilterType.eq,
+          column: 'product_id',
+          value: productId,
+        ),
+        callback: (_) => onInsert(),
+      )
+      .subscribe();
+}
   void unsubscribe(RealtimeChannel channel) {
     _supabase.removeChannel(channel);
   }
 
+ 
   // ================================================
   // FETCH PRODUCT REVIEWS
   // Returns only Visible reviews for customers.
@@ -416,4 +451,7 @@ class ReviewService {
       return (average: 0.0, count: 0);
     }
   }
+
+
+  
 }

@@ -23,8 +23,13 @@ import '../../../providers/auth/auth_provider.dart';
 /// flow through correctly everywhere downstream.
 class ProductInfoSection extends ConsumerStatefulWidget {
   final Product product;
+  final ValueChanged<ProductVariant> onVariantChanged;
  
-  const ProductInfoSection({super.key, required this.product});
+  const ProductInfoSection({
+    super.key,
+    required this.product,
+    required this.onVariantChanged,
+  }); 
  
   @override
   ConsumerState<ProductInfoSection> createState() =>
@@ -76,12 +81,14 @@ Discount? get _discount {
     return result < 0 ? 0 : result;
   }
  
-  void _selectVariant(ProductVariant v) {
+    void _selectVariant(ProductVariant v) {
     setState(() {
       _selectedVariant = v;
       _selectedSize = null; // reset size on color change
       _quantity = 1;
     });
+    // Tell ProductDetailScreen so the image gallery switches too.
+    widget.onVariantChanged(v);
   }
  
   void _decrementQty() {
@@ -130,7 +137,7 @@ Discount? get _discount {
     final int? sizeId = _selectedSizeEntry?.sizeId;
     final double unitPrice = _applyDiscount(_selectedVariant.retailPrice);
 
-    final cartItem = CustomerCartItem(
+        final cartItem = CustomerCartItem(
       productId: int.tryParse(widget.product.productId) ?? 0,  // ← was a raw String
       productName: widget.product.productName,
       brand: widget.product.brand,
@@ -142,11 +149,15 @@ Discount? get _discount {
       imageUrl: _selectedVariant.primaryImageUrl ?? '',
       quantity: _quantity,
     );
- 
-    ref.read(customerCartProvider.notifier).addItem(cartItem);
 
+    // Buy Now checks out THIS item only — deliberately does NOT touch
+    // the saved cart (customerCartProvider), so it can't pick up or
+    // interfere with unrelated items the customer added earlier via
+    // "Add to Bag" but hasn't purchased yet.
     Navigator.of(context).push(
-      MaterialPageRoute(builder: (_) => const CheckoutScreen()),
+      MaterialPageRoute(
+        builder: (_) => CheckoutScreen(buyNowItem: cartItem),
+      ),
     );
   }
 

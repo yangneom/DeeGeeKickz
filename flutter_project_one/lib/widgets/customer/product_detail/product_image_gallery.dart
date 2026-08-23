@@ -2,7 +2,8 @@ import 'package:flutter/material.dart';
 
 /// Swipeable image gallery with:
 /// - Mobile: horizontal PageView + animated dot indicators below
-/// - Desktop: large main image + 4-column thumbnail row below
+/// - Desktop: vertical thumbnail strip (left) + large image (right)
+///   with floating prev/next arrows, Nike-style
 class ProductImageGallery extends StatefulWidget {
   final List<String> imageUrls;
 
@@ -24,7 +25,7 @@ class _ProductImageGalleryState extends State<ProductImageGallery> {
     super.dispose();
   }
 
-  void _onThumbnailTap(int index) {
+  void _goToPage(int index) {
     _pageController.animateToPage(
       index,
       duration: const Duration(milliseconds: 300),
@@ -43,7 +44,19 @@ class _ProductImageGalleryState extends State<ProductImageGallery> {
                 currentIndex: _currentIndex,
                 onThumbnailTap: (i) => setState(() {
                   _currentIndex = i;
-                  _onThumbnailTap(i);
+                  _goToPage(i);
+                }),
+                onPrev: () => setState(() {
+                  if (_currentIndex > 0) {
+                    _currentIndex--;
+                    _goToPage(_currentIndex);
+                  }
+                }),
+                onNext: () => setState(() {
+                  if (_currentIndex < widget.imageUrls.length - 1) {
+                    _currentIndex++;
+                    _goToPage(_currentIndex);
+                  }
                 }),
                 pageController: _pageController,
                 onPageChanged: (i) => setState(() => _currentIndex = i),
@@ -60,6 +73,7 @@ class _ProductImageGalleryState extends State<ProductImageGallery> {
 }
 
 // ── Mobile: full-width swipeable PageView + dot indicators ──────
+// (unchanged)
 
 class _MobileGallery extends StatelessWidget {
   final List<String> imageUrls;
@@ -78,7 +92,6 @@ class _MobileGallery extends StatelessWidget {
   Widget build(BuildContext context) {
     return Column(
       children: [
-        // Main swipeable image
         AspectRatio(
           aspectRatio: 4 / 5,
           child: Container(
@@ -109,10 +122,7 @@ class _MobileGallery extends StatelessWidget {
             ),
           ),
         ),
-
         const SizedBox(height: 16),
-
-        // Dot indicators
         Row(
           mainAxisAlignment: MainAxisAlignment.center,
           children: List.generate(imageUrls.length, (index) {
@@ -123,9 +133,7 @@ class _MobileGallery extends StatelessWidget {
               width: isActive ? 24 : 6,
               height: 6,
               decoration: BoxDecoration(
-                color: isActive
-                    ? Colors.black
-                    : const Color(0xFFCFC4C5),
+                color: isActive ? Colors.black : const Color(0xFFCFC4C5),
                 borderRadius: BorderRadius.circular(3),
               ),
             );
@@ -136,100 +144,173 @@ class _MobileGallery extends StatelessWidget {
   }
 }
 
-// ── Desktop: large image + thumbnail strip ───────────────────────
+// ── Desktop: vertical thumbnail strip + large image, Nike-style ──
 
 class _DesktopGallery extends StatelessWidget {
   final List<String> imageUrls;
   final int currentIndex;
   final ValueChanged<int> onThumbnailTap;
+  final VoidCallback onPrev;
+  final VoidCallback onNext;
   final PageController pageController;
   final ValueChanged<int> onPageChanged;
+
+  static const double _galleryHeight = 640;
+  static const double _thumbWidth = 76;
 
   const _DesktopGallery({
     required this.imageUrls,
     required this.currentIndex,
     required this.onThumbnailTap,
+    required this.onPrev,
+    required this.onNext,
     required this.pageController,
     required this.onPageChanged,
   });
 
   @override
   Widget build(BuildContext context) {
-    return Column(
-      children: [
-        // Main image — square aspect ratio on desktop
-        AspectRatio(
-          aspectRatio: 1,
-          child: Container(
-            color: const Color(0xFFEEEEEE),
-            child: PageView.builder(
-              controller: pageController,
-              onPageChanged: onPageChanged,
+    return SizedBox(
+      height: _galleryHeight,
+      child: Row(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          // ── Vertical thumbnail strip ──────────────────────────
+          SizedBox(
+            width: _thumbWidth,
+            height: _galleryHeight,
+            child: ListView.separated(
               itemCount: imageUrls.length,
+              separatorBuilder: (_, __) => const SizedBox(height: 12),
               itemBuilder: (context, index) {
-                return Image.network(
-                  imageUrls[index],
-                  fit: BoxFit.cover,
-                  loadingBuilder: (context, child, progress) {
-                    if (progress == null) return child;
-                    return const Center(
-                      child: CircularProgressIndicator(
-                        color: Colors.black,
-                        strokeWidth: 1.5,
+                final isActive = index == currentIndex;
+                return GestureDetector(
+                  onTap: () => onThumbnailTap(index),
+                  child: Container(
+                    width: _thumbWidth,
+                    height: _thumbWidth,
+                    decoration: BoxDecoration(
+                      color: const Color(0xFFF5F5F5),
+                      border: Border.all(
+                        color: isActive
+                            ? Colors.black
+                            : const Color(0xFFE0E0E0),
+                        width: isActive ? 1.5 : 1,
                       ),
-                    );
-                  },
-                  errorBuilder: (_, __, ___) => const Center(
-                    child: Icon(Icons.image_not_supported_outlined,
-                        color: Color(0xFFCFC4C5), size: 64),
-                  ),
-                );
-              },
-            ),
-          ),
-        ),
-
-        const SizedBox(height: 24),
-
-        // Thumbnail row
-        Row(
-          children: List.generate(imageUrls.length, (index) {
-            final isActive = index == currentIndex;
-            return Expanded(
-              child: GestureDetector(
-                onTap: () => onThumbnailTap(index),
-                child: Container(
-                  margin: EdgeInsets.only(
-                    right: index < imageUrls.length - 1 ? 8 : 0,
-                  ),
-                  decoration: BoxDecoration(
-                    border: Border.all(
-                      color: isActive
-                          ? Colors.black
-                          : Colors.transparent,
-                      width: 2,
                     ),
-                  ),
-                  child: AspectRatio(
-                    aspectRatio: 1,
                     child: Image.network(
                       imageUrls[index],
                       fit: BoxFit.cover,
-                      color: isActive
-                          ? null
-                          : Colors.white.withOpacity(0.2),
-                      colorBlendMode: BlendMode.lighten,
                       errorBuilder: (_, __, ___) => Container(
                         color: const Color(0xFFEEEEEE),
                       ),
                     ),
                   ),
-                ),
+                );
+              },
+            ),
+          ),
+
+          const SizedBox(width: 24),
+
+          // ── Main image + floating prev/next arrows ────────────
+          Expanded(
+            child: SizedBox(
+              height: _galleryHeight,
+              child: Stack(
+                children: [
+                  Container(
+                    width: double.infinity,
+                    height: _galleryHeight,
+                    color: const Color(0xFFF5F5F5),
+                    child: PageView.builder(
+                      controller: pageController,
+                      onPageChanged: onPageChanged,
+                      itemCount: imageUrls.length,
+                      itemBuilder: (context, index) {
+                        return Image.network(
+                          imageUrls[index],
+                          fit: BoxFit.contain,
+                          loadingBuilder: (context, child, progress) {
+                            if (progress == null) return child;
+                            return const Center(
+                              child: CircularProgressIndicator(
+                                color: Colors.black,
+                                strokeWidth: 1.5,
+                              ),
+                            );
+                          },
+                          errorBuilder: (_, __, ___) => const Center(
+                            child: Icon(Icons.image_not_supported_outlined,
+                                color: Color(0xFFCFC4C5), size: 64),
+                          ),
+                        );
+                      },
+                    ),
+                  ),
+
+                  // Prev / Next arrows, bottom-right, floating
+                  if (imageUrls.length > 1)
+                    Positioned(
+                      right: 16,
+                      bottom: 16,
+                      child: Row(
+                        children: [
+                          _ArrowButton(
+                            icon: Icons.chevron_left,
+                            onTap: currentIndex > 0 ? onPrev : null,
+                          ),
+                          const SizedBox(width: 8),
+                          _ArrowButton(
+                            icon: Icons.chevron_right,
+                            onTap: currentIndex < imageUrls.length - 1
+                                ? onNext
+                                : null,
+                          ),
+                        ],
+                      ),
+                    ),
+                ],
               ),
-            );
-          }),
+            ),
+          ),
+        ],
+      ),
+    );
+  }
+}
+
+class _ArrowButton extends StatelessWidget {
+  final IconData icon;
+  final VoidCallback? onTap;
+
+  const _ArrowButton({required this.icon, required this.onTap});
+
+  @override
+  Widget build(BuildContext context) {
+    final bool enabled = onTap != null;
+    return GestureDetector(
+      onTap: onTap,
+      child: Container(
+        width: 40,
+        height: 40,
+        decoration: BoxDecoration(
+          color: Colors.white,
+          shape: BoxShape.circle,
+          boxShadow: const [
+            BoxShadow(
+              color: Color(0x1A000000),
+              blurRadius: 6,
+              offset: Offset(0, 2),
+            ),
+          ],
         ),
-      ],
+        child: Icon(
+          icon,
+          color: enabled ? Colors.black : const Color(0xFFCFC4C5),
+          size: 24,
+        ),
+      ),
     );
   }
 }

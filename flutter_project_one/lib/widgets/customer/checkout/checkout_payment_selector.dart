@@ -47,17 +47,7 @@ class CheckoutPaymentSelector extends StatelessWidget {
           ),
         ),
         const SizedBox(height: 8),
-        const Text(
-          'Secure payments powered by PayMongo',
-          style: TextStyle(
-            fontFamily: 'Inter',
-            fontSize:   16,
-            fontWeight: FontWeight.w400,
-            color:      Color(0xFF4C4546),
-          ),
-        ),
-        const SizedBox(height: 24),
-        Column(
+                Column(
           children: _options
               .map((o) => Padding(
                     padding: const EdgeInsets.only(bottom: 12),
@@ -90,7 +80,7 @@ class CheckoutPaymentSelector extends StatelessWidget {
             textColor:  const Color(0xFF6B7280),
             icon:       Icons.lock_outline,
             text:       'Your card details are encrypted and '
-                        'never stored. Powered by PayMongo.',
+                        ,
           ),
 
         if (selectedMethod == 'cod')

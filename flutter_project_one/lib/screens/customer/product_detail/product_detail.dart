@@ -33,6 +33,11 @@ class ProductDetailScreen extends ConsumerStatefulWidget {
 
 class _ProductDetailScreenState extends ConsumerState<ProductDetailScreen> {
   static const double _mdBreakpoint = 768;
+  ProductVariant? _selectedVariant;
+
+  void _onVariantChanged(ProductVariant v) {
+    setState(() => _selectedVariant = v);
+  }
 
   @override
   void initState() {
@@ -64,11 +69,21 @@ class _ProductDetailScreenState extends ConsumerState<ProductDetailScreen> {
       orElse: () => widget.product,
     );
 
-    // Collect all image URLs across all variants
-    final List<String> allImages = product.variants
-        .expand((v) => v.imageUrls)
+        // Only show images for the currently selected variant/color.
+    // Falls back to the first variant if nothing's been picked yet,
+    // or if the previously selected variant no longer exists on this
+    // product (e.g. after a fresh fetch invalidates stale data).
+    final ProductVariant selectedVariant = (_selectedVariant != null &&
+            product.variants
+                .any((v) => v.variantId == _selectedVariant!.variantId))
+        ? product.variants
+            .firstWhere((v) => v.variantId == _selectedVariant!.variantId)
+        : product.variants.first;
+
+    final List<String> allImages = selectedVariant.imageUrls
         .where((url) => url.isNotEmpty)
         .toList();
+    
 
     final int productId = int.tryParse(product.productId) ?? 0;
 
@@ -102,10 +117,12 @@ class _ProductDetailScreenState extends ConsumerState<ProductDetailScreen> {
                                 ? _DesktopHero(
                                     product: product,
                                     imageUrls: allImages,
+                                    onVariantChanged: _onVariantChanged,
                                   )
                                 : _MobileHero(
                                     product: product,
                                     imageUrls: allImages,
+                                    onVariantChanged: _onVariantChanged,
                                   ),
                           ),
                         );
@@ -171,9 +188,13 @@ class _ProductDetailScreenState extends ConsumerState<ProductDetailScreen> {
 class _DesktopHero extends StatelessWidget {
   final Product product;
   final List<String> imageUrls;
+  final ValueChanged<ProductVariant> onVariantChanged;
 
-  const _DesktopHero(
-      {required this.product, required this.imageUrls});
+  const _DesktopHero({
+    required this.product,
+    required this.imageUrls,
+    required this.onVariantChanged,
+  });
 
   @override
   Widget build(BuildContext context) {
@@ -190,7 +211,10 @@ class _DesktopHero extends StatelessWidget {
           child: Column(
             crossAxisAlignment: CrossAxisAlignment.stretch,
             children: [
-              ProductInfoSection(product: product),
+                            ProductInfoSection(
+                product: product,
+                onVariantChanged: onVariantChanged,
+              ),
         const SizedBox(height: 16),
             ],
           ),
@@ -204,12 +228,18 @@ class _DesktopHero extends StatelessWidget {
 
 // ── Mobile: gallery top, info below ──────────────────────────────
 
+// ── Mobile: gallery top, info below ──────────────────────────────
+
 class _MobileHero extends StatelessWidget {
   final Product product;
   final List<String> imageUrls;
+  final ValueChanged<ProductVariant> onVariantChanged;
 
-  const _MobileHero(
-      {required this.product, required this.imageUrls});
+  const _MobileHero({
+    required this.product,
+    required this.imageUrls,
+    required this.onVariantChanged,
+  });
 
   @override
   Widget build(BuildContext context) {
@@ -218,7 +248,10 @@ class _MobileHero extends StatelessWidget {
       children: [
         ProductImageGallery(imageUrls: imageUrls),
         const SizedBox(height: 24),
-        ProductInfoSection(product: product),
+        ProductInfoSection(
+          product: product,
+          onVariantChanged: onVariantChanged,
+        ),
         const SizedBox(height: 16),
       ],
     );

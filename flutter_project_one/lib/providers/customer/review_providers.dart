@@ -381,7 +381,7 @@ class FeedbackModerationNotifier
   @override
   FeedbackModerationState build() => const FeedbackModerationState();
 
-  Future<void> saveReply({
+    Future<void> saveReply({
     required int    feedbackId,
     required String newStatus,
     required String currentStatus,
@@ -396,6 +396,8 @@ class FeedbackModerationNotifier
       currentStatus: currentStatus,
       newStatus:     newStatus,
     );
+
+    if (!ref.mounted) return;
 
     if (error != null) {
       state = state.copyWith(isLoading: false, errorMessage: error);

@@ -100,12 +100,16 @@ class _MessagesScreenState extends ConsumerState<MessagesScreen> {
           : Row(
               children: [
                 // ── LEFT: Customer list ───────────────────────
-                _CustomerList(
+                               _CustomerList(
                   conversations:          chatState.conversations,
+                  allCustomers:           chatState.allCustomers,
                   selectedConversationId: chatState.selectedConversationId,
                   unreadCounts:           chatState.unreadCounts,
                   onSelect: (id) =>
                       ref.read(adminChatProvider.notifier).selectConversation(id),
+                  onStartChat: (customerId, customerName) => ref
+                      .read(adminChatProvider.notifier)
+                      .startChatWithCustomer(customerId, customerName),
                 ),
 
                 // ── RIGHT: Chat window ────────────────────────
@@ -142,21 +146,24 @@ class _MessagesScreenState extends ConsumerState<MessagesScreen> {
 
 class _CustomerList extends StatefulWidget {
   final List<Conversation> conversations;
+  final List<Map<String, dynamic>> allCustomers;
   final String? selectedConversationId;
   final Map<String, int> unreadCounts;
   final void Function(String id) onSelect;
+  final void Function(String customerId, String customerName) onStartChat;
 
   const _CustomerList({
     required this.conversations,
+    required this.allCustomers,
     required this.selectedConversationId,
     required this.unreadCounts,
     required this.onSelect,
+    required this.onStartChat,
   });
 
   @override
   State<_CustomerList> createState() => _CustomerListState();
 }
-
 class _CustomerListState extends State<_CustomerList> {
   final TextEditingController _search = TextEditingController();
   String _query = '';
@@ -166,13 +173,26 @@ class _CustomerListState extends State<_CustomerList> {
     _search.dispose();
     super.dispose();
   }
-
   @override
   Widget build(BuildContext context) {
-    final filtered = widget.conversations
+    final filteredConversations = widget.conversations
         .where((c) =>
             c.customerName.toLowerCase().contains(_query.toLowerCase()))
         .toList();
+
+    // Customers who don't yet have an existing conversation —
+    // matched against the same search query, so admin can find and
+    // start a chat with literally anyone.
+    final conversationCustomerIds =
+        widget.conversations.map((c) => c.customerId).toSet();
+
+    final customersWithoutChat = widget.allCustomers.where((u) {
+      final id = u['id'] as String;
+      if (conversationCustomerIds.contains(id)) return false;
+      final name =
+          '${u['first_name'] ?? ''} ${u['last_name'] ?? ''}'.trim();
+      return name.toLowerCase().contains(_query.toLowerCase());
+    }).toList();
 
     return Container(
       width: 280,
@@ -247,22 +267,53 @@ class _CustomerListState extends State<_CustomerList> {
           ),
 
           // List
+                    // List — existing conversations first, then customers
+          // with no conversation yet.
           Expanded(
-            child: ListView.builder(
-              itemCount: filtered.length,
-              itemBuilder: (context, i) {
-                final conv = filtered[i];
-                final isSelected =
-                    widget.selectedConversationId == conv.id;
-                final unread = widget.unreadCounts[conv.id] ?? 0;
+            child: ListView(
+              children: [
+                ...filteredConversations.map((conv) {
+                  final isSelected =
+                      widget.selectedConversationId == conv.id;
+                  final unread = widget.unreadCounts[conv.id] ?? 0;
 
-                return _ConversationListItem(
-                  conversation: conv,
-                  isSelected:   isSelected,
-                  unreadCount:  unread,
-                  onTap:        () => widget.onSelect(conv.id),
-                );
-              },
+                  return _ConversationListItem(
+                    conversation: conv,
+                    isSelected:   isSelected,
+                    unreadCount:  unread,
+                    onTap:        () => widget.onSelect(conv.id),
+                  );
+                }),
+
+                if (customersWithoutChat.isNotEmpty) ...[
+                  Padding(
+                    padding: const EdgeInsets.fromLTRB(16, 16, 16, 6),
+                    child: Text(
+                      'ALL CUSTOMERS',
+                      style: TextStyle(
+                        fontFamily: 'Inter',
+                        fontSize: 10,
+                        fontWeight: FontWeight.w700,
+                        letterSpacing: 0.8,
+                        color: Colors.grey.shade400,
+                      ),
+                    ),
+                  ),
+                  ...customersWithoutChat.map((u) {
+                    final id = u['id'] as String;
+                    final name =
+                        '${u['first_name'] ?? ''} ${u['last_name'] ?? ''}'
+                            .trim();
+                    return _NoChatCustomerItem(
+                      customerName: name.isEmpty ? 'Customer' : name,
+                      onTap: () => widget.onStartChat(
+                        id,
+                        name.isEmpty ? 'Customer' : name,
+                      ),
+                    );
+                  }),
+                ],
+              ],
             ),
           ),
         ],
@@ -387,6 +438,71 @@ class _ConversationListItem extends StatelessWidget {
                   ),
                 ),
               ),
+          ],
+        ),
+      ),
+    );
+  }
+}
+
+// ─── Customer with no conversation yet ──────────────────────────────────────────
+
+class _NoChatCustomerItem extends StatelessWidget {
+  final String customerName;
+  final VoidCallback onTap;
+
+  const _NoChatCustomerItem({
+    required this.customerName,
+    required this.onTap,
+  });
+
+  String _initials(String name) {
+    final words = name.split(' ');
+    return words.take(2).map((w) => w.isEmpty ? '' : w[0].toUpperCase()).join();
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    return GestureDetector(
+      onTap: onTap,
+      child: Container(
+        padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 12),
+        decoration: const BoxDecoration(
+          border: Border(
+            bottom: BorderSide(color: Color(0xFFE5E7EB), width: 0.5),
+          ),
+        ),
+        child: Row(
+          children: [
+            Container(
+              width: 38,
+              height: 38,
+              color: const Color(0xFFF3F4F6),
+              alignment: Alignment.center,
+              child: Text(
+                _initials(customerName),
+                style: const TextStyle(
+                  fontFamily: 'Archivo Narrow',
+                  fontSize: 13,
+                  fontWeight: FontWeight.w700,
+                  color: Color(0xFF9CA3AF),
+                ),
+              ),
+            ),
+            const SizedBox(width: 10),
+            Expanded(
+              child: Text(
+                customerName,
+                style: const TextStyle(
+                  fontFamily: 'Inter',
+                  fontSize: 13,
+                  fontWeight: FontWeight.w500,
+                  color: Color(0xFF6B7280),
+                ),
+              ),
+            ),
+            const Icon(Icons.chat_bubble_outline,
+                size: 14, color: Color(0xFF9CA3AF)),
           ],
         ),
       ),
