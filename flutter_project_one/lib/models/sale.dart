@@ -95,11 +95,15 @@ class Sale {
   // 0 if online payment
   final double change;
 
-  // cashier name — will come from auth later
+   // cashier name — will come from auth later
   final String cashierName;
 
   // date and time of transaction
   final DateTime transactionDate;
+
+  // GCash/Maya/Card reference number, cashier-entered. Empty for
+  // cash sales.
+  final String referenceNumber;
 
   const Sale({
     required this.orderNumber,
@@ -112,8 +116,8 @@ class Sale {
     required this.change,
     required this.cashierName,
     required this.transactionDate,
+    this.referenceNumber = '',
   });
-
   // ================================================
   // TOTAL ITEMS GETTER
   // total quantity across all line items

@@ -76,19 +76,21 @@ class _AddressBottomSheetState extends State<AddressBottomSheet> {
   late final TextEditingController _provinceCtrl;
   late final TextEditingController _zipCodeCtrl;
   late final TextEditingController _landmarkCtrl;
-    // Nullable now — a new address starts with NO region selected, so
+
+  // Nullable now — a new address starts with NO region selected, so
   // the customer must explicitly pick one instead of silently
   // defaulting to NCR without realizing it.
   String? _region;
   bool _isDefault = false;
 
-  // NEW — true while geocode-address is running, so the Save
-  // button can show a spinner and block double-taps.
+  // True while geocode-address is running, so the Save button can
+  // show a spinner and block double-taps.
   bool _isSaving = false;
 
-  // NEW — set when the last save attempt was blocked because the
-  // address couldn't be verified as real. Shown inline above the
-  // Save button so it's obvious why saving didn't go through.
+  // Set when the last save attempt was blocked — either by local
+  // field validation, or because the address couldn't be verified
+  // as real. Shown inline at the TOP of the modal (not a snackbar)
+  // so it's impossible to miss, on mobile or desktop.
   String? _addressErrorMessage;
 
   bool get _isEditing => widget.existing != null;
@@ -136,7 +138,7 @@ class _AddressBottomSheetState extends State<AddressBottomSheet> {
         orElse: () => _regions.first,
       );
     }
-    _isDefault    = a?.isDefault ?? false;
+    _isDefault = a?.isDefault ?? false;
   }
 
   @override
@@ -163,13 +165,15 @@ class _AddressBottomSheetState extends State<AddressBottomSheet> {
   //   THIS case blocks saving, since it's not a transient problem,
   //   it's the address itself.
   // ================================================
-  // NEW — carries the mismatch flag alongside coords, so _save()
-  // knows whether to show a warning on the confirmation map.
+
+  // Carries the mismatch flag alongside coords, so _save() knows
+  // whether to show a warning on the confirmation map.
   bool _lastGeocodeWasMismatch = false;
 
-  Future<Map<String, double>?> _geocode() async {    late final dynamic responseData;
+  Future<Map<String, double>?> _geocode() async {
+    late final dynamic responseData;
 
-        try {
+    try {
       final response = await Supabase.instance.client.functions.invoke(
         'geocode-address',
         body: {
@@ -257,7 +261,7 @@ class _AddressBottomSheetState extends State<AddressBottomSheet> {
       return null;
     }
 
-     _lastGeocodeWasMismatch = data['locationMismatch'] == true;
+    _lastGeocodeWasMismatch = data['locationMismatch'] == true;
 
     return {
       'lat': (data['lat'] as num).toDouble(),
@@ -288,7 +292,7 @@ class _AddressBottomSheetState extends State<AddressBottomSheet> {
         a.province.trim().toLowerCase() == province);
   }
 
-    // Returns a specific, user-facing message if any field fails
+  // Returns a specific, user-facing message if any field fails
   // validation, or null if everything checks out. Centralizing this
   // means _save() can show ONE clear reason instead of a generic
   // "fill in required fields" message that doesn't say what's wrong.
@@ -341,17 +345,11 @@ class _AddressBottomSheetState extends State<AddressBottomSheet> {
   }
 
   Future<void> _save() async {
+    setState(() => _addressErrorMessage = null); // clear any previous error first
+
     final String? validationError = _validationError();
     if (validationError != null) {
-      ScaffoldMessenger.of(context).showSnackBar(
-        SnackBar(
-          content: Text(
-            validationError,
-            style: const TextStyle(fontFamily: 'Inter'),
-          ),
-          backgroundColor: Colors.black,
-        ),
-      );
+      setState(() => _addressErrorMessage = validationError);
       return;
     }
 
@@ -369,7 +367,9 @@ class _AddressBottomSheetState extends State<AddressBottomSheet> {
         confirmLabel: 'Save Anyway',
       );
       if (proceedAnyway != true) return;
+      if (!mounted) return; // re-check — the dialog's own await is another gap
     }
+
     setState(() {
       _isSaving = true;
       _addressErrorMessage = null;
@@ -389,7 +389,7 @@ class _AddressBottomSheetState extends State<AddressBottomSheet> {
     double? lat = existing?.lat;
     double? lng = existing?.lng;
 
-       if (addressTextChanged) {
+    if (addressTextChanged) {
       try {
         final coords = await _geocode();
         lat = coords?['lat'];
@@ -435,7 +435,7 @@ class _AddressBottomSheetState extends State<AddressBottomSheet> {
 
     if (!mounted) return;
 
-        final CustomerAddress result = CustomerAddress(
+    final CustomerAddress result = CustomerAddress(
       id:        widget.existing?.id ?? '',   // '' = new, not yet in Supabase
       street:    _streetCtrl.text.trim(),
       barangay:  _barangayCtrl.text.trim(),
@@ -513,8 +513,43 @@ class _AddressBottomSheetState extends State<AddressBottomSheet> {
                 crossAxisAlignment: CrossAxisAlignment.start,
                 children: [
 
+                  // ── Error message — shown at the very top, so it's
+                  // impossible to miss whether validation blocked the
+                  // save or the address itself couldn't be verified.
+                  // No snackbar per project requirement.
+                  if (_addressErrorMessage != null) ...[
+                    Container(
+                      width: double.infinity,
+                      padding: const EdgeInsets.all(12),
+                      decoration: BoxDecoration(
+                        color: const Color(0xFFFEF2F2),
+                        border: Border.all(color: const Color(0xFFFCA5A5)),
+                      ),
+                      child: Row(
+                        crossAxisAlignment: CrossAxisAlignment.start,
+                        children: [
+                          const Icon(Icons.error_outline,
+                              size: 16, color: Color(0xFFBA1A1A)),
+                          const SizedBox(width: 8),
+                          Expanded(
+                            child: Text(
+                              _addressErrorMessage!,
+                              style: const TextStyle(
+                                fontFamily: 'Inter',
+                                fontSize: 12,
+                                color: Color(0xFF7A1212),
+                                height: 1.4,
+                              ),
+                            ),
+                          ),
+                        ],
+                      ),
+                    ),
+                    const SizedBox(height: 20),
+                  ],
+
                   // ── Street Address ──────────────────────────────
-                     _FormField(
+                  _FormField(
                     label: 'Street Address *',
                     controller: _streetCtrl,
                     hint: 'House no., Street name',
@@ -523,11 +558,11 @@ class _AddressBottomSheetState extends State<AddressBottomSheet> {
                   const SizedBox(height: 16),
 
                   // ── Barangay ────────────────────────────────────
-                     _FormField(
-                    label: 'Province *',
-                    controller: _provinceCtrl,
-                    hint: 'e.g. Metro Manila',
-                    maxLength: _maxProvinceLength,
+                  _FormField(
+                    label: 'Barangay *',
+                    controller: _barangayCtrl,
+                    hint: 'e.g. Barangay Poblacion',
+                    maxLength: _maxBarangayLength,
                   ),
                   const SizedBox(height: 16),
 
@@ -537,7 +572,7 @@ class _AddressBottomSheetState extends State<AddressBottomSheet> {
                     children: [
                       Expanded(
                         flex: 3,
-                          child: _FormField(
+                        child: _FormField(
                           label: 'City / Municipality *',
                           controller: _cityCtrl,
                           hint: 'e.g. Makati',
@@ -547,11 +582,12 @@ class _AddressBottomSheetState extends State<AddressBottomSheet> {
                       const SizedBox(width: 12),
                       Expanded(
                         flex: 2,
-                           child: _FormField(
+                        child: _FormField(
                           label: 'Zip Code *',
                           controller: _zipCodeCtrl,
                           hint: 'e.g. 1200',
                           keyboardType: TextInputType.number,
+                          maxLength: 4,
                         ),
                       ),
                     ],
@@ -563,6 +599,7 @@ class _AddressBottomSheetState extends State<AddressBottomSheet> {
                     label: 'Province *',
                     controller: _provinceCtrl,
                     hint: 'e.g. Metro Manila',
+                    maxLength: _maxProvinceLength,
                   ),
                   const SizedBox(height: 16),
 
@@ -602,11 +639,12 @@ class _AddressBottomSheetState extends State<AddressBottomSheet> {
                         onChanged: (String? v) =>
                             setState(() => _region = v),
                       ),
-                    ),                  ),
+                    ),
+                  ),
                   const SizedBox(height: 16),
 
                   // ── Landmark (optional) ─────────────────────────
-                     _FormField(
+                  _FormField(
                     label: 'Landmark (optional)',
                     controller: _landmarkCtrl,
                     hint: 'e.g. Near SM Megamall',
@@ -633,38 +671,6 @@ class _AddressBottomSheetState extends State<AddressBottomSheet> {
                       ),
                     ],
                   ),
-
-                  // ── Address-quality error (blocks save) ─────────
-                  if (_addressErrorMessage != null) ...[
-                    const SizedBox(height: 12),
-                    Container(
-                      width: double.infinity,
-                      padding: const EdgeInsets.all(12),
-                      decoration: BoxDecoration(
-                        color: const Color(0xFFFEF2F2),
-                        border: Border.all(color: const Color(0xFFFCA5A5)),
-                      ),
-                      child: Row(
-                        crossAxisAlignment: CrossAxisAlignment.start,
-                        children: [
-                          const Icon(Icons.error_outline,
-                              size: 16, color: Color(0xFFBA1A1A)),
-                          const SizedBox(width: 8),
-                          Expanded(
-                            child: Text(
-                              _addressErrorMessage!,
-                              style: const TextStyle(
-                                fontFamily: 'Inter',
-                                fontSize: 12,
-                                color: Color(0xFF7A1212),
-                                height: 1.4,
-                              ),
-                            ),
-                          ),
-                        ],
-                      ),
-                    ),
-                  ],
 
                   const SizedBox(height: 24),
 
@@ -766,7 +772,7 @@ class _FormField extends StatelessWidget {
       children: [
         _label(label),
         const SizedBox(height: 6),
-                TextField(
+        TextField(
           controller: controller,
           keyboardType: keyboardType,
           maxLength: maxLength,

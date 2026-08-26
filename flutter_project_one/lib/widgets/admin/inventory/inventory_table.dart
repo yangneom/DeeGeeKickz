@@ -178,11 +178,11 @@ class _InventoryTableState extends State<InventoryTable> {
     );
   }
 
+
   // ================================================
   // BUILD STATUS BADGE
   // ================================================
-  Widget _buildStatusBadge(String status) {
-    Color backgroundColor;
+  Widget _buildStatusBadge(String status) {    Color backgroundColor;
     Color textColor;
     Color borderColor;
 
@@ -376,7 +376,13 @@ class _InventoryTableState extends State<InventoryTable> {
                     ),
                   ),
 
-                  // Product Name
+                                    // Product Name (+ AR badge if this product has try-on set up)
+                  // maxLines: 2 means the row height grows
+                  // naturally for long product names
+                                    // Product Name (+ AR badge if this product has try-on set up)
+                  // maxLines: 2 means the row height grows
+                  // naturally for long product names
+                                    // Product Name
                   // maxLines: 2 means the row height grows
                   // naturally for long product names
                   Expanded(
@@ -391,7 +397,6 @@ class _InventoryTableState extends State<InventoryTable> {
                       overflow: TextOverflow.ellipsis,
                     ),
                   ),
-
                   // Brand
                   Expanded(
                     flex: 2,
@@ -542,7 +547,6 @@ class _InventoryTableState extends State<InventoryTable> {
                       children: [
 
                         const SizedBox(width: 28),
-
                         Expanded(
                           flex: 2,
                           child: Text(

@@ -63,6 +63,7 @@ class VariantData {
   // image files picked by the user (not yet uploaded)
   List<PlatformFile> pickedImageFiles;
 
+
   VariantData()
       : colorNameController = TextEditingController(),
         costController = TextEditingController(),

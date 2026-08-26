@@ -267,6 +267,41 @@ class _ExpandableProductTableState
   }
 
   // ── Status badge ──
+  // ── Does this product have AR try-on set up? ──
+  // True if ANY variant has an ar_effect_url.
+  bool _hasArEffect(Product product) {
+    return product.variants.any((v) => v.arEffectUrl != null);
+  }
+
+  // ── AR badge — small pill shown next to product name ──
+  Widget _buildArBadge() {
+    return Container(
+      margin: const EdgeInsets.only(left: 8),
+      padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 3),
+      decoration: BoxDecoration(
+        color: const Color(0xFFEDE9FE),
+        borderRadius: BorderRadius.circular(20),
+        border: Border.all(color: const Color(0xFFC4B5FD)),
+      ),
+      child: const Row(
+        mainAxisSize: MainAxisSize.min,
+        children: [
+          Icon(Icons.view_in_ar, size: 12, color: Color(0xFF7C3AED)),
+          SizedBox(width: 3),
+          Text(
+            'AR',
+            style: TextStyle(
+              fontSize: 11,
+              fontWeight: FontWeight.w600,
+              color: Color(0xFF7C3AED),
+            ),
+          ),
+        ],
+      ),
+    );
+  }
+
+  // ── Status badge ──
   Widget _buildStatusBadge(String status) {
     Color bg = Colors.grey.shade100;
     Color fg = Colors.grey;
@@ -434,14 +469,23 @@ class _ExpandableProductTableState
                     color: const Color(0xFF6B7280),
                   ),
                 ),
-                // No maxLines/ellipsis — with real horizontal room
+              
+                                // No maxLines/ellipsis — with real horizontal room
                 // and a scrollable table, a long name just wraps to
                 // as many lines as it needs instead of disappearing.
                 _Cell(
                   _nameWidth(contentWidth),
-                  Text(product.productName,
-                      style: const TextStyle(
-                          fontSize: 13, color: Color(0xFF111827))),
+                  Row(
+                    crossAxisAlignment: CrossAxisAlignment.start,
+                    children: [
+                      Flexible(
+                        child: Text(product.productName,
+                            style: const TextStyle(
+                                fontSize: 13, color: Color(0xFF111827))),
+                      ),
+                      if (_hasArEffect(product)) _buildArBadge(),
+                    ],
+                  ),
                 ),
                 _Cell(_wBrand, Text(product.brand, style: _bodyStyle)),
                 _Cell(_wCategory,
@@ -546,10 +590,26 @@ class _ExpandableProductTableState
                 child: _rowOf([
                   _Cell(_wExpand, const SizedBox()),
 
-                  // Color — shown only on first size row
-                  _Cell(colorWidth,
-                      Text(si == 0 ? variant.color : '',
-                          style: _bodyStyle)),
+                                   // Color — shown only on first size row
+                  _Cell(
+                    colorWidth,
+                    si == 0
+                        ? Row(
+                            children: [
+                              Flexible(
+                                child: Text(variant.color,
+                                    style: _bodyStyle,
+                                    overflow: TextOverflow.ellipsis),
+                              ),
+                              if (variant.arEffectUrl != null) ...[
+                                const SizedBox(width: 6),
+                                const Icon(Icons.view_in_ar,
+                                    size: 13, color: Color(0xFF7C3AED)),
+                              ],
+                            ],
+                          )
+                        : const Text('', style: TextStyle(fontSize: 13)),
+                  ),
 
                   // Size
                   _Cell(_wSize,

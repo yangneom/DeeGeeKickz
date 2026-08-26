@@ -9,6 +9,8 @@ import '../../../widgets/admin/sales/transaction_details_dialog.dart';
 import '../../../services/admin/sales/sales_management_service.dart';
 import '../../../core/utils/csv_export_helper.dart';
 import '../../../core/utils/excel_export_helper.dart';
+import 'package:url_launcher/url_launcher.dart';
+
 
 
 class SalesScreen extends ConsumerStatefulWidget {
@@ -239,22 +241,49 @@ static const List<String> _exportHeaders = [
         Text(sale.paymentMethod, style: const TextStyle(fontSize: 13, color: Color(0xFF111827))),
         Text(sale.orderType == 'In-Store' ? 'In-Store' : 'Online', style: const TextStyle(fontSize: 13, color: Color(0xFF111827))),
         _buildStatusBadge(sale.orderStatus),
-        Align(
+                Align(
           alignment: Alignment.centerLeft,
-          child: OutlinedButton(
-            onPressed: () {
-              showDialog(
-                context: context,
-                builder: (context) => TransactionDetailsDialog(sale: sale),
-              );
-            },
-            style: OutlinedButton.styleFrom(
-              foregroundColor: const Color(0xFF374151),
-              side: const BorderSide(color: Color(0xFFD1D5DB)),
-              padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 8),
-              shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(6)),
-            ),
-            child: const Text('View', style: TextStyle(fontSize: 12)),
+          child: Row(
+            mainAxisSize: MainAxisSize.min,
+            children: [
+              OutlinedButton(
+                onPressed: () {
+                  showDialog(
+                    context: context,
+                    builder: (context) => TransactionDetailsDialog(sale: sale),
+                  );
+                },
+                style: OutlinedButton.styleFrom(
+                  foregroundColor: const Color(0xFF374151),
+                  side: const BorderSide(color: Color(0xFFD1D5DB)),
+                  padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 8),
+                  shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(6)),
+                ),
+                child: const Text('View', style: TextStyle(fontSize: 12)),
+              ),
+              const SizedBox(width: 8),
+              IconButton(
+                tooltip: sale.receiptUrl != null && sale.receiptUrl!.isNotEmpty
+                    ? 'Download receipt'
+                    : 'Receipt not available yet',
+                onPressed: sale.receiptUrl != null && sale.receiptUrl!.isNotEmpty
+                    ? () async {
+                        final Uri uri = Uri.parse(sale.receiptUrl!);
+                        if (await canLaunchUrl(uri)) {
+                          await launchUrl(uri, mode: LaunchMode.externalApplication);
+                        }
+                      }
+                    : null,
+                icon: const Icon(Icons.download_outlined, size: 18),
+                color: const Color(0xFF2563EB),
+                disabledColor: const Color(0xFFD1D5DB),
+                style: IconButton.styleFrom(
+                  side: const BorderSide(color: Color(0xFFD1D5DB)),
+                  shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(6)),
+                  padding: const EdgeInsets.all(8),
+                ),
+              ),
+            ],
           ),
         ),
       ]);

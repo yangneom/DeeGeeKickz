@@ -1,6 +1,8 @@
 import 'package:flutter/material.dart';
 import '../../../core/utils/auth_gate.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
+import 'package:flutter/foundation.dart' show kIsWeb;
+import 'package:permission_handler/permission_handler.dart';
  
 import '../../../models/product.dart';
 import '../../../models/customer_cart_item.dart';
@@ -11,6 +13,7 @@ import '../../../screens/customer/messages/customer_chat_screen.dart';
 import '../../../screens/customer/checkout/checkout_screen.dart'; 
 import '../../../providers/customer/chat_provider.dart';
 import '../../../providers/auth/auth_provider.dart';
+import '../../../screens/customer/try_on/try_on_screen.dart';
 /// Product info panel backed by the real [Product] model.
 /// Color picker → variant images update gallery via callback (future).
 /// Size picker → shows only sizes with available stock.
@@ -157,6 +160,35 @@ Discount? get _discount {
     Navigator.of(context).push(
       MaterialPageRoute(
         builder: (_) => CheckoutScreen(buyNowItem: cartItem),
+      ),
+    );
+  }
+
+    // ── Try On — opens the AR camera screen for this variant's effect ──
+    // ── Try On — opens the AR camera screen for this variant's effect ──
+    // ── Try On — opens the AR camera screen for this variant's effect ──
+  Future<void> _onTryOn() async {
+    final String? effectUrl = _selectedVariant.arEffectUrl;
+    if (effectUrl == null) return; // safety check; button is hidden anyway
+
+    final status = await Permission.camera.request();
+    if (!status.isGranted) {
+      if (!mounted) return;
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(
+          content: Text('Camera permission is required to use Try On'),
+        ),
+      );
+      return;
+    }
+
+    if (!mounted) return;
+    Navigator.of(context).push(
+      MaterialPageRoute(
+        builder: (_) => TryOnScreen(
+          effectUrl: effectUrl,
+          productName: widget.product.productName,
+        ),
       ),
     );
   }
@@ -496,9 +528,27 @@ Discount? get _discount {
             filled: true,
             onTap: _onAddToBag),
         const SizedBox(height: 12),
-        _CtaButton(
+               _CtaButton(
             label: 'Buy Now', filled: false, onTap: _onBuyNow),
-        const SizedBox(height: 8),
+        const SizedBox(height: 12),
+
+        // ── Try On — app-only, and only for shoes with an AR effect ──
+                // ── Try On — app-only. Shows a disabled "AR Not Available"
+        // state instead of hiding, so the layout stays consistent and
+        // customers know the feature exists even on shoes without it yet.
+        if (!kIsWeb) ...[
+          _CtaButton(
+            label: _selectedVariant.arEffectUrl != null
+                ? 'Try On'
+                : 'AR Not Available',
+            filled: false,
+            enabled: _selectedVariant.arEffectUrl != null,
+            onTap: _onTryOn,
+          ),
+          const SizedBox(height: 8),
+        ],
+
+        // Chat Support only makes sense for logged-in users
  
         // Chat Support only makes sense for logged-in users — Guests
         // have no account to attach a conversation to, so hide it
@@ -578,21 +628,50 @@ class _CtaButton extends StatefulWidget {
   final String label;
   final bool filled;
   final VoidCallback onTap;
- 
-  const _CtaButton(
-      {required this.label,
-      required this.filled,
-      required this.onTap});
- 
+  final bool enabled;
+
+  const _CtaButton({
+    required this.label,
+    required this.filled,
+    required this.onTap,
+    this.enabled = true,
+  });
+
   @override
   State<_CtaButton> createState() => _CtaButtonState();
 }
- 
+
 class _CtaButtonState extends State<_CtaButton> {
   bool _pressed = false;
- 
+
   @override
   Widget build(BuildContext context) {
+    // ── Disabled state: greyed out, not tappable ──
+    if (!widget.enabled) {
+      return Container(
+        width: double.infinity,
+        padding: const EdgeInsets.symmetric(vertical: 18),
+        decoration: BoxDecoration(
+          color: Colors.transparent,
+          border: Border.all(
+            color: const Color(0xFFCFC4C5),
+            width: 1.5,
+          ),
+        ),
+        alignment: Alignment.center,
+        child: Text(
+          widget.label.toUpperCase(),
+          style: const TextStyle(
+            fontFamily: 'Inter',
+            fontSize: 14,
+            fontWeight: FontWeight.w600,
+            letterSpacing: 2,
+            color: Color(0xFFCFC4C5),
+          ),
+        ),
+      );
+    }
+
     return GestureDetector(
       onTapDown: (_) => setState(() => _pressed = true),
       onTapUp: (_) {

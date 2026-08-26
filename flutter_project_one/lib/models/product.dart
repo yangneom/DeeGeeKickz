@@ -67,6 +67,7 @@ class ProductVariant {
   // Images
   final List<String> imageUrls;
   final String? primaryImageUrl;
+  final String? arEffectUrl;
 
   // NEW — carries real image_id + is_primary per image.
   // imageUrls/primaryImageUrl are unchanged and still used
@@ -82,6 +83,8 @@ class ProductVariant {
     this.imageUrls = const [],
     this.primaryImageUrl,
     this.images = const [], // NEW
+    this.arEffectUrl, // NEW
+
   });
 
   // ── Aggregate stock across all sizes ──

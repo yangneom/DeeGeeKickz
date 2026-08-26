@@ -34,6 +34,8 @@ class InventoryService {
               color_name,
               cost_price,
               retail_price,
+              ar_effect_url,
+
 
               product_image (
                 image_id,
@@ -149,6 +151,8 @@ class InventoryService {
               'color_name': variant['colorName'],
               'cost_price': variant['costPrice'],
               'retail_price': variant['retailPrice'],
+              'ar_effect_url': variant['arEffectUrl'], // NEW — null if none
+
             })
             .select('variant_id')
             .single();
@@ -317,6 +321,8 @@ class InventoryService {
                 'color_name': variant['colorName'],
                 'cost_price': variant['costPrice'],
                 'retail_price': variant['retailPrice'],
+                'ar_effect_url': variant['arEffectUrl'], // NEW
+
               })
               .select('variant_id')
               .single();
@@ -330,6 +336,8 @@ class InventoryService {
             'color_name': variant['colorName'],
             'cost_price': variant['costPrice'],
             'retail_price': variant['retailPrice'],
+            'ar_effect_url': variant['arEffectUrl'], // NEW
+
           }).eq('variant_id', resolvedVariantId);
         }
 

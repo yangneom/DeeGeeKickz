@@ -101,6 +101,7 @@ class ProductMapper {
           imageUrls: imageUrls,
           primaryImageUrl: primaryImageUrl,
           images: images, // NEW
+          arEffectUrl: vd['ar_effect_url'] as String?, // NEW
         ));
       }
 

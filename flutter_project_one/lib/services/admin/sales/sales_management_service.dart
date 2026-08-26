@@ -11,6 +11,8 @@ class SaleRecord {
   final String paymentMethod;
   final String orderStatus;
   final String dateTime;
+  final String? receiptUrl;     // ← new, so Sales table can offer a direct download
+
 
   SaleRecord({
     required this.orderId,
@@ -22,6 +24,8 @@ class SaleRecord {
     required this.paymentMethod,
     required this.orderStatus,
     required this.dateTime,
+    this.receiptUrl,
+
   });
 
   factory SaleRecord.fromMap(Map<String, dynamic> map) {
@@ -47,6 +51,7 @@ class SaleRecord {
       paymentMethod:   map['payment_method'] ?? '',
       orderStatus:     map['order_status'] ?? '',
       dateTime:        dateTime,
+      receiptUrl:      map['receipt_url'] as String?,
     );
   }
 }
@@ -72,14 +77,22 @@ class SalesManagementService {
       }
 
       // Get all paid order IDs
+            // Get all paid order IDs — also grab receipt_url here so the
+      // Sales table can offer a direct download without a second
+      // per-row fetch.
       final List<dynamic> paidPayments = await _supabase
           .from('payment')
-          .select('order_id')
+          .select('order_id, receipt_url')
           .eq('payment_status', 'Paid');
 
       final Set<int> paidOrderIds = paidPayments
           .map((p) => (p['order_id'] as num).toInt())
           .toSet();
+
+      final Map<int, String?> receiptUrlByOrderId = {
+        for (final p in paidPayments)
+          (p['order_id'] as num).toInt(): p['receipt_url'] as String?,
+      };
 
       // payment_status = 'Paid' is now unambiguous everywhere in the
       // app — it's ONLY ever set once a sale is truly finalized:
@@ -94,7 +107,7 @@ class SalesManagementService {
       // cancelled (see PaymentService docs) and any Verified order
       // that gets cancelled has its payment_status flipped to
       // 'Refunded'/'Refund Failed' instead of staying 'Paid'.
-      final List<Map<String, dynamic>> filtered = response
+            final List<Map<String, dynamic>> filtered = response
           .cast<Map<String, dynamic>>()
           .where((row) {
             final String type = row['order_type'] ?? 'online';
@@ -106,6 +119,13 @@ class SalesManagementService {
 
             final int orderId = (row['order_id'] as num).toInt();
             return paidOrderIds.contains(orderId);
+          })
+          .map((row) {
+            final int orderId = (row['order_id'] as num).toInt();
+            return {
+              ...row,
+              'receipt_url': receiptUrlByOrderId[orderId],
+            };
           })
           .toList();
 

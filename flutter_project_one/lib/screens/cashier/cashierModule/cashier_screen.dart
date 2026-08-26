@@ -16,6 +16,10 @@ import '../../../services/customer/receipt/receipt_pdf_service.dart';
 import '../../../services/cashier/onlinepayment/cashier_online_payment_service.dart';
 import '../../../widgets/cashier/receipt/qr_payment_dialog.dart';
 import '../../../widgets/common/dialog/confirm_dialog.dart';
+import '../../../widgets/cashier/receipt/reference_number_dialog.dart';
+import '../../../models/order.dart';
+import '../../../services/customer/receipt/receipt_pdf_service.dart';
+
 // ================================================
 // CASHIER SCREEN
 //
@@ -362,7 +366,7 @@ void _addToCart({
   // discount is always 0 here — any admin discount is already
   // reflected in each item's retailPrice/subtotal.
   // ================================================
-   Future<Sale> _saveSale() async {
+    Future<Sale> _saveSale({String? referenceNumber}) async {
     final List<SaleItem> saleItems =
         _cartItems.map((CartItem item) {
       return SaleItem(
@@ -404,7 +408,7 @@ void _addToCart({
           'subtotal':    item.subtotal,
         }).toList();
 
-    final Sale sale = Sale(
+        final Sale sale = Sale(
       orderNumber:     'pending',
       items:           saleItems,
       subtotal:        subtotalSnapshot,
@@ -415,12 +419,14 @@ void _addToCart({
       change:          changeSnapshot,
       cashierName:     'Cashier DeeGee',
       transactionDate: transactionDateSnapshot,
+      referenceNumber: referenceNumber ?? '',
     );
 
-    // Save to DB
+       // Save to DB
     final String orderNumber = await CashierSaleService().saveSale(
-      sale:      sale,
-      cartItems: cartItemsMap,
+      sale:            sale,
+      cartItems:       cartItemsMap,
+      referenceNumber: referenceNumber,
     );
 
     // Return sale with real order number — using the SAME snapshots
@@ -436,14 +442,17 @@ void _addToCart({
       change:          changeSnapshot,
       cashierName:     'Cashier DeeGee',
       transactionDate: transactionDateSnapshot,
+      referenceNumber: referenceNumber ?? '',
     );
   }
+
   // ================================================
   // HANDLE CHECKOUT
   // cash   → save sale → clear cart → show receipt
-  // online → PayMongo placeholder (future)
+  // online → cashier confirms payment, enters reference number,
+  //          then saves through the exact same path as cash
   // ================================================
-Future<void> _handleCheckout() async {
+  Future<void> _handleCheckout() async {
     if (_cartItems.isEmpty) return;
     if (_isCheckingOut) return; // block double-submission from a fast double-tap
 
@@ -463,18 +472,17 @@ Future<void> _handleCheckout() async {
 
     setState(() => _isCheckingOut = true);
 
-   if (_paymentMethod == PaymentMethod.cash) {
+    if (_paymentMethod == PaymentMethod.cash) {
       try {
         final Sale sale = await _saveSale();
         _newTransaction();
         if (mounted) showReceiptDialog(context: context, sale: sale);
       } catch (e) {
         // Cart is deliberately NOT cleared here — the RPC now
-        // guarantees an all-or-nothing sale (see process_cashier_sale),
-        // so nothing was actually deducted on failure. Keeping the
-        // cart intact just lets the cashier see what they were
-        // trying to sell and adjust the quantity, rather than
-        // starting over from scratch.
+        // guarantees an all-or-nothing sale, so nothing was actually
+        // deducted on failure. Keeping the cart intact just lets the
+        // cashier see what they were trying to sell and adjust the
+        // quantity, rather than starting over from scratch.
         if (mounted) {
           ScaffoldMessenger.of(context).showSnackBar(
             SnackBar(
@@ -490,152 +498,34 @@ Future<void> _handleCheckout() async {
       return;
     }
 
-    // ── ONLINE (GCash/Maya/Card) — QR payment ──
-    final List<Map<String, dynamic>> cartItemsMap =
-        _cartItems.map((CartItem item) => {
-          'productId':   item.productId,
-          'sizeId':      item.sizeId,
-          'productName': item.productName,
-          'brand':       item.brand,
-          'color':       item.color,
-          'size':        item.size,
-          'quantity':    item.quantity,
-          'retailPrice': item.retailPrice,
-          'subtotal':    item.subtotal,
-        }).toList();
+    // ── ONLINE (GCash/Maya/Card) — cashier confirms payment then
+    // types in the reference number. No QR/webhook step needed for
+    // an in-person sale; reuses the exact same save path as cash.
+    final String? referenceNumber = await showReferenceNumberDialog(context);
 
-    final double subtotalSnapshot = _subtotal;
-    final double discountSnapshot =
-        _cartItems.fold<double>(0, (sum, item) => sum + item.savings);
-    final double totalSnapshot = _total;
-    final List<SaleItem> saleItemsSnapshot = _cartItems.map((CartItem item) {
-      return SaleItem(
-        productName: item.productName,
-        color:       item.color,
-        size:        item.size,
-        quantity:    item.quantity,
-        retailPrice: item.retailPrice,
-        originalPrice: item.originalPrice,
-      );
-    }).toList();
-
-    late final CashierCheckoutResult checkout;
-    try {
-      checkout = await CashierOnlinePaymentService().startOnlinePayment(
-        cartItems:      cartItemsMap,
-        subtotal:       subtotalSnapshot,
-        discountAmount: discountSnapshot,
-        total:          totalSnapshot,
-      );
-    } catch (e) {
-      if (mounted) {
-        ScaffoldMessenger.of(context).showSnackBar(
-          SnackBar(
-            content: Text('Could not start payment: $e'),
-            backgroundColor: Colors.red,
-          ),
-        );
-      }
+    if (referenceNumber == null) {
+      // Cashier cancelled the dialog.
       if (mounted) setState(() => _isCheckingOut = false);
       return;
     }
 
-    if (mounted) setState(() => _isCheckingOut = false);
-
-    if (!mounted) return;
-
-    print('CHECKOUT RESULT: orderId=${checkout.orderId}, url=${checkout.checkoutUrl}');
-
-
-    showDialog(
-      context: context,
-      barrierDismissible: false,
-      builder: (_) => QrPaymentDialog(
-        orderId:     checkout.orderId,
-        checkoutUrl: checkout.checkoutUrl,
-        amount:      totalSnapshot,
-        onPaymentConfirmed: () async {
-          Navigator.of(context).pop();
-
-          // Generate + upload the receipt now that the webhook has
-          // confirmed payment and marked the order Completed.
-          //
-          // isInStore: true — this is still a walk-in/in-store sale,
-          // just paid via QR at the counter rather than cash. No
-          // delivery leg, so the receipt shouldn't show a Shipping
-          // row (previously showed "Shipping: FREE" here too).
-          try {
-            final List<OrderItem> orderItems = cartItemsMap.map((item) {
-              final int parsedSize =
-                  int.tryParse(item['size'].toString()) ?? 0;
-              return OrderItem(
-                productName: item['productName'] ?? '',
-                brand:       item['brand'] ?? '',
-                size:        parsedSize,
-                quantity:    (item['quantity'] as num).toInt(),
-                price:       (item['retailPrice'] as num).toDouble(),
-                total:       (item['subtotal'] as num).toDouble(),
-              );
-            }).toList();
-
-            final Order receiptOrder = Order(
-              orderId:       checkout.orderId.toString(),
-              customerName:  'Walk-in Customer',
-              contact:       '',
-              landmark:      '',
-              address:       '',
-              totalAmount:   totalSnapshot,
-              paymentMethod: 'gcash',
-              paymentStatus: 'Paid',
-              orderStatus:   'Completed',
-              dateTime:      DateTime.now().toIso8601String(),
-              items:         orderItems,
-            );
-
-            await ReceiptPdfService().generateAndUpload(
-              receiptOrder,
-              isInStore: true,
-            );
-          } catch (receiptErr) {
-            print('Cashier QR receipt error: $receiptErr');
-          }
-
-          final Sale sale = Sale(
-            orderNumber:     'DG-${checkout.orderId}',
-            items:           saleItemsSnapshot,
-            subtotal:        subtotalSnapshot,
-            discount:        discountSnapshot,
-            total:           totalSnapshot,
-            paymentMethod:   'online',
-            cashPaid:        0,
-            change:          0,
-            cashierName:     'Cashier DeeGee',
-            transactionDate: DateTime.now(),
-          );
-          _newTransaction();
-          showReceiptDialog(context: context, sale: sale);
-        },
-        onCancelled: () async {
-          final bool wasCancelled = await CashierOnlinePaymentService()
-              .cancelPendingOrder(checkout.orderId);
-
-          if (mounted) Navigator.of(context).pop();
-
-          if (!wasCancelled && mounted) {
-            ScaffoldMessenger.of(context).showSnackBar(
-              const SnackBar(
-                content: Text(
-                  'Payment was actually received for this order — it was '
-                  'NOT cancelled. Check Order Management to confirm.',
-                ),
-                backgroundColor: Color(0xFF16A34A),
-                duration: Duration(seconds: 8),
-              ),
-            );
-          }
-        },
-      ),
-    );
+    try {
+      final Sale sale = await _saveSale(referenceNumber: referenceNumber);
+      _newTransaction();
+      if (mounted) showReceiptDialog(context: context, sale: sale);
+    } catch (e) {
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(
+            content: Text(_friendlyErrorMessage(e)),
+            backgroundColor: Colors.red,
+            duration: const Duration(seconds: 6),
+          ),
+        );
+      }
+    } finally {
+      if (mounted) setState(() => _isCheckingOut = false);
+    }
   }
 
   // ================================================

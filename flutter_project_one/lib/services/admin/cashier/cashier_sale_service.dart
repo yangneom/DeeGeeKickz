@@ -12,9 +12,10 @@ class CashierSaleService {
   // SAVE IN-STORE SALE
   // Saves to orders + order_item + payment tables
   // ================================================
-Future<String> saveSale({
+  Future<String> saveSale({
     required Sale sale,
     required List<Map<String, dynamic>> cartItems,
+    String? referenceNumber,
   }) async {
     try {
       
@@ -47,6 +48,15 @@ Future<String> saveSale({
 
         final String orderNumber = _orderNumberFromId(orderId);
 
+      // Attach the cashier-entered reference number to the payment
+      // row process_cashier_sale already created. Only online
+      // (GCash/Maya/Card) sales have one — cash sales pass null.
+      if (referenceNumber != null && referenceNumber.trim().isNotEmpty) {
+        await _supabase
+            .from('payment')
+            .update({'reference_number': referenceNumber.trim()})
+            .eq('order_id', orderId);
+      }
       // 5. Generate + upload PDF receipt, save receipt_url to the
       // payment row. Reuses the same ReceiptPdfService the online
       // order flow already uses — just fills in placeholder
