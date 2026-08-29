@@ -14,6 +14,7 @@ import '../../../widgets/customer/shop/shop_product_card.dart';
 import '../../../widgets/customer/shop/shop_filter_drawer.dart';
 import '../../../widgets/customer/shop/shop_filter_sidebar.dart';
 import '../../../widgets/customer/shop/shop_sort_dropdown.dart';
+import '../../../providers/product/product_provider.dart';
 
 class ShopScreen extends ConsumerStatefulWidget {
   const ShopScreen({super.key});
@@ -102,8 +103,8 @@ class _ShopScreenState extends ConsumerState<ShopScreen> {
 
   @override
   Widget build(BuildContext context) {
+    ref.watch(inventoryRealtimeProvider); // activates live stock updates
     final productsAsync = ref.watch(productsProvider);
-
     return Scaffold(
       backgroundColor: const Color(0xFFF9F9F9),
       drawer: const AppDrawer(),

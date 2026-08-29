@@ -43,6 +43,53 @@ class BrandPerformanceData {
   });
 }
 
+// ================================================
+// PRODUCT SALES ENTRY
+// One product's performance within a selected month.
+// imageUrl is null when no image could be resolved —
+// e.g. no size_id on the order_item rows (old data),
+// or the variant/image chain came up empty. Callers
+// must render a placeholder in that case, never guess.
+// ================================================
+class ProductSalesEntry {
+  final String productName;
+  final int quantitySold;
+  final double salesAmount;
+  final String? imageUrl;
+
+  ProductSalesEntry({
+    required this.productName,
+    required this.quantitySold,
+    required this.salesAmount,
+    this.imageUrl,
+  });
+}
+
+// ================================================
+// MONTH SALES DETAIL
+// Everything needed for one selected month's detail
+// view: totals + every product sold, sorted by
+// quantity sold descending. The screen takes(5) for
+// the Top 5 preview and passes the full list to the
+// "View Full Report" dialog — same data, no second
+// query, so the two views can never disagree.
+// ================================================
+class MonthSalesDetail {
+  final DateTime month;
+  final double totalSales;
+  final int totalOrders;
+  final int totalQuantitySold;
+  final List<ProductSalesEntry> products; // ALL products, sorted desc
+
+  MonthSalesDetail({
+    required this.month,
+    required this.totalSales,
+    required this.totalOrders,
+    required this.totalQuantitySold,
+    required this.products,
+  });
+}
+
 class SalesReportService {
   final SupabaseClient _supabase = Supabase.instance.client;
 
@@ -112,7 +159,7 @@ class SalesReportService {
     final Map<String, double> monthlyRevenue = {};
     final Map<String, DateTime> monthStartMap = {};
 
-      for (final row in orders) {
+    for (final row in orders) {
       final int orderId = (row['order_id'] as num).toInt();
       final DateTime created =
           DateTime.parse(row['created_at'].toString()).toLocal();
@@ -156,7 +203,7 @@ class SalesReportService {
       monthlyCogs[key] = (monthlyCogs[key] ?? 0) + (costEach * qty);
     }
 
-// Build every month key from the earliest to the latest qualifying
+    // Build every month key from the earliest to the latest qualifying
     // sale, inclusive — so a month with zero sales shows an explicit
     // 0 row instead of being silently skipped. Skipping was causing
     // the NEXT month with sales to compute growth % against a stale
@@ -218,6 +265,196 @@ class SalesReportService {
 
     // Most recent month first
     return reports.reversed.toList();
+  }
+
+  // ================================================
+  // AVAILABLE MONTHS — full scope of the month picker,
+  // independent of whether a month has any qualifying
+  // sales. Spans from the earliest order EVER placed
+  // (any status — even Cancelled/Pending counts, since
+  // that's when the business/system activity began) up
+  // through the current calendar month. This guarantees
+  // a year with zero completed sales is still selectable,
+  // so its empty state is something the admin can
+  // deliberately check, not something hidden from them.
+  // ================================================
+  Future<List<DateTime>> getAvailableMonths() async {
+    try {
+      final List<dynamic> earliest = await _supabase
+          .from('orders')
+          .select('created_at')
+          .order('created_at', ascending: true)
+          .limit(1);
+
+      final DateTime now = DateTime.now();
+      DateTime start = DateTime(now.year, now.month);
+
+      if (earliest.isNotEmpty) {
+        final DateTime firstCreated =
+            DateTime.parse(earliest.first['created_at'].toString()).toLocal();
+        start = DateTime(firstCreated.year, firstCreated.month);
+      }
+
+      final DateTime end = DateTime(now.year, now.month);
+      final List<DateTime> months = [];
+      DateTime cursor = start;
+      while (!cursor.isAfter(end)) {
+        months.add(cursor);
+        cursor = DateTime(cursor.year, cursor.month + 1);
+      }
+      return months.reversed.toList(); // most recent first
+    } catch (e) {
+      print('SalesReportService.getAvailableMonths error: $e');
+      // Fall back to just the current month rather than an empty
+      // list — the picker should never be completely unusable.
+      final DateTime now = DateTime.now();
+      return [DateTime(now.year, now.month)];
+    }
+  }
+
+  // ================================================
+  // MONTH SALES DETAIL
+  // Same qualifying-order definition as everywhere else
+  // in this service (In-Store: Completed, Online: Paid),
+  // filtered down to the one selected month.
+  // ================================================
+  Future<MonthSalesDetail> getMonthSalesDetail(DateTime month) async {
+    final DateTime start = DateTime(month.year, month.month);
+    final DateTime end = DateTime(month.year, month.month + 1);
+
+    final Set<int> qualifyingIds = await _getQualifyingOrderIds();
+    if (qualifyingIds.isEmpty) {
+      return MonthSalesDetail(
+        month: start, totalSales: 0, totalOrders: 0,
+        totalQuantitySold: 0, products: [],
+      );
+    }
+
+    final List<dynamic> orders = await _supabase
+        .from('orders')
+        .select('order_id, created_at')
+        .inFilter('order_id', qualifyingIds.toList());
+
+    final Set<int> monthOrderIds = {};
+    for (final row in orders) {
+      final DateTime created =
+          DateTime.parse(row['created_at'].toString()).toLocal();
+      if (!created.isBefore(start) && created.isBefore(end)) {
+        monthOrderIds.add((row['order_id'] as num).toInt());
+      }
+    }
+
+    if (monthOrderIds.isEmpty) {
+      return MonthSalesDetail(
+        month: start, totalSales: 0, totalOrders: 0,
+        totalQuantitySold: 0, products: [],
+      );
+    }
+
+    final List<dynamic> items = await _supabase
+        .from('order_item')
+        .select('order_id, product_name_snapshot, quantity, subtotal, size_id')
+        .inFilter('order_id', monthOrderIds.toList());
+
+    double totalSales = 0;
+    int totalQuantity = 0;
+    final Map<String, int> qtyByProduct = {};
+    final Map<String, double> revenueByProduct = {};
+    // One representative size_id per product, used to resolve an
+    // image afterward — doesn't need every row, just one real lead.
+    final Map<String, int> sampleSizeIdByProduct = {};
+
+    for (final row in items) {
+      final String name = row['product_name_snapshot'] ?? 'Unknown';
+      final int qty = (row['quantity'] as num?)?.toInt() ?? 0;
+      final double subtotal = (row['subtotal'] as num?)?.toDouble() ?? 0;
+
+      totalSales += subtotal;
+      totalQuantity += qty;
+      qtyByProduct[name] = (qtyByProduct[name] ?? 0) + qty;
+      revenueByProduct[name] = (revenueByProduct[name] ?? 0) + subtotal;
+
+      final dynamic sizeIdRaw = row['size_id'];
+      if (sizeIdRaw != null && !sampleSizeIdByProduct.containsKey(name)) {
+        sampleSizeIdByProduct[name] = (sizeIdRaw as num).toInt();
+      }
+    }
+
+    final List<MapEntry<String, int>> sorted = qtyByProduct.entries.toList()
+      ..sort((a, b) {
+        final int cmp = b.value.compareTo(a.value);
+        return cmp != 0 ? cmp : a.key.compareTo(b.key);
+      });
+
+    final Map<String, String?> imageByProduct =
+        await _fetchProductImages(sampleSizeIdByProduct);
+
+    final List<ProductSalesEntry> products = sorted.map((e) {
+      return ProductSalesEntry(
+        productName: e.key,
+        quantitySold: e.value,
+        salesAmount: revenueByProduct[e.key] ?? 0,
+        imageUrl: imageByProduct[e.key],
+      );
+    }).toList();
+
+    return MonthSalesDetail(
+      month: start,
+      totalSales: totalSales,
+      totalOrders: monthOrderIds.length,
+      totalQuantitySold: totalQuantity,
+      products: products,
+    );
+  }
+
+  // Resolves one image per product via the REAL foreign-key chain:
+  // order_item.size_id -> product_variant_size -> product_variant
+  // -> product_image. product_id on order_item is text with no FK
+  // constraint and isn't trustworthy for this — deliberately unused.
+  // Returns null per product (not an error) when the chain is empty,
+  // so the UI can show a plain placeholder instead of guessing.
+  Future<Map<String, String?>> _fetchProductImages(
+      Map<String, int> sampleSizeIdByProduct) async {
+    if (sampleSizeIdByProduct.isEmpty) return {};
+
+    try {
+      final List<int> sizeIds = sampleSizeIdByProduct.values.toSet().toList();
+
+      final List<dynamic> rows = await _supabase
+          .from('product_variant_size')
+          .select('''
+            size_id,
+            product_variant (
+              product_image ( image_url, is_primary )
+            )
+          ''')
+          .inFilter('size_id', sizeIds);
+
+      final Map<int, String?> imageBySizeId = {};
+      for (final row in rows) {
+        final int sizeId = (row['size_id'] as num).toInt();
+        final variant = row['product_variant'];
+        final images = variant is Map ? variant['product_image'] : null;
+
+        String? url;
+        if (images is List && images.isNotEmpty) {
+          final primary = images.cast<Map?>().firstWhere(
+                (img) => img?['is_primary'] == true,
+                orElse: () => null,
+              );
+          url = (primary ?? images.first)['image_url'] as String?;
+        }
+        imageBySizeId[sizeId] = url;
+      }
+
+      return {
+        for (final entry in sampleSizeIdByProduct.entries)
+          entry.key: imageBySizeId[entry.value],
+      };
+    } catch (e) {
+      print('SalesReportService._fetchProductImages error: $e');
+      return {};
+    }
   }
 
   // ================================================

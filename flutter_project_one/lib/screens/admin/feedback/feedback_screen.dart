@@ -39,8 +39,7 @@ class _FeedbackScreenState extends ConsumerState<FeedbackScreen> {
   // (which filteredFeedbackProvider watches live) only on Apply —
   // otherwise the list refiltered the instant a chip was tapped,
   // with no Apply needed, unlike every other screen.
-  String? _pendingStatus;
-    @override
+      @override
   void dispose() {
     if (_feedbackChannel != null) {
       ref.read(feedbackServiceProvider).unsubscribe(_feedbackChannel!);
@@ -97,49 +96,22 @@ class _FeedbackScreenState extends ConsumerState<FeedbackScreen> {
                         .setSearch(value),
                   ),
                   const SizedBox(width: 8),
-                  FilterButton(
+                                    FilterButton(
                     isOpen: _showFilterPanel,
                     onTap: () => setState(() {
-                      // seed pending state with whatever's already
-                      // committed, each time the panel opens
-                      _pendingStatus = filterState.selectedStatus;
                       _showFilterPanel = !_showFilterPanel;
                     }),
-                    selectedValues: {
-                      'Status': _pendingStatus,
-                    },
-                    onValueChanged: (String section, String? value) {
-                      if (section == 'Status') {
-                        setState(() => _pendingStatus = value);
-                      }
-                    },
+                    selectedValues: const {},
+                    onValueChanged: (String section, String? value) {},
                     onClear: () {
                       _searchController.clear();
-                      setState(() => _pendingStatus = null);
-                      ref
-                          .read(feedbackFilterProvider.notifier)
-                          .clear();
+                      ref.read(feedbackFilterProvider.notifier).clear();
                       setState(() => _showFilterPanel = false);
                     },
                     onApply: () {
-                      ref
-                          .read(feedbackFilterProvider.notifier)
-                          .setStatus(_pendingStatus);
                       setState(() => _showFilterPanel = false);
                     },
-                    sections: [
-                      FilterSection(
-                        title: 'Status',
-                        options: [
-                          FilterOption(
-                              label: 'Visible', value: 'Visible'),
-                          FilterOption(
-                              label: 'Flagged', value: 'Flagged'),
-                          FilterOption(
-                              label: 'Hidden', value: 'Hidden'),
-                        ],
-                      ),
-                    ],
+                    sections: const [],
                   ),
                 ],
               ),
@@ -175,18 +147,15 @@ class _FeedbackScreenState extends ConsumerState<FeedbackScreen> {
                           feedback: item,
                           onView: () => showDialog(
                             context: context,
-                            builder: (_) => FeedbackDetailsDialog(
+                                                    builder: (_) => FeedbackDetailsDialog(
                               feedback: item.toAdminMap(),
-                                                            onSave:
-                                  (newStatus, adminReply) async {
+                              onSave: (adminReply) async {
                                 await ref
                                     .read(
                                         feedbackModerationProvider
                                             .notifier)
                                     .saveReply(
                                       feedbackId: item.id,
-                                      newStatus: newStatus,
-                                      currentStatus: item.status,
                                       adminReply: adminReply,
                                     );
                                 if (!mounted) return;
@@ -286,8 +255,7 @@ class _FeedbackCard extends StatelessWidget {
                   ],
                 ),
               ),
-              _StatusBadge(status: feedback.status),
-            ],
+                          ],
           ),
 
           const SizedBox(height: 12),
@@ -420,52 +388,6 @@ class _FeedbackCard extends StatelessWidget {
   }
 }
 
-// ── Status badge ──────────────────────────────────────────────────
-
-class _StatusBadge extends StatelessWidget {
-  final String status;
-  const _StatusBadge({required this.status});
-
-  @override
-  Widget build(BuildContext context) {
-    Color bg, text, border;
-
-    switch (status) {
-      case 'Flagged':
-        bg = const Color(0xFFFEE2E2);
-        text = const Color(0xFFDC2626);
-        border = const Color(0xFFFCA5A5);
-        break;
-      case 'Hidden':
-        bg = const Color(0xFFF3F4F6);
-        text = const Color(0xFF6B7280);
-        border = const Color(0xFFD1D5DB);
-        break;
-      default:
-        bg = const Color(0xFFEFF6FF);
-        text = const Color(0xFF2563EB);
-        border = const Color(0xFFBFDBFE);
-    }
-
-    return Container(
-      padding: const EdgeInsets.symmetric(
-          horizontal: 10, vertical: 4),
-      decoration: BoxDecoration(
-        color: bg,
-        borderRadius: BorderRadius.circular(20),
-        border: Border.all(color: border),
-      ),
-      child: Text(
-        status,
-        style: TextStyle(
-          fontSize: 12,
-          fontWeight: FontWeight.w500,
-          color: text,
-        ),
-      ),
-    );
-  }
-}
 
 // ── Star rating ───────────────────────────────────────────────────
 

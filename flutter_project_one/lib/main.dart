@@ -279,12 +279,43 @@ class _MyAppState extends ConsumerState<MyApp> {
 
             print('password_set=$passwordSet | role=$role');
 
-            if (!passwordSet &&
+                     if (!passwordSet &&
                 (role == 'Admin' || role == 'Cashier' || role == 'Super Admin')) {
               print('→ Navigating to SetPasswordScreen');
               WidgetsBinding.instance.addPostFrameCallback((_) {
                 _navigatorKey.currentState?.pushAndRemoveUntil(
                   MaterialPageRoute(builder: (_) => const SetPasswordScreen()),
+                  (route) => false,
+                );
+              });
+            } else if (!kIsWeb && role != 'Customer') {
+              // Mobile app is Customer-only by design. login_form.dart's
+              // own mobile-block check will sign this session back out
+              // right after this listener runs — don't race it by
+              // navigating to a staff layout that's about to be undone.
+              print('→ Staff role on mobile, skipping redirect, '
+                  'login_form.dart will sign out.');
+            } else {
+              // Central redirect for every OTHER window/tab sharing this
+              // session (not just the one that actively logged in) — this
+              // is what fixes stale screens after a different account
+              // logs in elsewhere and swaps the shared session out from
+              // under an already-open window.
+              Widget destination;
+              if (role == 'Admin') {
+                destination = const AdminLayout();
+              } else if (role == 'Super Admin') {
+                destination = const SuperLayout();
+              } else if (role == 'Cashier') {
+                destination = const CashierLayout();
+              } else {
+                destination = const HomeScreen();
+              }
+
+              print('→ Redirecting session to $role layout');
+              WidgetsBinding.instance.addPostFrameCallback((_) {
+                _navigatorKey.currentState?.pushAndRemoveUntil(
+                  MaterialPageRoute(builder: (_) => destination),
                   (route) => false,
                 );
               });

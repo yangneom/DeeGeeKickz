@@ -126,8 +126,8 @@ class _PromoScreenState extends ConsumerState<PromoScreen> {
 
   @override
   Widget build(BuildContext context) {
+    ref.watch(inventoryRealtimeProvider); // activates live stock updates
     final productsAsync = ref.watch(productsProvider);
-
     return Scaffold(
       backgroundColor: const Color(0xFFF9F9F9),
       drawer: const AppDrawer(),

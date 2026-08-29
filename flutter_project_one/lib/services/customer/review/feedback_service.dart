@@ -158,86 +158,41 @@ class FeedbackService {
     }
   }
 
-  // ================================================
-  // UPDATE STATUS
-  // Admin changes Visible / Flagged / Hidden.
-  // Also writes an audit row to feedback_moderation.
-  //
-  // Returns null on success, error string on failure.
-  // ================================================
-  Future<String?> updateStatus({
-    required int feedbackId,
-    required String oldStatus,
-    required String newStatus,
-  }) async {
-    try {
-      final String? adminId = _supabase.auth.currentUser?.id;
-
-      // 1. Update the main row
-      await _supabase
-          .from('feedback')
-          .update({'status': newStatus})
-          .eq('feedback_id', feedbackId);
-
-      // 2. Write audit log (feedback_moderation table)
-      await _supabase.from('feedback_moderation').insert({
-        'review_id':  feedbackId,
-        'admin_id':   adminId,
-        'old_status': oldStatus,
-        'new_status': newStatus,
-      });
-
-      // 3. Write to the global Activity Log too, so Super Admin
-      // sees this alongside every other module.
-      final label = await _labelForFeedback(feedbackId);
-      await _activityLog.log(
-        action: 'Changed status of $label from $oldStatus to $newStatus',
-        affectedModule: AffectedModule.feedback,
-        targetId: feedbackId.toString(),
-        metadata: {
-          'old_status': oldStatus,
-          'new_status': newStatus,
-        },
-      );
-
-      // Tell any customer screen currently viewing this review
-      // to refetch — see _broadcastStatusChange doc comment above.
-      await _broadcastStatusChange(feedbackId);
-
-      return null;
-    } catch (error) {
-      print('updateStatus error: $error');
-      return error.toString();
-    }
-  }
-
-  // ================================================
+   // ================================================
   // SAVE REPLY
-  // Admin writes a public reply to a review.
-  // Also records the action in feedback_moderation.
+  // Admin writes a public reply to a review. Status can no longer
+  // be changed here — moderation-by-hiding was intentionally
+  // removed so a review can't be suppressed just for being negative.
+  // The status column itself is left alone in the DB (unused, not
+  // dropped), and feedback_moderation's old_status/new_status audit
+  // columns are still populated (with the same, unchanged value) so
+  // that table's schema doesn't need touching either.
   //
-  // Pass newStatus if status also changed in the same save.
   // Returns null on success, error string on failure.
   // ================================================
   Future<String?> saveReply({
     required int feedbackId,
     required String adminReply,
-    required String currentStatus,
-    String? newStatus,         // pass if status changed too
   }) async {
     try {
-      final String? adminId = _supabase.auth.currentUser?.id;
-      final String resolvedStatus = newStatus ?? currentStatus;
       final String trimmedReply = adminReply.trim();
-      final bool statusChanged = resolvedStatus != currentStatus;
+      if (trimmedReply.isEmpty) return null; // nothing to save
 
-      // 1. Update feedback row
+      final String? adminId = _supabase.auth.currentUser?.id;
+
+      // Current status is only read to satisfy feedback_moderation's
+      // audit columns — it's never changed.
+      final row = await _supabase
+          .from('feedback')
+          .select('status')
+          .eq('feedback_id', feedbackId)
+          .single();
+      final String currentStatus = row['status'] as String? ?? 'Visible';
+
+      // 1. Update feedback row (reply text only)
       await _supabase
           .from('feedback')
-          .update({
-            'admin_reply': trimmedReply.isEmpty ? null : trimmedReply,
-            'status':      resolvedStatus,
-          })
+          .update({'admin_reply': trimmedReply})
           .eq('feedback_id', feedbackId);
 
       // 2. Write audit log (feedback_moderation table)
@@ -245,19 +200,13 @@ class FeedbackService {
         'review_id':   feedbackId,
         'admin_id':    adminId,
         'old_status':  currentStatus,
-        'new_status':  resolvedStatus,
-        'admin_reply': trimmedReply.isEmpty ? null : trimmedReply,
-        'replied_at':  trimmedReply.isNotEmpty
-                         ? DateTime.now().toIso8601String()
-                         : null,
+        'new_status':  currentStatus,
+        'admin_reply': trimmedReply,
+        'replied_at':  DateTime.now().toIso8601String(),
       });
 
-            // 2b. Append to the public reply thread (feedback_replies).
-      // Direct insert — mirrors ReviewService.addReply(), so both the
-      // admin path and the customer path write to feedback_replies
-      // through exactly one insert each. The RPC below is
-      // notification-only now.
-      if (trimmedReply.isNotEmpty && adminId != null) {
+      // 3. Append to the public reply thread (feedback_replies).
+      if (adminId != null) {
         try {
           await _supabase.from('feedback_replies').insert({
             'feedback_id': feedbackId,
@@ -278,46 +227,19 @@ class FeedbackService {
           print('saveReply: customer notification failed: $notifyError');
         }
       }
-      // 3. Write to the global Activity Log.
-      // BUG FIX: these are now independent `if` blocks instead of
-      // if/else-if, so a save that both replies AND changes status
-      // logs BOTH entries instead of only the reply.
-      final String label = (trimmedReply.isNotEmpty || statusChanged)
-          ? await _labelForFeedback(feedbackId)
-          : '';
 
-      if (trimmedReply.isNotEmpty) {
-        final preview = trimmedReply.length > 80
-            ? '${trimmedReply.substring(0, 80)}...'
-            : trimmedReply;
+      // 4. Global Activity Log entry.
+      final String label = await _labelForFeedback(feedbackId);
+      final String preview = trimmedReply.length > 80
+          ? '${trimmedReply.substring(0, 80)}...'
+          : trimmedReply;
 
-        await _activityLog.log(
-          action: 'Replied to $label: "$preview"',
-          affectedModule: AffectedModule.feedback,
-          targetId: feedbackId.toString(),
-          metadata: {
-            'admin_reply': trimmedReply,
-            'status': resolvedStatus,
-          },
-        );
-      }
-
-      if (statusChanged) {
-        await _activityLog.log(
-          action:
-              'Changed status of $label from $currentStatus to $resolvedStatus',
-          affectedModule: AffectedModule.feedback,
-          targetId: feedbackId.toString(),
-          metadata: {
-            'old_status': currentStatus,
-            'new_status': resolvedStatus,
-          },
-        );
-      }
-
-      // Tell any customer screen currently viewing this review
-      // to refetch — see _broadcastStatusChange doc comment above.
-        await _broadcastStatusChange(feedbackId);
+      await _activityLog.log(
+        action: 'Replied to $label: "$preview"',
+        affectedModule: AffectedModule.feedback,
+        targetId: feedbackId.toString(),
+        metadata: {'admin_reply': trimmedReply},
+      );
 
       return null;
     } catch (error) {

@@ -1,10 +1,12 @@
 import 'package:flutter/material.dart';
+import 'package:flutter/services.dart' show FilteringTextInputFormatter, TextInputFormatter;
 import 'package:supabase_flutter/supabase_flutter.dart';
 import 'package:latlong2/latlong.dart';
 import '../../../models/customer_address.dart';
 import '../../../services/customer/address/address_service.dart';
 import '../../common/dialog/confirm_dialog.dart';
 import 'address_pin_picker.dart';
+import '../../../services/customer/address/psgc_service.dart';
 
 /// Shows a bottom sheet for adding a new address or editing an existing one.
 ///
@@ -64,24 +66,46 @@ class _AddressBottomSheetState extends State<AddressBottomSheet> {
   // (e.g. "12345" or "!!!!!") while still allowing normal addresses
   // that legitimately mix letters and numbers ("123 Buendia Ave",
   // "Barangay 176").
-  bool _hasAtLeastOneLetter(String text) =>
+    bool _hasAtLeastOneLetter(String text) =>
       RegExp(r'[a-zA-Z]').hasMatch(text);
+
+  // FIX #1: many Metro Manila cities (Manila, Caloocan, Pasay, etc.)
+  // use purely numbered barangays — "178", not "Barangay 178". The
+  // generic letter-required check was rejecting these as invalid.
+  bool _isValidBarangay(String text) =>
+      _hasAtLeastOneLetter(text) || RegExp(r'^\d{1,4}$').hasMatch(text);
 
   // Philippine ZIP codes are exactly 4 digits.
   bool _isValidZip(String text) => RegExp(r'^\d{4}$').hasMatch(text);
 
-  late final TextEditingController _streetCtrl;
+    late final TextEditingController _streetCtrl;
+  // Barangay stays as a controller ONLY for the fallback path — used
+  // when the live barangay list fails to load or comes back empty
+  // for the selected city. When a barangay IS picked from the
+  // dropdown, _selectedBarangay is the source of truth instead.
   late final TextEditingController _barangayCtrl;
-  late final TextEditingController _cityCtrl;
-  late final TextEditingController _provinceCtrl;
   late final TextEditingController _zipCodeCtrl;
   late final TextEditingController _landmarkCtrl;
 
-  // Nullable now — a new address starts with NO region selected, so
-  // the customer must explicitly pick one instead of silently
-  // defaulting to NCR without realizing it.
-  String? _region;
   bool _isDefault = false;
+
+  // ── PSGC structured selection state ──
+  bool _isLoadingPsgc = true;
+  PsgcRegion? _selectedRegion;
+  PsgcProvince? _selectedProvince;
+  PsgcCity? _selectedCity;
+  PsgcBarangay? _selectedBarangay;
+
+  List<PsgcProvince> _provinceOptions = [];
+  List<PsgcCity> _cityOptions = [];
+  List<PsgcBarangay> _barangayOptions = [];
+  bool _isLoadingBarangays = false;
+  // True once a barangay fetch has been attempted and failed/returned
+  // empty for the current city — switches the barangay field to a
+  // free-text fallback instead of blocking the form entirely.
+  bool _barangayFetchFailed = false;
+
+  bool get _isNcr => _selectedRegion?.code == '13';
 
   // True while geocode-address is running, so the Save button can
   // show a spinner and block double-taps.
@@ -95,63 +119,171 @@ class _AddressBottomSheetState extends State<AddressBottomSheet> {
 
   bool get _isEditing => widget.existing != null;
 
-  // PH regions dropdown
-  static const List<String> _regions = [
-    'NCR – National Capital Region',
-    'CAR – Cordillera Administrative Region',
-    'Region I – Ilocos Region',
-    'Region II – Cagayan Valley',
-    'Region III – Central Luzon',
-    'Region IV-A – CALABARZON',
-    'Region IV-B – MIMAROPA',
-    'Region V – Bicol Region',
-    'Region VI – Western Visayas',
-    'Region VII – Central Visayas',
-    'Region VIII – Eastern Visayas',
-    'Region IX – Zamboanga Peninsula',
-    'Region X – Northern Mindanao',
-    'Region XI – Davao Region',
-    'Region XII – SOCCSKSARGEN',
-    'Region XIII – Caraga',
-    'BARMM – Bangsamoro',
-  ];
-
   @override
   void initState() {
     super.initState();
     final CustomerAddress? a = widget.existing;
     _streetCtrl   = TextEditingController(text: a?.street   ?? '');
     _barangayCtrl = TextEditingController(text: a?.barangay ?? '');
-    _cityCtrl     = TextEditingController(text: a?.city     ?? '');
-    _provinceCtrl = TextEditingController(text: a?.province ?? '');
     _zipCodeCtrl  = TextEditingController(text: a?.zipCode  ?? '');
     _landmarkCtrl = TextEditingController(text: a?.landmark ?? '');
-    // Match stored region against dropdown items.
-    // Handles short forms like 'NCR' matching 'NCR – National Capital Region'.
-    final String storedRegion = a?.region ?? '';
-    if (storedRegion.isEmpty) {
-      // New address — leave unselected on purpose.
-      _region = null;
-    } else {
-      _region = _regions.firstWhere(
-        (r) => r == storedRegion || r.startsWith(storedRegion),
-        orElse: () => _regions.first,
-      );
+    _isDefault    = a?.isDefault ?? false;
+    _initPsgc(a);
+  }
+
+  // Loads the bundled PSGC dataset, then — if editing an existing
+  // address — tries to pre-select Region/Province/City/Barangay from
+  // it. Preference order: match by the stored PSGC code (reliable,
+  // exact) if present, otherwise best-effort match by name (for
+  // addresses saved before this feature existed, which only have
+  // free-text city/barangay names, no codes).
+  Future<void> _initPsgc(CustomerAddress? existing) async {
+    await PsgcService.instance.load();
+    if (!mounted) return;
+
+    PsgcCity? matchedCity;
+
+    if (existing?.cityPsgcCode != null) {
+      matchedCity = PsgcService.instance.cityByCode(existing!.cityPsgcCode!);
     }
-    _isDefault = a?.isDefault ?? false;
+    if (matchedCity == null && existing != null && existing.city.isNotEmpty) {
+      // Best-effort fallback for legacy addresses with no stored code.
+      // Ambiguous if multiple cities share a name nationwide — picks
+      // the first match, which the customer can correct via the
+      // dropdowns if it's wrong.
+     final String wanted = existing.city.trim().toLowerCase();
+      matchedCity = _findCityByName(wanted);
+    }
+
+    if (matchedCity != null) {
+      final String regionCode = matchedCity.code.substring(0, 2);
+      _selectedRegion = PsgcService.regions
+          .where((r) => r.code == regionCode)
+          .cast<PsgcRegion?>()
+          .firstWhere((r) => true, orElse: () => null);
+
+      if (_selectedRegion != null) {
+        if (_isNcrCode(regionCode)) {
+          _cityOptions = PsgcService.instance.citiesForRegion(regionCode);
+        } else {
+          _provinceOptions = PsgcService.instance.provincesForRegion(regionCode);
+          _selectedProvince = _provinceOptions
+              .where((p) => p.code == matchedCity!.provinceCode)
+              .cast<PsgcProvince?>()
+              .firstWhere((p) => true, orElse: () => null);
+          if (_selectedProvince != null) {
+            _cityOptions =
+                PsgcService.instance.citiesForProvince(_selectedProvince!.code);
+          }
+        }
+        _selectedCity = matchedCity;
+        await _loadBarangaysForSelectedCity();
+
+        if (existing?.barangayPsgcCode != null) {
+          _selectedBarangay = _barangayOptions
+              .where((b) => b.code == existing!.barangayPsgcCode)
+              .cast<PsgcBarangay?>()
+              .firstWhere((b) => true, orElse: () => null);
+        } else if (existing != null && existing.barangay.isNotEmpty) {
+          final String wantedBrgy = existing.barangay.trim().toLowerCase();
+          _selectedBarangay = _barangayOptions
+              .where((b) => b.name.trim().toLowerCase() == wantedBrgy)
+              .cast<PsgcBarangay?>()
+              .firstWhere((b) => true, orElse: () => null);
+        }
+      }
+    }
+
+    if (mounted) setState(() => _isLoadingPsgc = false);
+  }
+
+  bool _isNcrCode(String regionCode) => regionCode == '13';
+
+  PsgcCity? _findCityByName(String lowerName) {
+    for (final region in PsgcService.regions) {
+      final Iterable<PsgcCity> candidates = _isNcrCode(region.code)
+          ? PsgcService.instance.citiesForRegion(region.code)
+          : PsgcService.instance
+              .provincesForRegion(region.code)
+              .expand((p) => PsgcService.instance.citiesForProvince(p.code));
+      for (final c in candidates) {
+        if (c.name.trim().toLowerCase() == lowerName) return c;
+      }
+    }
+    return null;
+  }
+
+  Future<void> _loadBarangaysForSelectedCity() async {
+    if (_selectedCity == null) return;
+    setState(() {
+      _isLoadingBarangays = true;
+      _barangayFetchFailed = false;
+      _barangayOptions = [];
+    });
+
+    final List<PsgcBarangay> barangays =
+        await PsgcService.instance.fetchBarangays(_selectedCity!.code);
+
+    if (!mounted) return;
+    setState(() {
+      _barangayOptions = barangays;
+      _isLoadingBarangays = false;
+      _barangayFetchFailed = barangays.isEmpty;
+    });
+  }
+
+  void _onRegionChanged(PsgcRegion? region) {
+    setState(() {
+      _selectedRegion = region;
+      _selectedProvince = null;
+      _selectedCity = null;
+      _selectedBarangay = null;
+      _barangayOptions = [];
+      _barangayFetchFailed = false;
+      _provinceOptions = region == null
+          ? []
+          : PsgcService.instance.provincesForRegion(region.code);
+      _cityOptions = region != null && _isNcrCode(region.code)
+          ? PsgcService.instance.citiesForRegion(region.code)
+          : [];
+    });
+  }
+
+  void _onProvinceChanged(PsgcProvince? province) {
+    setState(() {
+      _selectedProvince = province;
+      _selectedCity = null;
+      _selectedBarangay = null;
+      _barangayOptions = [];
+      _barangayFetchFailed = false;
+      _cityOptions = province == null
+          ? []
+          : PsgcService.instance.citiesForProvince(province.code);
+    });
+  }
+
+  void _onCityChanged(PsgcCity? city) {
+    setState(() {
+      _selectedCity = city;
+      _selectedBarangay = null;
+      // Auto-fill zip as a starting point — the city API only returns
+      // one zip per city, so different barangays may legitimately
+      // need a different one. Kept editable, never locked.
+      if (city != null && city.zipCode.isNotEmpty) {
+        _zipCodeCtrl.text = city.zipCode;
+      }
+    });
+    if (city != null) _loadBarangaysForSelectedCity();
   }
 
   @override
   void dispose() {
     _streetCtrl.dispose();
     _barangayCtrl.dispose();
-    _cityCtrl.dispose();
-    _provinceCtrl.dispose();
     _zipCodeCtrl.dispose();
     _landmarkCtrl.dispose();
     super.dispose();
   }
-
   // ================================================
   // GEOCODE — calls the geocode-address Edge Function.
   //
@@ -168,7 +300,13 @@ class _AddressBottomSheetState extends State<AddressBottomSheet> {
 
   // Carries the mismatch flag alongside coords, so _save() knows
   // whether to show a warning on the confirmation map.
+    // Carries the mismatch flag alongside coords, so _save() knows
+  // whether to show a warning on the confirmation map.
   bool _lastGeocodeWasMismatch = false;
+  // True when the pin shown is only a barangay/city-level anchor
+  // (the full street match was rejected as untrustworthy) rather
+  // than a real attempt at the exact house/building location.
+  bool _lastGeocodeWasLocalityOnly = false;
 
   Future<Map<String, double>?> _geocode() async {
     late final dynamic responseData;
@@ -178,9 +316,9 @@ class _AddressBottomSheetState extends State<AddressBottomSheet> {
         'geocode-address',
         body: {
           'street': _streetCtrl.text.trim(),
-          'barangay': _barangayCtrl.text.trim(),
-          'city': _cityCtrl.text.trim(),
-          'province': _provinceCtrl.text.trim(),
+          'barangay': _selectedBarangay?.name ?? _barangayCtrl.text.trim(),
+          'city': _selectedCity?.name ?? '',
+          'province': _isNcr ? 'Metro Manila' : (_selectedProvince?.name ?? ''),
           'zipCode': _zipCodeCtrl.text.trim(),
         },
       );
@@ -192,9 +330,15 @@ class _AddressBottomSheetState extends State<AddressBottomSheet> {
       // to catch a genuine "no results / too imprecise" address and
       // still block saving, instead of misfiling it as a transient
       // network hiccup.
+      // FIX #4: was `details['error'] as String?`, which throws if
+      // details is a Map but 'error' isn't a String — an uncaught
+      // TypeError that used to escape this whole try/catch.
       final dynamic details = e.details;
-      final String? errorText =
-          (details is Map) ? details['error'] as String? : null;
+      String? errorText;
+      if (details is Map) {
+        final dynamic rawError = details['error'];
+        errorText = rawError is String ? rawError : null;
+      }
 
       if (errorText != null) {
         final String lower = errorText.toLowerCase();
@@ -262,6 +406,7 @@ class _AddressBottomSheetState extends State<AddressBottomSheet> {
     }
 
     _lastGeocodeWasMismatch = data['locationMismatch'] == true;
+    _lastGeocodeWasLocalityOnly = data['localityAnchorOnly'] == true;
 
     return {
       'lat': (data['lat'] as num).toDouble(),
@@ -277,9 +422,11 @@ class _AddressBottomSheetState extends State<AddressBottomSheet> {
   // warning against itself.
   Future<bool> _isDuplicate() async {
     final String street   = _streetCtrl.text.trim().toLowerCase();
-    final String barangay = _barangayCtrl.text.trim().toLowerCase();
-    final String city     = _cityCtrl.text.trim().toLowerCase();
-    final String province = _provinceCtrl.text.trim().toLowerCase();
+    final String barangay =
+        (_selectedBarangay?.name ?? _barangayCtrl.text.trim()).toLowerCase();
+    final String city     = (_selectedCity?.name ?? '').toLowerCase();
+    final String province =
+        (_isNcr ? 'Metro Manila' : (_selectedProvince?.name ?? '')).toLowerCase();
 
     final List<CustomerAddress> existingAddresses =
         await _addressService.getMyAddresses();
@@ -296,47 +443,44 @@ class _AddressBottomSheetState extends State<AddressBottomSheet> {
   // validation, or null if everything checks out. Centralizing this
   // means _save() can show ONE clear reason instead of a generic
   // "fill in required fields" message that doesn't say what's wrong.
-  String? _validationError() {
+    String? _validationError() {
     final String street   = _streetCtrl.text.trim();
-    final String barangay = _barangayCtrl.text.trim();
-    final String city     = _cityCtrl.text.trim();
-    final String province = _provinceCtrl.text.trim();
     final String zip      = _zipCodeCtrl.text.trim();
     final String landmark = _landmarkCtrl.text.trim();
 
-    if (street.isEmpty || barangay.isEmpty || city.isEmpty ||
-        province.isEmpty || zip.isEmpty) {
-      return 'Please fill in all required fields.';
-    }
-    if (_region == null) {
-      return 'Please select a region.';
+    if (street.isEmpty) {
+      return 'Please fill in the street address.';
     }
     if (!_hasAtLeastOneLetter(street)) {
       return 'Street address doesn\'t look valid — please check it.';
     }
-    if (!_hasAtLeastOneLetter(barangay)) {
-      return 'Barangay doesn\'t look valid — please check it.';
-    }
-    if (!_hasAtLeastOneLetter(city)) {
-      return 'City/Municipality doesn\'t look valid — please check it.';
-    }
-    if (!_hasAtLeastOneLetter(province)) {
-      return 'Province doesn\'t look valid — please check it.';
-    }
-    if (!_isValidZip(zip)) {
-      return 'ZIP code must be exactly 4 digits.';
-    }
     if (street.length > _maxStreetLength) {
       return 'Street address is too long (max $_maxStreetLength characters).';
+    }
+    if (_selectedRegion == null) {
+      return 'Please select a region.';
+    }
+    if (!_isNcr && _selectedProvince == null) {
+      return 'Please select a province.';
+    }
+    if (_selectedCity == null) {
+      return 'Please select a city/municipality.';
+    }
+    final String barangay = _selectedBarangay?.name ?? _barangayCtrl.text.trim();
+    if (barangay.isEmpty) {
+      return 'Please select or enter a barangay.';
+    }
+    if (_barangayFetchFailed && !_isValidBarangay(barangay)) {
+      return 'Barangay doesn\'t look valid — please check it.';
     }
     if (barangay.length > _maxBarangayLength) {
       return 'Barangay is too long (max $_maxBarangayLength characters).';
     }
-    if (city.length > _maxCityLength) {
-      return 'City/Municipality is too long (max $_maxCityLength characters).';
+    if (zip.isEmpty) {
+      return 'Please fill in the ZIP code.';
     }
-    if (province.length > _maxProvinceLength) {
-      return 'Province is too long (max $_maxProvinceLength characters).';
+    if (!_isValidZip(zip)) {
+      return 'ZIP code must be exactly 4 digits.';
     }
     if (landmark.length > _maxLandmarkLength) {
       return 'Landmark is too long (max $_maxLandmarkLength characters).';
@@ -344,56 +488,86 @@ class _AddressBottomSheetState extends State<AddressBottomSheet> {
     return null;
   }
 
-  Future<void> _save() async {
-    setState(() => _addressErrorMessage = null); // clear any previous error first
+    Future<void> _save() async {
+    // FIX #3: guard set synchronously, before any await, so a fast
+    // double-tap can't slip through the gap between this check and
+    // the flag actually taking effect.
+    if (_isSaving) return;
+    setState(() {
+      _isSaving = true;
+      _addressErrorMessage = null;
+    });
 
     final String? validationError = _validationError();
     if (validationError != null) {
-      setState(() => _addressErrorMessage = validationError);
+      setState(() {
+        _isSaving = false;
+        _addressErrorMessage = validationError;
+      });
       return;
     }
-
-    if (_isSaving) return;
 
     // Check for a duplicate BEFORE burning a geocoding request on
     // an address that might not even need saving again.
     final bool duplicate = await _isDuplicate();
+
+    // FIX #6: this mounted check now runs unconditionally after the
+    // await — the widget can just as easily be disposed while
+    // duplicate is false, not only inside the true branch.
+    if (!mounted) return;
+
     if (duplicate) {
-      if (!mounted) return;
       final bool? proceedAnyway = await showConfirmDialog(
         context: context,
         title: 'You already have this address',
         message: 'This exact address is already saved. Save it again anyway?',
         confirmLabel: 'Save Anyway',
       );
-      if (proceedAnyway != true) return;
-      if (!mounted) return; // re-check — the dialog's own await is another gap
+      if (!mounted) return;
+      if (proceedAnyway != true) {
+        setState(() => _isSaving = false);
+        return;
+      }
     }
 
-    setState(() {
-      _isSaving = true;
-      _addressErrorMessage = null;
-    });
+    // Only re-geocode if the address text actually changed (or this
+    // is a brand-new address) — no point burning a request re-geocoding
+    // an unchanged address when editing just the "default" checkbox.
+       final String finalBarangay =
+        _selectedBarangay?.name ?? _barangayCtrl.text.trim();
+    final String finalCity = _selectedCity!.name;
+    final String finalProvince = _isNcr
+        ? 'Metro Manila'
+        : (_selectedProvince?.name ?? '');
+    final String finalZip = _zipCodeCtrl.text.trim();
 
     // Only re-geocode if the address text actually changed (or this
     // is a brand-new address) — no point burning a request re-geocoding
     // an unchanged address when editing just the "default" checkbox.
     final CustomerAddress? existing = widget.existing;
     final bool addressTextChanged = existing == null ||
-        existing.street   != _streetCtrl.text.trim()   ||
-        existing.barangay != _barangayCtrl.text.trim() ||
-        existing.city     != _cityCtrl.text.trim()      ||
-        existing.province != _provinceCtrl.text.trim()  ||
-        existing.zipCode  != _zipCodeCtrl.text.trim();
+        existing.street   != _streetCtrl.text.trim() ||
+        existing.barangay != finalBarangay            ||
+        existing.city     != finalCity                ||
+        existing.province != finalProvince             ||
+        existing.zipCode  != finalZip;
 
     double? lat = existing?.lat;
     double? lng = existing?.lng;
 
-    if (addressTextChanged) {
+        if (addressTextChanged) {
       try {
         final coords = await _geocode();
-        lat = coords?['lat'];
-        lng = coords?['lng'];
+        // FIX #2: only overwrite lat/lng when _geocode() actually
+        // returned coordinates. A null result means a transient
+        // hiccup (network blip, OpenCage briefly down) — per
+        // _geocode()'s own contract that should NOT block saving,
+        // and it also should not silently discard coordinates this
+        // address already had from a previous successful geocode.
+        if (coords != null) {
+          lat = coords['lat'];
+          lng = coords['lng'];
+        }
 
         // Only show the map-confirm step when we actually have a
         // point to show. A null result here means a transient
@@ -403,15 +577,24 @@ class _AddressBottomSheetState extends State<AddressBottomSheet> {
           if (!mounted) return;
           setState(() => _isSaving = false); // hide spinner while map is up
 
-          final LatLng? confirmed = await showAddressPinPicker(
+                    final LatLng? confirmed = await showAddressPinPicker(
             context: context,
             initialLat: lat,
             initialLng: lng,
             showMismatchWarning: _lastGeocodeWasMismatch,
+            isLocalityAnchorOnly: _lastGeocodeWasLocalityOnly,
           );
 
-          if (confirmed == null) {
-            // User cancelled at the map step — don't save yet.
+                    if (confirmed == null) {
+            // User cancelled at the map step — don't save yet. Show a
+            // brief note so the modal doesn't just silently sit there
+            // with no explanation of why nothing was saved.
+            if (mounted) {
+              setState(() {
+                _addressErrorMessage =
+                    'Location wasn\'t confirmed. Please try saving again.';
+              });
+            }
             return;
           }
 
@@ -421,7 +604,7 @@ class _AddressBottomSheetState extends State<AddressBottomSheet> {
           if (!mounted) return;
           setState(() => _isSaving = true); // resume spinner for actual save
         }
-      } on _AddressQualityException catch (e) {
+            } on _AddressQualityException catch (e) {
         // BLOCKED — no match at all found for this address text.
         if (mounted) {
           setState(() {
@@ -430,23 +613,37 @@ class _AddressBottomSheetState extends State<AddressBottomSheet> {
           });
         }
         return;
+      } catch (e) {
+        // FIX #4: catch-all safety net — anything unexpected in the
+        // geocode/pin-picker flow resets the button instead of
+        // leaving it stuck spinning forever with no way to retry.
+        print('AddressBottomSheet._save unexpected error: $e');
+        if (mounted) {
+          setState(() {
+            _isSaving = false;
+            _addressErrorMessage = 'Something went wrong. Please try again.';
+          });
+        }
+        return;
       }
     }
 
     if (!mounted) return;
 
-    final CustomerAddress result = CustomerAddress(
+       final CustomerAddress result = CustomerAddress(
       id:        widget.existing?.id ?? '',   // '' = new, not yet in Supabase
       street:    _streetCtrl.text.trim(),
-      barangay:  _barangayCtrl.text.trim(),
-      city:      _cityCtrl.text.trim(),
-      province:  _provinceCtrl.text.trim(),
-      region:    _region!,  // validated non-null in _validationError()
-      zipCode:   _zipCodeCtrl.text.trim(),
+      barangay:  finalBarangay,
+      city:      finalCity,
+      province:  finalProvince,
+      region:    _selectedRegion!.name,  // validated non-null above
+      zipCode:   finalZip,
       landmark:  _landmarkCtrl.text.trim(),
       isDefault: _isDefault,
       lat: lat,
       lng: lng,
+      cityPsgcCode:     _selectedCity!.code,
+      barangayPsgcCode: _selectedBarangay?.code,
     );
 
     setState(() => _isSaving = false);
@@ -549,99 +746,121 @@ class _AddressBottomSheetState extends State<AddressBottomSheet> {
                   ],
 
                   // ── Street Address ──────────────────────────────
-                  _FormField(
+                   _FormField(
                     label: 'Street Address *',
                     controller: _streetCtrl,
                     hint: 'House no., Street name',
                     maxLength: _maxStreetLength,
-                  ),
-                  const SizedBox(height: 16),
-
-                  // ── Barangay ────────────────────────────────────
-                  _FormField(
-                    label: 'Barangay *',
-                    controller: _barangayCtrl,
-                    hint: 'e.g. Barangay Poblacion',
-                    maxLength: _maxBarangayLength,
-                  ),
-                  const SizedBox(height: 16),
-
-                  // ── City + Zip Code row ─────────────────────────
-                  Row(
-                    crossAxisAlignment: CrossAxisAlignment.start,
-                    children: [
-                      Expanded(
-                        flex: 3,
-                        child: _FormField(
-                          label: 'City / Municipality *',
-                          controller: _cityCtrl,
-                          hint: 'e.g. Makati',
-                          maxLength: _maxCityLength,
-                        ),
-                      ),
-                      const SizedBox(width: 12),
-                      Expanded(
-                        flex: 2,
-                        child: _FormField(
-                          label: 'Zip Code *',
-                          controller: _zipCodeCtrl,
-                          hint: 'e.g. 1200',
-                          keyboardType: TextInputType.number,
-                          maxLength: 4,
-                        ),
-                      ),
-                    ],
+                    enabled: !_isSaving,
                   ),
                   const SizedBox(height: 16),
 
                   // ── Province ────────────────────────────────────
-                  _FormField(
-                    label: 'Province *',
-                    controller: _provinceCtrl,
-                    hint: 'e.g. Metro Manila',
-                    maxLength: _maxProvinceLength,
-                  ),
-                  const SizedBox(height: 16),
-
-                  // ── Region dropdown ─────────────────────────────
-                  _label('Region *'),
-                  const SizedBox(height: 6),
-                  Container(
-                    width: double.infinity,
-                    padding: const EdgeInsets.symmetric(horizontal: 12),
-                    decoration: BoxDecoration(
-                      color: Colors.white,
-                      border: Border.all(color: const Color(0xFFCFC4C5)),
-                    ),
-                    child: DropdownButtonHideUnderline(
-                      child: DropdownButton<String>(
-                        value: _region,
-                        isExpanded: true,
-                        hint: const Text(
-                          'Select a region',
-                          style: TextStyle(
-                            fontFamily: 'Inter',
-                            fontSize: 14,
-                            color: Color(0xFFCFC4C5),
-                          ),
-                        ),
-                        style: const TextStyle(
-                          fontFamily: 'Inter',
-                          fontSize: 14,
-                          color: Colors.black,
-                        ),
-                        items: _regions.map((String r) =>
-                          DropdownMenuItem<String>(
-                            value: r,
-                            child: Text(r),
-                          ),
-                        ).toList(),
-                        onChanged: (String? v) =>
-                            setState(() => _region = v),
+                    if (_isLoadingPsgc)
+                    const Padding(
+                      padding: EdgeInsets.symmetric(vertical: 24),
+                      child: Center(
+                        child: CircularProgressIndicator(color: Colors.black),
                       ),
+                    )
+                  else ...[
+                    // ── Region dropdown ─────────────────────────
+                    _label('Region *'),
+                    const SizedBox(height: 6),
+                    _PsgcDropdown<PsgcRegion>(
+                      value: _selectedRegion,
+                      hint: 'Select a region',
+                      items: PsgcService.regions,
+                      labelOf: (r) => r.name,
+                      enabled: !_isSaving,
+                      onChanged: _onRegionChanged,
                     ),
-                  ),
-                  const SizedBox(height: 16),
+                    const SizedBox(height: 16),
+
+                    // ── Province dropdown — hidden for NCR, which
+                    // has no provinces at all ──
+                    if (!_isNcr) ...[
+                      _label('Province *'),
+                      const SizedBox(height: 6),
+                      _PsgcDropdown<PsgcProvince>(
+                        value: _selectedProvince,
+                        hint: _selectedRegion == null
+                            ? 'Select a region first'
+                            : 'Select a province',
+                        items: _provinceOptions,
+                        labelOf: (p) => p.name,
+                        enabled: !_isSaving && _selectedRegion != null,
+                        onChanged: _onProvinceChanged,
+                      ),
+                      const SizedBox(height: 16),
+                    ],
+
+                    // ── City / Municipality dropdown ────────────
+                    _label('City / Municipality *'),
+                    const SizedBox(height: 6),
+                    _PsgcDropdown<PsgcCity>(
+                      value: _selectedCity,
+                      hint: (_isNcr ? _selectedRegion == null : _selectedProvince == null)
+                          ? (_isNcr ? 'Select a region first' : 'Select a province first')
+                          : 'Select a city/municipality',
+                      items: _cityOptions,
+                      labelOf: (c) => c.name,
+                      enabled: !_isSaving && _cityOptions.isNotEmpty,
+                      onChanged: _onCityChanged,
+                    ),
+                    const SizedBox(height: 16),
+
+                    // ── Barangay — dropdown when available, free
+                    // text fallback when the live fetch fails/empty ──
+                    _label('Barangay *'),
+                    const SizedBox(height: 6),
+                    if (_isLoadingBarangays)
+                      Container(
+                        width: double.infinity,
+                        padding: const EdgeInsets.symmetric(vertical: 14),
+                        alignment: Alignment.center,
+                        decoration: BoxDecoration(
+                          color: Colors.white,
+                          border: Border.all(color: const Color(0xFFCFC4C5)),
+                        ),
+                        child: const SizedBox(
+                          width: 18, height: 18,
+                          child: CircularProgressIndicator(strokeWidth: 2),
+                        ),
+                      )
+                    else if (_barangayFetchFailed || _selectedCity == null)
+                      _FormField(
+                        label: '', // label already shown above
+                        controller: _barangayCtrl,
+                        hint: _selectedCity == null
+                            ? 'Select a city first'
+                            : 'e.g. Barangay 178, or Poblacion',
+                        maxLength: _maxBarangayLength,
+                        enabled: !_isSaving && _selectedCity != null,
+                      )
+                    else
+                      _PsgcDropdown<PsgcBarangay>(
+                        value: _selectedBarangay,
+                        hint: 'Select a barangay',
+                        items: _barangayOptions,
+                        labelOf: (b) => b.name,
+                        enabled: !_isSaving,
+                        onChanged: (b) => setState(() => _selectedBarangay = b),
+                      ),
+                    const SizedBox(height: 16),
+
+                    // ── Zip Code ─────────────────────────────────
+                       _FormField(
+                      label: 'Zip Code *',
+                      controller: _zipCodeCtrl,
+                      hint: 'e.g. 1200',
+                      keyboardType: TextInputType.number,
+                      maxLength: 4,
+                      enabled: !_isSaving,
+                      inputFormatters: [FilteringTextInputFormatter.digitsOnly],
+                    ),
+                    const SizedBox(height: 16),
+                  ],
 
                   // ── Landmark (optional) ─────────────────────────
                   _FormField(
@@ -649,17 +868,21 @@ class _AddressBottomSheetState extends State<AddressBottomSheet> {
                     controller: _landmarkCtrl,
                     hint: 'e.g. Near SM Megamall',
                     maxLength: _maxLandmarkLength,
+                    enabled: !_isSaving,
                   ),
                   const SizedBox(height: 20),
+
+                  
 
                   // ── Set as default toggle ───────────────────────
                   Row(
                     children: [
-                      Checkbox(
+                       Checkbox(
                         value: _isDefault,
                         activeColor: Colors.black,
-                        onChanged: (bool? v) =>
-                            setState(() => _isDefault = v ?? false),
+                        onChanged: _isSaving
+                            ? null
+                            : (bool? v) => setState(() => _isDefault = v ?? false),
                       ),
                       const Text(
                         'Set as default address',
@@ -756,6 +979,8 @@ class _FormField extends StatelessWidget {
   final String? hint;
   final TextInputType keyboardType;
   final int? maxLength;
+  final bool enabled; // FIX #10 — disabled while saving
+  final List<TextInputFormatter>? inputFormatters;
 
   const _FormField({
     required this.label,
@@ -763,6 +988,8 @@ class _FormField extends StatelessWidget {
     this.hint,
     this.keyboardType = TextInputType.text,
     this.maxLength,
+    this.enabled = true,
+    this.inputFormatters,
   });
 
   @override
@@ -776,6 +1003,8 @@ class _FormField extends StatelessWidget {
           controller: controller,
           keyboardType: keyboardType,
           maxLength: maxLength,
+          enabled: enabled,
+          inputFormatters: inputFormatters,
           style: const TextStyle(
             fontFamily: 'Inter',
             fontSize: 15,
@@ -806,6 +1035,63 @@ class _FormField extends StatelessWidget {
           ),
         ),
       ],
+    );
+  }
+}
+
+
+class _PsgcDropdown<T> extends StatelessWidget {
+  final T? value;
+  final String hint;
+  final List<T> items;
+  final String Function(T) labelOf;
+  final bool enabled;
+  final ValueChanged<T?> onChanged;
+
+  const _PsgcDropdown({
+    required this.value,
+    required this.hint,
+    required this.items,
+    required this.labelOf,
+    required this.enabled,
+    required this.onChanged,
+  });
+
+  @override
+  Widget build(BuildContext context) {
+    return Container(
+      width: double.infinity,
+      padding: const EdgeInsets.symmetric(horizontal: 12),
+      decoration: BoxDecoration(
+        color: enabled ? Colors.white : const Color(0xFFF3F3F4),
+        border: Border.all(color: const Color(0xFFCFC4C5)),
+      ),
+      child: DropdownButtonHideUnderline(
+        child: DropdownButton<T>(
+          value: value,
+          isExpanded: true,
+          hint: Text(
+            hint,
+            style: const TextStyle(
+              fontFamily: 'Inter',
+              fontSize: 14,
+              color: Color(0xFFCFC4C5),
+            ),
+          ),
+          style: const TextStyle(
+            fontFamily: 'Inter',
+            fontSize: 14,
+            color: Colors.black,
+          ),
+          items: items
+              .map((T item) => DropdownMenuItem<T>(
+                    value: item,
+                    child: Text(labelOf(item)),
+                  ))
+              .toList(),
+          onChanged: enabled ? onChanged : null,
+        ),
+      ),
     );
   }
 }

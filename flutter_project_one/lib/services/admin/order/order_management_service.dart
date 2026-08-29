@@ -162,24 +162,45 @@ class OrderManagementService {
   // Still accepts trackingUrl for the manual-override path in
   // the admin UI, if the automatic booking ever needs bypassing.
   // ================================================
-  Future<void> updateOrderStatus({
+  
+    Future<void> updateOrderStatus({
     required int    orderId,
     required String status,
     String?         adminNote,
     String?         trackingUrl,
   }) async {
 
+    if (status == 'Completed') {
+      // Stock was already committed at approval time (Pending -> Confirmed,
+      // see PaymentService.approvePayment). Completed is purely a status
+      // transition here — do NOT call complete_order_and_commit_stock,
+      // it would double-deduct stock that's already been taken.
+      await _supabase
+          .from('orders')
+          .update({'order_status': status})
+          .eq('order_id', orderId);
+
+      await _supabase.from('order_progress').insert({
+        'order_id':   orderId,
+        'status':     status,
+        'admin_note': adminNote,
+      });
+    } else if (status == 'Cancelled') {
+    // Atomically releases the reservation AND flips order_status +
+    // inserts order_progress.
+    await _supabase.rpc('cancel_order_and_release_stock', params: {
+      'p_order_id': orderId,
+      'p_admin_note': adminNote,
+    });
+  } else {
+    // All other transitions (Confirmed, Preparing, manual Shipped
+    // override) — unchanged from before, no stock implications.
     final Map<String, dynamic> updatePayload = {
       'order_status': status,
     };
 
     if (trackingUrl != null && trackingUrl.trim().isNotEmpty) {
       updatePayload['tracking_url'] = trackingUrl.trim();
-      // Flags this order as manually tracked — it has no
-      // lalamove_order_id, so lalamove-webhook can never match and
-      // auto-advance it. Filter/highlight tracking_source = 'manual'
-      // orders stuck at 'Shipped' in the admin list so none get
-      // forgotten.
       updatePayload['tracking_source'] = 'manual';
     }
 
@@ -188,52 +209,52 @@ class OrderManagementService {
         .update(updatePayload)
         .eq('order_id', orderId);
 
-    await _notifyCustomerOrderStatus(orderId: orderId, status: status);
-
-    // COD orders only actually collect cash on delivery — mark the
-    // payment row Paid at the same moment the order is Completed.
-    if (status == 'Completed') {
-      final Map<String, dynamic>? paymentRow = await _supabase
-          .from('payment')
-          .select('payment_method')
-          .eq('order_id', orderId)
-          .maybeSingle();
-
-      final String method = (paymentRow?['payment_method'] ?? '').toString();
-      if (method.toLowerCase() == 'cod') {
-        await _supabase
-            .from('payment')
-            .update({'payment_status': 'Paid'})
-            .eq('order_id', orderId);
-      }
-    }
-
     await _supabase.from('order_progress').insert({
       'order_id':   orderId,
       'status':     status,
       'admin_note': adminNote,
     });
-
-    String action;
-    if (status == 'Cancelled') {
-      action = 'Cancelled order #$orderId'
-          '${adminNote != null && adminNote.trim().isNotEmpty ? ' (reason: $adminNote)' : ''}';
-    } else {
-      action = 'Updated order #$orderId status to $status';
-    }
-
-    await _activityLog.log(
-      action: action,
-      affectedModule: AffectedModule.orders,
-      targetId: orderId.toString(),
-      metadata: {
-        'status': status,
-        if (adminNote != null) 'admin_note': adminNote,
-        if (trackingUrl != null) 'tracking_url': trackingUrl,
-      },
-    );
   }
 
+  await _notifyCustomerOrderStatus(orderId: orderId, status: status);
+
+  // COD orders only actually collect cash on delivery — mark the
+  // payment row Paid at the same moment the order is Completed.
+  if (status == 'Completed') {
+    final Map<String, dynamic>? paymentRow = await _supabase
+        .from('payment')
+        .select('payment_method')
+        .eq('order_id', orderId)
+        .maybeSingle();
+
+    final String method = (paymentRow?['payment_method'] ?? '').toString();
+    if (method.toLowerCase() == 'cod') {
+      await _supabase
+          .from('payment')
+          .update({'payment_status': 'Paid'})
+          .eq('order_id', orderId);
+    }
+  }
+
+  String action;
+  if (status == 'Cancelled') {
+    action = 'Cancelled order #$orderId'
+        '${adminNote != null && adminNote.trim().isNotEmpty ? ' (reason: $adminNote)' : ''}';
+  } else {
+    action = 'Updated order #$orderId status to $status';
+  }
+
+  await _activityLog.log(
+    action: action,
+    affectedModule: AffectedModule.orders,
+    targetId: orderId.toString(),
+    metadata: {
+      'status': status,
+      if (adminNote != null) 'admin_note': adminNote,
+      if (trackingUrl != null) 'tracking_url': trackingUrl,
+    },
+  );
+}
   // ================================================
   // MARK AS SHIPPED — books the real Lalamove order
   //

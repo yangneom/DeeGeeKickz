@@ -280,23 +280,11 @@ final recentFeedbackProvider =
 
 class FeedbackFilterState {
   final String searchQuery;
-  final String? selectedStatus;
 
-  const FeedbackFilterState({
-    this.searchQuery  = '',
-    this.selectedStatus,
-  });
+  const FeedbackFilterState({this.searchQuery = ''});
 
-  FeedbackFilterState copyWith({
-    String? searchQuery,
-    String? Function()? selectedStatus, // nullable setter trick
-  }) {
-    return FeedbackFilterState(
-      searchQuery:    searchQuery    ?? this.searchQuery,
-      selectedStatus: selectedStatus != null
-                        ? selectedStatus()
-                        : this.selectedStatus,
-    );
+  FeedbackFilterState copyWith({String? searchQuery}) {
+    return FeedbackFilterState(searchQuery: searchQuery ?? this.searchQuery);
   }
 }
 
@@ -306,10 +294,6 @@ class FeedbackFilterNotifier extends Notifier<FeedbackFilterState> {
 
   void setSearch(String query) {
     state = state.copyWith(searchQuery: query);
-  }
-
-  void setStatus(String? status) {
-    state = state.copyWith(selectedStatus: () => status);
   }
 
   void clear() {
@@ -328,20 +312,14 @@ final filteredFeedbackProvider =
   final filter   = ref.watch(feedbackFilterProvider);
   final allAsync = ref.watch(feedbackProvider);
 
-  return allAsync.whenData((all) {
+   return allAsync.whenData((all) {
     final query = filter.searchQuery.toLowerCase();
 
     return all.where((item) {
-      // search
       final bool matchesSearch = query.isEmpty ||
           item.customerName.toLowerCase().contains(query) ||
           item.productName.toLowerCase().contains(query);
-
-      // status filter
-      final bool matchesStatus = filter.selectedStatus == null ||
-          item.status == filter.selectedStatus;
-
-      return matchesSearch && matchesStatus;
+      return matchesSearch;
     }).toList();
   });
 });
@@ -380,21 +358,16 @@ class FeedbackModerationNotifier
     extends Notifier<FeedbackModerationState> {
   @override
   FeedbackModerationState build() => const FeedbackModerationState();
-
-    Future<void> saveReply({
-    required int    feedbackId,
-    required String newStatus,
-    required String currentStatus,
+  Future<void> saveReply({
+    required int feedbackId,
     required String adminReply,
   }) async {
     state = state.copyWith(isLoading: true, saved: false);
 
     final service = ref.read(feedbackServiceProvider);
     final String? error = await service.saveReply(
-      feedbackId:    feedbackId,
-      adminReply:    adminReply,
-      currentStatus: currentStatus,
-      newStatus:     newStatus,
+      feedbackId: feedbackId,
+      adminReply: adminReply,
     );
 
     if (!ref.mounted) return;

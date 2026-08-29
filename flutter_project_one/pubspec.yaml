@@ -82,3 +82,5 @@ flutter:
     - assets/images/logo.jpg
     - assets/fonts/NotoSans-Regular.ttf
     - assets/fonts/NotoSans-Bold.ttf
+    - assets/psgc/provinces.json
+    - assets/psgc/cities.json

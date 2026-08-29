@@ -67,8 +67,9 @@ class _CartScreenState extends ConsumerState<CartScreen> {
     return sizeEntry.availableQty;
   }
 
-  @override
+    @override
   Widget build(BuildContext context) {
+    ref.watch(inventoryRealtimeProvider); // activates live stock updates
     final cartItems = ref.watch(customerCartProvider);
     final productsAsync = ref.watch(productsProvider);
     final List<Product> products = productsAsync.value ?? [];

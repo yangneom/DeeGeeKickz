@@ -52,8 +52,9 @@ class _ProductDetailScreenState extends ConsumerState<ProductDetailScreen> {
     });
   }
 
-  @override
+   @override
   Widget build(BuildContext context) {
+    ref.watch(inventoryRealtimeProvider); // activates live stock updates
     final productsAsync = ref.watch(productsProvider);
 
     // Look up the freshest version of this exact product by ID.

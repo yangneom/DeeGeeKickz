@@ -15,6 +15,8 @@ import '../../../widgets/common/dialog/confirm_dialog.dart';
 import '../../../widgets/admin/inventory/edit_product_dialog.dart'; 
 import '../../../core/utils/csv_export_helper.dart';
 import '../../../core/utils/excel_export_helper.dart';
+import 'dart:async';
+import 'package:supabase_flutter/supabase_flutter.dart';
 
 class InventoryScreen extends ConsumerStatefulWidget {
   const InventoryScreen({super.key});
@@ -34,6 +36,10 @@ class _InventoryScreenState extends ConsumerState<InventoryScreen> {
 
   // our inventory service for all Supabase calls
   final InventoryService _service = InventoryService();
+
+  // realtime stock subscription
+  RealtimeChannel? _stockChannel;
+  Timer? _stockDebounce;
 
   // ALL products fetched from Supabase (source of truth)
   List<Product> _allProducts = [];
@@ -61,6 +67,31 @@ class _InventoryScreenState extends ConsumerState<InventoryScreen> {
   void initState() {
     super.initState();
     _loadProducts();
+    _subscribeToStockChanges();
+  }
+
+  // ================================================
+  // REALTIME — live stock updates
+  // Debounced: a single sale/approval can touch several
+  // product_variant_size rows in quick succession, so this waits
+  // for changes to settle before refetching once, instead of
+  // reloading the whole table per row.
+  // ================================================
+  void _subscribeToStockChanges() {
+    _stockChannel = Supabase.instance.client
+        .channel('inventory_screen_stock_changes')
+        .onPostgresChanges(
+          event: PostgresChangeEvent.all,
+          schema: 'public',
+          table: 'product_variant_size',
+          callback: (payload) {
+            _stockDebounce?.cancel();
+            _stockDebounce = Timer(const Duration(milliseconds: 400), () {
+              if (mounted) _loadProducts();
+            });
+          },
+        )
+        .subscribe();
   }
 
   // ================================================
@@ -69,6 +100,10 @@ class _InventoryScreenState extends ConsumerState<InventoryScreen> {
   @override
   void dispose() {
     _searchController.dispose();
+    _stockDebounce?.cancel();
+    if (_stockChannel != null) {
+      Supabase.instance.client.removeChannel(_stockChannel!);
+    }
     super.dispose();
   }
 

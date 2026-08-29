@@ -28,51 +28,83 @@ class AddressService {
 
   /// Adds a new address. If [address.isDefault] is true, or this is the
   /// user's very first address, it's saved as the default.
-  Future<bool> addAddress(CustomerAddress address) async {
+  /// Adds a new address. If [address.isDefault] is true, or this is the
+  /// user's very first address, it's saved as the default.
+  ///
+  /// FIX #15: uses the upsert_address RPC so "unset old default" +
+  /// "insert new row" happen in a single DB transaction. Previously
+  /// these were two separate calls — if the second one failed after
+  /// the first succeeded, a user could be left with no default
+  /// address at all, with no way to recover from the app.
+   // FIX #16/#19: returns a specific message on failure instead of a
+  // plain bool, matching deleteAddress's pattern — so the UI can show
+  // the user why it failed instead of one generic string for every
+  // possible cause.
+  Future<String?> addAddress(CustomerAddress address) async {
     final user = _supabase.auth.currentUser;
-    if (user == null) return false;
+    if (user == null) return 'You must be signed in to save an address.';
 
     try {
       final existing = await getMyAddresses();
       final shouldBeDefault = address.isDefault || existing.isEmpty;
 
-      if (shouldBeDefault) {
-        await _supabase
-            .from('address')
-            .update({'is_default': false})
-            .eq('user_id', user.id);
-      }
-
-      await _supabase.from('address').insert(
-            address.copyWith(isDefault: shouldBeDefault).toJson(userId: user.id),
-          );
-      return true;
+            await _supabase.rpc('upsert_address', params: {
+        'p_address_id': null,
+        'p_user_id': user.id,
+        'p_street': address.street,
+        'p_barangay': address.barangay,
+        'p_city': address.city,
+        'p_province': address.province,
+        'p_region': address.region,
+        'p_zip_code': address.zipCode,
+        'p_landmark': address.landmark,
+        'p_is_default': shouldBeDefault,
+        'p_lat': address.lat,
+        'p_lng': address.lng,
+        'p_city_psgc_code': address.cityPsgcCode,
+        'p_barangay_psgc_code': address.barangayPsgcCode,
+      });
+      return null;
+    } on PostgrestException catch (e) {
+      print('AddressService.addAddress error: $e');
+      return 'Could not save address. Please try again.';
     } catch (e) {
       print('AddressService.addAddress error: $e');
-      return false;
+      return 'Could not save address. Please try again.';
     }
   }
 
-  Future<bool> updateAddress(CustomerAddress address) async {
+  /// FIX #15: same atomicity fix as addAddress — the default-unset
+  /// and the actual update now happen in one transaction via RPC.
+    // FIX #16/#19: same bool → String? change as addAddress.
+  Future<String?> updateAddress(CustomerAddress address) async {
     final user = _supabase.auth.currentUser;
-    if (user == null) return false;
+    if (user == null) return 'You must be signed in to save changes.';
 
     try {
-      if (address.isDefault) {
-        await _supabase
-            .from('address')
-            .update({'is_default': false})
-            .eq('user_id', user.id);
-      }
-
-      await _supabase
-          .from('address')
-          .update(address.toJson(userId: user.id))
-          .eq('address_id', int.parse(address.id));
-      return true;
+            await _supabase.rpc('upsert_address', params: {
+        'p_address_id': int.parse(address.id),
+        'p_user_id': user.id,
+        'p_street': address.street,
+        'p_barangay': address.barangay,
+        'p_city': address.city,
+        'p_province': address.province,
+        'p_region': address.region,
+        'p_zip_code': address.zipCode,
+        'p_landmark': address.landmark,
+        'p_is_default': address.isDefault,
+        'p_lat': address.lat,
+        'p_lng': address.lng,
+        'p_city_psgc_code': address.cityPsgcCode,
+        'p_barangay_psgc_code': address.barangayPsgcCode,
+      });
+      return null;
+    } on PostgrestException catch (e) {
+      print('AddressService.updateAddress error: $e');
+      return 'Could not save changes. Please try again.';
     } catch (e) {
       print('AddressService.updateAddress error: $e');
-      return false;
+      return 'Could not save changes. Please try again.';
     }
   }
 /// Returns null on success, or a user-facing error message on failure.

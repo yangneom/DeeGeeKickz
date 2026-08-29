@@ -43,62 +43,67 @@ class _ProfileAddressSectionState extends State<ProfileAddressSection> {
   // ── Add new ────────────────────────────────────────────────────────────────
   Future<void> _onAddNew() async {
     if (_isSaving) return;
+        setState(() => _isSaving = true); // FIX #18: guard set before opening the sheet
 
     final CustomerAddress? result = await showAddressBottomSheet(
       context: context,
       existing: null,
     );
-    if (result == null) return;
 
-    setState(() => _isSaving = true);
-    final bool success = await _addressService.addAddress(result);
+    if (result == null) {
+      if (mounted) setState(() => _isSaving = false);
+      return;
+    }
+
+    // FIX #16/#19: now a specific message instead of a plain bool.
+    final String? errorMessage = await _addressService.addAddress(result);
 
     if (!mounted) return;
     setState(() => _isSaving = false);
 
-    if (success) {
+    if (errorMessage == null) {
       widget.onChanged?.call();
     } else {
       ScaffoldMessenger.of(context).showSnackBar(
-        const SnackBar(
-          content: Text('Could not save address. Please try again.'),
-          backgroundColor: Colors.black,
-        ),
+        SnackBar(content: Text(errorMessage), backgroundColor: Colors.black),
       );
     }
   }
 
   // ── Edit existing ──────────────────────────────────────────────────────────
-  Future<void> _onEdit(CustomerAddress address) async {
+    Future<void> _onEdit(CustomerAddress address) async {
     if (_isSaving) return;
+     setState(() => _isSaving = true); // FIX #18: guard set before opening the sheet
 
     final CustomerAddress? result = await showAddressBottomSheet(
       context: context,
       existing: address,
     );
-    if (result == null) return;
 
-    setState(() => _isSaving = true);
-    final bool success = await _addressService.updateAddress(result);
+    if (result == null) {
+      if (mounted) setState(() => _isSaving = false);
+      return;
+    }
+
+    // FIX #16/#19: now a specific message instead of a plain bool.
+    final String? errorMessage = await _addressService.updateAddress(result);
 
     if (!mounted) return;
     setState(() => _isSaving = false);
 
-    if (success) {
+    if (errorMessage == null) {
       widget.onChanged?.call();
     } else {
       ScaffoldMessenger.of(context).showSnackBar(
-        const SnackBar(
-          content: Text('Could not save changes. Please try again.'),
-          backgroundColor: Colors.black,
-        ),
+        SnackBar(content: Text(errorMessage), backgroundColor: Colors.black),
       );
     }
   }
 
   // ── Delete ─────────────────────────────────────────────────────────────────
-  Future<void> _onDelete(CustomerAddress address) async {
+    Future<void> _onDelete(CustomerAddress address) async {
     if (_isDeleting) return;
+    setState(() => _isDeleting = true); // FIX #18: guard set before opening the dialog
 
     final bool? confirmed = await showDialog<bool>(
       context: context,
@@ -131,9 +136,13 @@ class _ProfileAddressSectionState extends State<ProfileAddressSection> {
       ),
     );
 
-    if (confirmed != true) return;
+        if (!mounted) return;
 
-    setState(() => _isDeleting = true);
+    if (confirmed != true) {
+      setState(() => _isDeleting = false);
+      return;
+    }
+
     final String? errorMessage = await _addressService.deleteAddress(address);
 
     if (!mounted) return;
@@ -311,9 +320,15 @@ class _AddressTile extends StatelessWidget {
                       ),
                       const SizedBox(width: 8),
                     ],
-                    const Text(
-                      'HOME',
-                      style: TextStyle(
+                    // FIX #20: was hardcoded "HOME" on every tile,
+                    // even when a customer has several addresses.
+                    // Using the city is a stopgap until there's a
+                    // real per-address label field in the DB/model.
+                    Text(
+                      address.city.isNotEmpty
+                          ? address.city.toUpperCase()
+                          : 'ADDRESS',
+                      style: const TextStyle(
                         fontFamily: 'Inter',
                         fontSize: 16,
                         fontWeight: FontWeight.w700,

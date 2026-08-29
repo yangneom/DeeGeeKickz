@@ -12,6 +12,7 @@ Future<LatLng?> showAddressPinPicker({
   required double initialLat,
   required double initialLng,
   bool showMismatchWarning = false,
+  bool isLocalityAnchorOnly = false,
 }) {
   return Navigator.of(context).push<LatLng>(
     MaterialPageRoute(
@@ -19,6 +20,7 @@ Future<LatLng?> showAddressPinPicker({
         initialLat: initialLat,
         initialLng: initialLng,
         showMismatchWarning: showMismatchWarning,
+        isLocalityAnchorOnly: isLocalityAnchorOnly,
       ),
       fullscreenDialog: true,
     ),
@@ -29,11 +31,13 @@ class _AddressPinPickerScreen extends StatefulWidget {
   final double initialLat;
   final double initialLng;
   final bool showMismatchWarning;
+  final bool isLocalityAnchorOnly;
 
   const _AddressPinPickerScreen({
     required this.initialLat,
     required this.initialLng,
     required this.showMismatchWarning,
+    required this.isLocalityAnchorOnly,
   });
 
   @override
@@ -82,10 +86,16 @@ class _AddressPinPickerScreenState extends State<_AddressPinPickerScreen> {
           _pinHasAddress = data is Map && data['hasAddress'] == false ? false : true;
         });
       }
-    } catch (e) {
+       } catch (e) {
       // Network hiccup — don't show a false warning, just skip it.
       print('AddressPinPicker._checkPinLocation error: $e');
-      if (mounted) setState(() => _pinHasAddress = true);
+      if (!mounted) return;
+      // FIX #14: same staleness guard the success path already has —
+      // don't let a slow, failed OLDER check overwrite a newer,
+      // successful check's result.
+      if (_pin.latitude == point.latitude && _pin.longitude == point.longitude) {
+        setState(() => _pinHasAddress = true);
+      }
     }
   }
 
@@ -120,7 +130,7 @@ class _AddressPinPickerScreenState extends State<_AddressPinPickerScreen> {
               ),
             ),
 
-            if (widget.showMismatchWarning)
+                       if (widget.showMismatchWarning)
               Container(
                 width: double.infinity,
                 margin: const EdgeInsets.fromLTRB(20, 0, 20, 12),
@@ -129,16 +139,21 @@ class _AddressPinPickerScreenState extends State<_AddressPinPickerScreen> {
                   color: const Color(0xFFFEF2F2),
                   border: Border.all(color: const Color(0xFFFCA5A5)),
                 ),
-                child: const Row(
+                child: Row(
                   crossAxisAlignment: CrossAxisAlignment.start,
                   children: [
-                    Icon(Icons.error_outline, size: 16, color: Color(0xFFBA1A1A)),
-                    SizedBox(width: 8),
+                    const Icon(Icons.error_outline, size: 16, color: Color(0xFFBA1A1A)),
+                    const SizedBox(width: 8),
                     Expanded(
                       child: Text(
-                        'This pin looks far from the city you entered — '
-                        'please double-check it, or tap the map to correct it.',
-                        style: TextStyle(
+                        widget.isLocalityAnchorOnly
+                            ? 'We couldn\'t confirm your exact street, so this pin '
+                                'only marks the general area of your barangay, '
+                                'please tap the map to place your exact address.'
+                            : 'We couldn\'t confirm this pin matches the city or '
+                                'barangay you entered, please double-check it, or '
+                                'tap the map to correct it.',
+                        style: const TextStyle(
                           fontFamily: 'Inter',
                           fontSize: 12,
                           color: Color(0xFF7A1212),

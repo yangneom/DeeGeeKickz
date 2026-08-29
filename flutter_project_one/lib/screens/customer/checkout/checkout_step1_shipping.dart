@@ -221,21 +221,24 @@ Future<void> _editAddress(CustomerAddress address) async {
     // BUG FIX: this previously never actually saved the edited
     // address — it just re-fetched the (unchanged) list from the
     // DB, so edits silently did nothing.
-    final bool ok = await _addressService.updateAddress(result);
+    setState(() => _isSavingAddress = true);
+
+    // BUG FIX: this previously never actually saved the edited
+    // address — it just re-fetched the (unchanged) list from the
+    // DB, so edits silently did nothing.
+    // Updated for the new String? signature (null = success, non-null
+    // = specific error message to show).
+    final String? errorMessage = await _addressService.updateAddress(result);
 
     if (!mounted) return;
 
-    if (!ok) {
+    if (errorMessage != null) {
       setState(() => _isSavingAddress = false);
       ScaffoldMessenger.of(context).showSnackBar(
-        const SnackBar(
-          content: Text('Could not save changes. Please try again.'),
-          backgroundColor: Colors.black,
-        ),
+        SnackBar(content: Text(errorMessage), backgroundColor: Colors.black),
       );
       return;
     }
-
     await _loadAddresses();
 
     if (!mounted) return;
@@ -259,17 +262,22 @@ Future<void> _addNew() async {
     // BUG FIX: this previously never actually saved the new address
     // — it just re-fetched the (unchanged) list from the DB, so
     // "adding" an address silently did nothing.
-    final bool ok = await _addressService.addAddress(result);
+    
+        setState(() => _isSavingAddress = true);
+
+    // BUG FIX: this previously never actually saved the new address
+    // — it just re-fetched the (unchanged) list from the DB, so
+    // "adding" an address silently did nothing.
+    // Updated for the new String? signature (null = success, non-null
+    // = specific error message to show).
+    final String? errorMessage = await _addressService.addAddress(result);
 
     if (!mounted) return;
 
-    if (!ok) {
+    if (errorMessage != null) {
       setState(() => _isSavingAddress = false);
       ScaffoldMessenger.of(context).showSnackBar(
-        const SnackBar(
-          content: Text('Could not save address. Please try again.'),
-          backgroundColor: Colors.black,
-        ),
+        SnackBar(content: Text(errorMessage), backgroundColor: Colors.black),
       );
       return;
     }

@@ -141,11 +141,13 @@ RealtimeChannel subscribeToNewFeedback(int productId, void Function() onInsert) 
   // ================================================
   Future<List<ReviewModel>> fetchProductReviews(int productId) async {
     try {
+      // Status-based hiding removed — every review a customer wrote
+      // for this product is shown, regardless of the (now unused)
+      // status column's value.
       final List<dynamic> response = await _supabase
           .from('feedback')
           .select(_selectWithJoins)
           .eq('product_id', productId)
-          .eq('status', 'Visible')
           .order('created_at', ascending: false);
 
       return response
@@ -432,11 +434,12 @@ RealtimeChannel subscribeToNewFeedback(int productId, void Function() onInsert) 
   Future<({double average, int count})> fetchProductRatingStats(
       int productId) async {
     try {
+          // Same removal as fetchProductReviews — every rating counts
+      // toward the average now, not just ones marked Visible.
       final List<dynamic> rows = await _supabase
           .from('feedback')
           .select('rating')
-          .eq('product_id', productId)
-          .eq('status', 'Visible');
+          .eq('product_id', productId);
 
       if (rows.isEmpty) return (average: 0.0, count: 0);
 

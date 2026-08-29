@@ -20,6 +20,16 @@
 // they come from the users table and are passed
 // in separately for display purposes only.
 // ================================================
+// FIX #22: sentinel used by copyWith below so it can distinguish
+// "this parameter wasn't passed, leave the field unchanged" from
+// "this parameter was explicitly passed as null, clear the field" —
+// the plain `lat ?? this.lat` pattern couldn't tell those apart.
+class _Unset {
+  const _Unset();
+}
+
+const Object _unset = _Unset();
+
 class CustomerAddress {
   final String id;
   final String street;
@@ -33,6 +43,13 @@ class CustomerAddress {
   final double? lat;
   final double? lng;
 
+  // NEW — official PSGC codes, captured once the Region/Province/
+  // City/Barangay fields become dropdowns instead of free text.
+  // Nullable: older addresses saved before this feature won't have
+  // them, and that must not break reading/displaying those rows.
+  final String? cityPsgcCode;
+  final String? barangayPsgcCode;
+
   const CustomerAddress({
     required this.id,
     required this.street,
@@ -45,8 +62,9 @@ class CustomerAddress {
     this.isDefault = false,
     this.lat,
     this.lng,
+    this.cityPsgcCode,
+    this.barangayPsgcCode,
   });
-
   /// True once this address has coordinates and can be used
   /// for a Lalamove quotation. Check this before calling
   /// get-delivery-quote at checkout.
@@ -60,7 +78,7 @@ class CustomerAddress {
     return parts.join(', ');
   }
 
-  CustomerAddress copyWith({
+    CustomerAddress copyWith({
     String? id,
     String? street,
     String? barangay,
@@ -70,8 +88,14 @@ class CustomerAddress {
     String? zipCode,
     String? landmark,
     bool? isDefault,
-    double? lat,
-    double? lng,
+    // FIX #22: lat/lng default to the _unset sentinel instead of
+    // null, so copyWith(lat: null) actually clears the field instead
+    // of silently keeping the old value. Same sentinel pattern
+    // applied to the two new PSGC code fields for the same reason.
+    Object? lat = _unset,
+    Object? lng = _unset,
+    Object? cityPsgcCode = _unset,
+    Object? barangayPsgcCode = _unset,
   }) {
     return CustomerAddress(
       id:        id        ?? this.id,
@@ -83,8 +107,14 @@ class CustomerAddress {
       zipCode:   zipCode   ?? this.zipCode,
       landmark:  landmark  ?? this.landmark,
       isDefault: isDefault ?? this.isDefault,
-      lat:       lat       ?? this.lat,
-      lng:       lng       ?? this.lng,
+      lat:       identical(lat, _unset) ? this.lat : lat as double?,
+      lng:       identical(lng, _unset) ? this.lng : lng as double?,
+      cityPsgcCode: identical(cityPsgcCode, _unset)
+          ? this.cityPsgcCode
+          : cityPsgcCode as String?,
+      barangayPsgcCode: identical(barangayPsgcCode, _unset)
+          ? this.barangayPsgcCode
+          : barangayPsgcCode as String?,
     );
   }
 
@@ -101,6 +131,8 @@ class CustomerAddress {
       isDefault: json['is_default'] as bool? ?? false,
       lat: (json['lat'] as num?)?.toDouble(),
       lng: (json['lng'] as num?)?.toDouble(),
+      cityPsgcCode: json['city_psgc_code'] as String?,
+      barangayPsgcCode: json['barangay_psgc_code'] as String?,
     );
   }
 
@@ -117,6 +149,8 @@ class CustomerAddress {
       'is_default': isDefault,
       'lat': lat,
       'lng': lng,
+      'city_psgc_code': cityPsgcCode,
+      'barangay_psgc_code': barangayPsgcCode,
     };
   }
 }

@@ -5,9 +5,11 @@ import '../../../widgets/common/buttons/search_bar.dart';
 import '../../../widgets/common/buttons/filter_button.dart';
 import '../../../widgets/common/buttons/filter_panel.dart';
 import '../../../widgets/common/buttons/export_button.dart';
+import '../../../widgets/admin/dashboard/stats_card.dart';
 import '../../../services/super/sales/sales_report_service.dart';
 import '../../../core/utils/csv_export_helper.dart';
 import '../../../core/utils/excel_export_helper.dart';
+import '../../../widgets/super/sales/full_product_sales_report_dialog.dart';
 
 // ================================================
 // SALES REPORT SCREEN
@@ -41,16 +43,78 @@ class _SalesReportScreenState extends ConsumerState<SalesReportScreen> {
   bool _isLoading = true;
   String? _errorMessage;
 
+  // ── Selected-month detail (Total Qty Sold, Top 5, View Details) ──
+  // Independent loading/error state from the table above — a failure
+  // here shouldn't block the existing table from showing, and vice
+  // versa.
+    DateTime? _selectedMonth;
+  MonthSalesDetail? _monthDetail;
+  bool _isLoadingMonthDetail = false;
+  String? _monthDetailError;
+
+  // Full picker scope — every month from the earliest order ever
+  // placed through the current month, regardless of whether that
+  // month has any qualifying sales. Loaded independently of
+  // _allReports, which only reflects months WITH sales.
+  List<DateTime> _availableMonths = [];
+
+  static const List<String> _monthNames = [
+    'Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun',
+    'Jul', 'Aug', 'Sep', 'Oct', 'Nov', 'Dec',
+  ];
+
+  String _formatMonthLabel(DateTime dt) =>
+      '${_monthNames[dt.month - 1]} ${dt.year}';
+
   @override
   void initState() {
     super.initState();
     _loadReports();
+    _loadAvailableMonths();
   }
 
-  @override
+  Future<void> _loadAvailableMonths() async {
+    final List<DateTime> months = await _reportService.getAvailableMonths();
+    if (!mounted) return;
+    setState(() => _availableMonths = months);
+
+    // Default to the most recent month in the FULL scope — not just
+    // the most recent month with sales — so a business owner opening
+    // the report always starts on "now," even if this month has
+    // nothing sold yet.
+    if (_selectedMonth == null && months.isNotEmpty) {
+      _onMonthChanged(months.first);
+    }
+  }
+    @override
   void dispose() {
     _searchController.dispose();
     super.dispose();
+  }
+
+  Future<void> _onMonthChanged(DateTime month) async {
+    setState(() {
+      _selectedMonth = month;
+      _isLoadingMonthDetail = true;
+      _monthDetailError = null;
+    });
+
+    try {
+      final MonthSalesDetail detail =
+          await _reportService.getMonthSalesDetail(month);
+      if (!mounted) return;
+      setState(() {
+        _monthDetail = detail;
+        _isLoadingMonthDetail = false;
+      });
+    } catch (e) {
+      print('SalesReportScreen._onMonthChanged error: $e');
+      if (!mounted) return;
+      setState(() {
+        _isLoadingMonthDetail = false;
+        _monthDetailError = 'Failed to load data for this month.';
+      });
+    }
   }
 
   // ================================================
@@ -62,22 +126,17 @@ class _SalesReportScreenState extends ConsumerState<SalesReportScreen> {
       _errorMessage = null;
     });
 
-    try {
+        try {
       final List<MonthlyReport> reports =
           await _reportService.getMonthlyReports();
 
-      setState(() {
+           setState(() {
         _allReports = reports;
         _isLoading = false;
       });
       _applyFilters();
     } catch (e) {
-      setState(() {
-        _errorMessage = 'Failed to load sales report. Please try again.';
-        _isLoading = false;
-      });
-      print('SalesReportScreen._loadReports error: $e');
-    }
+  }
   }
 
   // ================================================
@@ -286,20 +345,375 @@ class _SalesReportScreenState extends ConsumerState<SalesReportScreen> {
   // ================================================
   // BUILD
   // ================================================
+    // ================================================
+  // MONTH DETAIL SECTION — period selector, key metrics,
+  // Top 5, view details
+  // ================================================
+  Widget _buildMonthDetailSection() {
+    return Container(
+      width: double.infinity,
+      padding: const EdgeInsets.all(24),
+      decoration: BoxDecoration(
+        color: Colors.white,
+        borderRadius: BorderRadius.circular(12),
+        border: Border.all(color: const Color(0xFFE5E7EB)),
+      ),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          // ── Period selector ──
+          Row(
+            children: [
+              const Text(
+                'Monthly Performance',
+                style: TextStyle(
+                  fontSize: 16,
+                  fontWeight: FontWeight.bold,
+                  color: Color(0xFF111827),
+                ),
+              ),
+              const Spacer(),
+              if (_availableMonths.isNotEmpty)
+                Container(
+                  padding: const EdgeInsets.symmetric(horizontal: 12),
+                  decoration: BoxDecoration(
+                    color: const Color(0xFFF9FAFB),
+                    borderRadius: BorderRadius.circular(8),
+                    border: Border.all(color: const Color(0xFFE5E7EB)),
+                  ),
+                  child: DropdownButtonHideUnderline(
+                    child: DropdownButton<DateTime>(
+                      value: _selectedMonth,
+                      items: _availableMonths.map((DateTime m) {
+                        return DropdownMenuItem<DateTime>(
+                          value: m,
+                          child: Text(
+                            _formatMonthLabel(m),
+                            style: const TextStyle(
+                                fontSize: 13, color: Color(0xFF111827)),
+                          ),
+                        );
+                      }).toList(),
+                      onChanged: (DateTime? month) {
+                        if (month != null) _onMonthChanged(month);
+                      },
+                    ),
+                  ),
+                ),
+            ],
+          ),
+          const SizedBox(height: 20),
+
+          if (_isLoadingMonthDetail)            const Padding(
+              padding: EdgeInsets.symmetric(vertical: 32),
+              child: Center(child: CircularProgressIndicator()),
+            )
+          else if (_monthDetailError != null)
+            Padding(
+              padding: const EdgeInsets.symmetric(vertical: 24),
+              child: Column(
+                children: [
+                  Text(_monthDetailError!,
+                      style: const TextStyle(
+                          fontSize: 13, color: Color(0xFF6B7280))),
+                  const SizedBox(height: 8),
+                  TextButton(
+                    onPressed: () => _selectedMonth != null
+                        ? _onMonthChanged(_selectedMonth!)
+                        : null,
+                    child: const Text('Retry'),
+                  ),
+                ],
+              ),
+            )
+                  else if (_monthDetail == null)
+            const Padding(
+              padding: EdgeInsets.symmetric(vertical: 24),
+              child: Text(
+                'No sales data available yet.',
+                style: TextStyle(fontSize: 13, color: Color(0xFF6B7280)),
+              ),
+            )
+          else ...[
+            _buildMonthMetrics(_monthDetail!),
+            const SizedBox(height: 24),
+            _buildTopProductsSection(_monthDetail!),
+          ],
+        ],
+      ),
+    );
+  }
+
+  Widget _buildMonthMetrics(MonthSalesDetail detail) {
+    return LayoutBuilder(builder: (context, constraints) {
+      final bool isNarrow = constraints.maxWidth < 720;
+      final List<Widget> cards = [
+        _buildMetricCard(
+          icon: Icons.payments_outlined,
+          iconBg: const Color(0xFFDCFCE7),
+          iconColor: const Color(0xFF16A34A),
+          title: 'Total Sales',
+          valueText: _formatCurrency(detail.totalSales),
+        ),
+        _buildMetricCard(
+          icon: Icons.receipt_long_outlined,
+          iconBg: const Color(0xFFDBEAFE),
+          iconColor: const Color(0xFF2563EB),
+          title: 'Total Orders',
+          valueText: detail.totalOrders.toString(),
+        ),
+        _buildMetricCard(
+          icon: Icons.inventory_2_outlined,
+          iconBg: const Color(0xFFFEF3C7),
+          iconColor: const Color(0xFFD97706),
+          title: 'Total Quantity Sold',
+          valueText: detail.totalQuantitySold.toString(),
+        ),
+      ];
+
+      if (isNarrow) {
+        return Column(
+          children: cards
+              .map((c) => Padding(
+                    padding: const EdgeInsets.only(bottom: 12),
+                    child: c,
+                  ))
+              .toList(),
+        );
+      }
+
+      // IntrinsicHeight forces every card in the Row to match the
+      // tallest one — with all three now built from the same local
+      // widget and no "View details" link, they're naturally equal
+      // height anyway, but this keeps them locked together even if
+      // a title ever wraps to two lines on a narrower desktop width.
+      return IntrinsicHeight(
+        child: Row(
+          crossAxisAlignment: CrossAxisAlignment.stretch,
+          children: cards
+              .map((c) => Expanded(
+                    child: Padding(
+                      padding: const EdgeInsets.only(right: 12),
+                      child: c,
+                    ),
+                  ))
+              .toList(),
+        ),
+      );
+    });
+  }
+
+  Widget _buildMetricCard({
+    required IconData icon,
+    required Color iconBg,
+    required Color iconColor,
+    required String title,
+    required String valueText,
+  }) {
+    return Container(
+      padding: const EdgeInsets.all(20),
+      decoration: BoxDecoration(
+        color: Colors.white,
+        borderRadius: BorderRadius.circular(12),
+        border: Border.all(color: const Color(0xFFE5E7EB)),
+      ),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          Row(
+            children: [
+              Container(
+                width: 40,
+                height: 40,
+                decoration: BoxDecoration(
+                  color: iconBg,
+                  borderRadius: BorderRadius.circular(10),
+                ),
+                child: Icon(icon, size: 20, color: iconColor),
+              ),
+              const SizedBox(width: 12),
+              Expanded(
+                child: Text(
+                  title,
+                  style: const TextStyle(
+                    fontSize: 13,
+                    fontWeight: FontWeight.w500,
+                    color: Color(0xFF6B7280),
+                  ),
+                ),
+              ),
+            ],
+          ),
+          const SizedBox(height: 16),
+          Text(
+            valueText,
+            style: const TextStyle(
+              fontSize: 32,
+              fontWeight: FontWeight.bold,
+              color: Color(0xFF111827),
+            ),
+          ),
+        ],
+      ),
+    );
+  }
+
+  Widget _buildTopProductsSection(MonthSalesDetail detail) {
+    final List<ProductSalesEntry> top5 = detail.products.take(5).toList();
+
+    return Column(
+      crossAxisAlignment: CrossAxisAlignment.start,
+      children: [
+        const Text(
+          'Top 5 Best-Selling Products',
+          style: TextStyle(
+            fontSize: 15,
+            fontWeight: FontWeight.w600,
+            color: Color(0xFF111827),
+          ),
+        ),
+        const SizedBox(height: 12),
+        if (top5.isEmpty)
+          Container(
+            width: double.infinity,
+            padding: const EdgeInsets.symmetric(vertical: 24),
+            alignment: Alignment.center,
+            decoration: BoxDecoration(
+              color: const Color(0xFFF9FAFB),
+              borderRadius: BorderRadius.circular(8),
+            ),
+            child: const Text(
+              'No products were sold this month.',
+              style: TextStyle(fontSize: 13, color: Color(0xFF6B7280)),
+            ),
+          )
+        else
+          ...top5.asMap().entries.map((entry) {
+            final int index = entry.key;
+            final ProductSalesEntry p = entry.value;
+            return Container(
+              margin: const EdgeInsets.only(bottom: 8),
+              padding: const EdgeInsets.all(12),
+              decoration: BoxDecoration(
+                color: const Color(0xFFF9FAFB),
+                borderRadius: BorderRadius.circular(8),
+                border: Border.all(color: const Color(0xFFE5E7EB)),
+              ),
+              child: Row(
+                children: [
+                  Container(
+                    width: 28,
+                    height: 28,
+                    alignment: Alignment.center,
+                    decoration: BoxDecoration(
+                      color: const Color(0xFF111827),
+                      borderRadius: BorderRadius.circular(6),
+                    ),
+                    child: Text(
+                      '#${index + 1}',
+                      style: const TextStyle(
+                          fontSize: 12,
+                          fontWeight: FontWeight.bold,
+                          color: Colors.white),
+                    ),
+                  ),
+                  const SizedBox(width: 12),
+                  Container(
+                    width: 44,
+                    height: 44,
+                    decoration: BoxDecoration(
+                      color: const Color(0xFFE5E7EB),
+                      borderRadius: BorderRadius.circular(6),
+                    ),
+                    child: p.imageUrl != null && p.imageUrl!.isNotEmpty
+                        ? ClipRRect(
+                            borderRadius: BorderRadius.circular(6),
+                            child: Image.network(
+                              p.imageUrl!,
+                              fit: BoxFit.cover,
+                              errorBuilder: (_, __, ___) => const Icon(
+                                  Icons.image_outlined,
+                                  size: 18,
+                                  color: Color(0xFF9CA3AF)),
+                            ),
+                          )
+                        : const Icon(Icons.image_outlined,
+                            size: 18, color: Color(0xFF9CA3AF)),
+                  ),
+                  const SizedBox(width: 12),
+                  Expanded(
+                    child: Text(
+                      p.productName,
+                      style: const TextStyle(
+                          fontSize: 13,
+                          fontWeight: FontWeight.w500,
+                          color: Color(0xFF111827)),
+                    ),
+                  ),
+                  Text(
+                    '${p.quantitySold} items sold',
+                    style: const TextStyle(
+                        fontSize: 12, color: Color(0xFF6B7280)),
+                  ),
+                  const SizedBox(width: 16),
+                  SizedBox(
+                    width: 90,
+                    child: Text(
+                      _formatCurrency(p.salesAmount),
+                      textAlign: TextAlign.right,
+                      style: const TextStyle(
+                          fontSize: 13,
+                          fontWeight: FontWeight.w600,
+                          color: Color(0xFF111827)),
+                    ),
+                  ),
+                ],
+              ),
+            );
+          }),
+        const SizedBox(height: 12),
+        Align(
+          alignment: Alignment.centerLeft,
+          child: OutlinedButton(
+            onPressed: detail.products.isEmpty || _selectedMonth == null
+                ? null
+                : () => showFullProductSalesReport(
+                      context: context,
+                      monthLabel: _formatMonthLabel(_selectedMonth!),
+                      products: detail.products,
+                    ),
+            style: OutlinedButton.styleFrom(
+              foregroundColor: const Color(0xFF374151),
+              side: const BorderSide(color: Color(0xFFD1D5DB)),
+              padding:
+                  const EdgeInsets.symmetric(horizontal: 16, vertical: 10),
+              shape:
+                  RoundedRectangleBorder(borderRadius: BorderRadius.circular(6)),
+            ),
+            child: const Text('View Full Product Sales Report',
+                style: TextStyle(fontSize: 12, fontWeight: FontWeight.w500)),
+          ),
+        ),
+      ],
+    );
+  }
+
+  // ================================================
+  // BUILD
+  // ================================================
   @override
   Widget build(BuildContext context) {
-    return Scaffold(
+     return Scaffold(
       backgroundColor: const Color(0xFFF8F9FA),
       body: GestureDetector(
         onTap: () {
           if (_showFilterPanel) setState(() => _showFilterPanel = false);
         },
-        child: Padding(
+        child: SingleChildScrollView(
           padding: const EdgeInsets.all(32),
           child: Column(
             crossAxisAlignment: CrossAxisAlignment.start,
             children: [
-
               const Text(
                 'Sales Report',
                 style: TextStyle(
@@ -308,13 +722,30 @@ class _SalesReportScreenState extends ConsumerState<SalesReportScreen> {
                   color: Color(0xFF111827),
                 ),
               ),
-              const SizedBox(height: 4),
+                           const SizedBox(height: 4),
               const Text(
                 'Financial overview and detailed monthly performance.',
                 style: TextStyle(fontSize: 13, color: Color(0xFF9CA3AF)),
               ),
 
               const SizedBox(height: 24),
+
+              // ── Selected-month deep-dive: period → key metrics →
+              // Top 5 → view details. The existing all-months table
+              // below is untouched — this section filters nothing on
+              // it, it's a separate, focused view. ──
+              _buildMonthDetailSection(),
+
+              const SizedBox(height: 32),
+              const Text(
+                'All Months',
+                style: TextStyle(
+                  fontSize: 16,
+                  fontWeight: FontWeight.bold,
+                  color: Color(0xFF111827),
+                ),
+              ),
+              const SizedBox(height: 16),
 
               Row(
                 crossAxisAlignment: CrossAxisAlignment.center,
@@ -364,55 +795,61 @@ class _SalesReportScreenState extends ConsumerState<SalesReportScreen> {
                 ],
               ),
 
-              const SizedBox(height: 16),
+                           const SizedBox(height: 16),
 
-              Expanded(
-                child: _isLoading
-                    ? const Center(child: CircularProgressIndicator())
-                    : _errorMessage != null
-                        ? Center(
-                            child: Column(
-                              mainAxisSize: MainAxisSize.min,
-                              children: [
-                                Text(
-                                  _errorMessage!,
-                                  style: const TextStyle(
-                                    fontSize: 14,
-                                    color: Color(0xFF6B7280),
-                                  ),
-                                ),
-                                const SizedBox(height: 12),
-                                ElevatedButton(
-                                  onPressed: _loadReports,
-                                  child: const Text('Retry'),
-                                ),
-                              ],
-                            ),
-                          )
-                        : _filteredReports.isEmpty
-                            ? const Center(
-                                child: Text(
-                                  'No sales data available yet.',
-                                  style: TextStyle(
-                                    fontSize: 14,
-                                    color: Color(0xFF6B7280),
-                                  ),
-                                ),
-                              )
-                            : SingleChildScrollView(
-                                child: CommonTable(
-                                  headers: const [
-                                    'Month',
-                                    'Total Sales',
-                                    'COGS',
-                                    'Gross Profit',
-                                    'Best Seller',
-                                    'Growth %',
-                                  ],
-                                  rows: _buildRows(),
-                                ),
-                              ),
-              ),
+              if (_isLoading)
+                const Padding(
+                  padding: EdgeInsets.symmetric(vertical: 48),
+                  child: Center(child: CircularProgressIndicator()),
+                )
+              else if (_errorMessage != null)
+                Padding(
+                  padding: const EdgeInsets.symmetric(vertical: 48),
+                  child: Center(
+                    child: Column(
+                      mainAxisSize: MainAxisSize.min,
+                      children: [
+                        Text(
+                          _errorMessage!,
+                          style: const TextStyle(
+                            fontSize: 14,
+                            color: Color(0xFF6B7280),
+                          ),
+                        ),
+                        const SizedBox(height: 12),
+                        ElevatedButton(
+                          onPressed: _loadReports,
+                          child: const Text('Retry'),
+                        ),
+                      ],
+                    ),
+                  ),
+                )
+              else if (_filteredReports.isEmpty)
+                const Padding(
+                  padding: EdgeInsets.symmetric(vertical: 48),
+                  child: Center(
+                    child: Text(
+                      'No sales data available yet.',
+                      style: TextStyle(
+                        fontSize: 14,
+                        color: Color(0xFF6B7280),
+                      ),
+                    ),
+                  ),
+                )
+              else
+                CommonTable(
+                  headers: const [
+                    'Month',
+                    'Total Sales',
+                    'COGS',
+                    'Gross Profit',
+                    'Best Seller',
+                    'Growth %',
+                  ],
+                  rows: _buildRows(),
+                ),
             ],
           ),
         ),

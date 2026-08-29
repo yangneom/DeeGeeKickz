@@ -24,7 +24,7 @@ class FeedbackDetailsDialog extends StatefulWidget {
   final Map<String, dynamic> feedback;
 
   // Now async — delegates real save to the provider via FeedbackScreen
-  final Future<void> Function(String newStatus, String adminReply) onSave;
+  final Future<void> Function(String adminReply) onSave;
 
   const FeedbackDetailsDialog({
     super.key,
@@ -38,16 +38,11 @@ class FeedbackDetailsDialog extends StatefulWidget {
 
 class _FeedbackDetailsDialogState extends State<FeedbackDetailsDialog> {
   final TextEditingController _replyController = TextEditingController();
-  String? _selectedStatus;
   bool _saving = false;
-
-  // Hidden status now included
-  final List<String> _statusOptions = ['Visible', 'Flagged', 'Hidden'];
 
   @override
   void initState() {
     super.initState();
-    _selectedStatus = widget.feedback['status'];
     // Reply field starts empty — this composes a NEW reply appended
     // to the thread below, it no longer prefills/overwrites the last one.
 
@@ -67,84 +62,24 @@ class _FeedbackDetailsDialogState extends State<FeedbackDetailsDialog> {
     super.dispose();
   }
 
-  Map<String, Color> _getBadgeColors(String status) {
-    if (status == 'Flagged') {
-      return {
-        'bg':     const Color(0xFFFEE2E2),
-        'text':   const Color(0xFFDC2626),
-        'border': const Color(0xFFFCA5A5),
-      };
-    }
-    if (status == 'Hidden') {
-      return {
-        'bg':     const Color(0xFFF3F4F6),
-        'text':   const Color(0xFF6B7280),
-        'border': const Color(0xFFD1D5DB),
-      };
-    }
-    return {
-      'bg':     const Color(0xFFEFF6FF),
-      'text':   const Color(0xFF2563EB),
-      'border': const Color(0xFFBFDBFE),
-    };
-  }
-
   Future<void> _handleSave() async {
-    final String currentStatus = widget.feedback['status'] as String;
-    final String newReply      = _replyController.text.trim();
-    final bool   statusChanged = _selectedStatus != currentStatus;
+    final String newReply = _replyController.text.trim();
 
     // Defensive no-op guard — the Save button is disabled in this state
     // already, but this protects against any other call path.
-    if (!statusChanged && newReply.isEmpty) {
+    if (newReply.isEmpty) {
       Navigator.pop(context);
       return;
     }
 
-    // ── Confirm status change ──
-    if (statusChanged) {
-      String title        = '';
-      String message      = '';
-      Color  confirmColor = const Color(0xFF2563EB);
-
-      if (_selectedStatus == 'Flagged') {
-        title        = 'Flag this feedback?';
-        message      = 'This will mark the comment as flagged and remove it from public view.';
-        confirmColor = const Color(0xFFDC2626);
-      } else if (_selectedStatus == 'Hidden') {
-        title        = 'Hide this feedback?';
-        message      = 'This feedback will be hidden from customers and will not appear publicly.';
-        confirmColor = const Color(0xFF6B7280);
-      } else if (_selectedStatus == 'Visible') {
-        title        = 'Make this feedback visible?';
-        message      = 'This feedback will be shown publicly to all customers.';
-        confirmColor = const Color(0xFF16A34A);
-      }
-
-      final bool? confirmed = await showConfirmDialog(
-        context:      context,
-        title:        title,
-        message:      message,
-        confirmLabel: 'Confirm',
-        confirmColor: confirmColor,
-      );
-      if (confirmed != true) return;
-    }
-
-    // ── Save via callback (async Supabase call in FeedbackScreen) ──
     setState(() => _saving = true);
-
-    await widget.onSave(
-      _selectedStatus ?? currentStatus,
-      newReply,
-    );
+    await widget.onSave(newReply);
 
     if (mounted) {
       setState(() => _saving = false);
       Navigator.pop(context);
     }
   }
-
   Widget _buildStarRating(int rating) {
     return Row(
       mainAxisSize: MainAxisSize.min,
@@ -165,9 +100,6 @@ class _FeedbackDetailsDialogState extends State<FeedbackDetailsDialog> {
     final double screenHeight = MediaQuery.of(context).size.height;
     final double screenWidth  = MediaQuery.of(context).size.width;
 
-    final String currentStatus = widget.feedback['status'] as String;
-    final Map<String, Color> badgeColors = _getBadgeColors(currentStatus);
-
     // FIX #1: guard against empty customerName instead of blindly
     // calling substring(0, 1) — mirrors the guard already used in
     // _FeedbackCard in feedback_screen.dart.
@@ -175,8 +107,7 @@ class _FeedbackDetailsDialogState extends State<FeedbackDetailsDialog> {
 
     // FIX #3 (papercut): Save Reply is only actionable when something
     // has actually changed — a different status, or new reply text.
-    final bool hasChanges =
-        _selectedStatus != currentStatus || _replyController.text.trim().isNotEmpty;
+    final bool hasChanges = _replyController.text.trim().isNotEmpty;
 
     return Dialog(
       insetPadding:    EdgeInsets.zero,
@@ -194,7 +125,6 @@ class _FeedbackDetailsDialogState extends State<FeedbackDetailsDialog> {
           mainAxisSize:      MainAxisSize.max,
           crossAxisAlignment: CrossAxisAlignment.start,
           children: [
-
             // ── FIXED HEADER — UNCHANGED ──
             Padding(
               padding: const EdgeInsets.fromLTRB(24, 24, 24, 0),
@@ -253,25 +183,8 @@ class _FeedbackDetailsDialogState extends State<FeedbackDetailsDialog> {
                           ],
                         ),
                       ),
-                      Container(
-                        padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 4),
-                        decoration: BoxDecoration(
-                          color:        badgeColors['bg'],
-                          borderRadius: BorderRadius.circular(20),
-                          border:       Border.all(color: badgeColors['border']!),
-                        ),
-                        child: Text(
-                          currentStatus,
-                          style: TextStyle(
-                            fontSize: 12,
-                            fontWeight: FontWeight.w500,
-                            color: badgeColors['text'],
-                          ),
-                        ),
-                      ),
                     ],
-                  ),
-                  const SizedBox(height: 20),
+                  ),                  const SizedBox(height: 20),
                   const Divider(color: Color(0xFFE5E7EB), height: 1),
                 ],
               ),
@@ -325,30 +238,7 @@ class _FeedbackDetailsDialogState extends State<FeedbackDetailsDialog> {
                           const [],
                     ),
 
-                    const Text('Status', style: TextStyle(fontSize: 13, fontWeight: FontWeight.w600, color: Color(0xFF374151))),
-                    const SizedBox(height: 8),
-                    DropdownButtonFormField<String>(
-                      value: _selectedStatus,
-                      hint: const Text('Select Status', style: TextStyle(fontSize: 13, color: Color(0xFF9CA3AF))),
-                      style: const TextStyle(fontSize: 13, color: Color(0xFF374151)),
-                      decoration: InputDecoration(
-                        filled:    true,
-                        fillColor: const Color(0xFFF9FAFB),
-                        border:       OutlineInputBorder(borderRadius: BorderRadius.circular(8), borderSide: const BorderSide(color: Color(0xFFD1D5DB))),
-                        enabledBorder: OutlineInputBorder(borderRadius: BorderRadius.circular(8), borderSide: const BorderSide(color: Color(0xFFD1D5DB))),
-                        focusedBorder: OutlineInputBorder(borderRadius: BorderRadius.circular(8), borderSide: const BorderSide(color: Color(0xFF2563EB))),
-                        contentPadding: const EdgeInsets.symmetric(horizontal: 12, vertical: 12),
-                      ),
-                      items: _statusOptions.map((String status) {
-                        return DropdownMenuItem<String>(value: status, child: Text(status));
-                      }).toList(),
-                      onChanged: (String? value) {
-                        setState(() => _selectedStatus = value);
-                      },
-                    ),
-                    const SizedBox(height: 16),
-
-                  Text(
+                     Text(
                       'Reply Thread'
                       '${(widget.feedback['replies'] as List<FeedbackReply>).isEmpty ? '' : ' (${(widget.feedback['replies'] as List<FeedbackReply>).length})'}',
                       style: const TextStyle(fontSize: 13, fontWeight: FontWeight.w600, color: Color(0xFF374151)),
