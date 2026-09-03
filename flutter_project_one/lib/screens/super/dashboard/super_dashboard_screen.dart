@@ -52,6 +52,7 @@ class _SuperDashboardScreenState
   List<Map<String, dynamic>> _trendingShoes = [];
   List<Map<String, dynamic>> _restockItems = [];
   List<Map<String, dynamic>> _replacements = [];
+   List<String> _availableBrands = [];   // ← new
 
   // Brand colors — cycled if there are more brands than colors
   static const List<Color> _brandPalette = [
@@ -236,15 +237,13 @@ class _SuperDashboardScreenState
             'brand': p.brand,
           }).toList();
 
-      final availableBrands = archivedProducts.map((p) => p.brand).toSet().toList();
-
+            final availableBrands = archivedProducts.map((p) => p.brand).toSet().toList();
       final replacements = targets.isEmpty
           ? <Map<String, dynamic>>[]
           : await _groqService.getProductReplacements(
               discontinuedProducts: targets,
               availableBrands: availableBrands,
             );
-
       if (mounted) {
         setState(() {
           _replacements = replacements.map((r) => {
@@ -252,6 +251,7 @@ class _SuperDashboardScreenState
                 'recommendedReplacement': r['recommendedReplacement'],
                 'brand': r['brand'],
               }).toList();
+          _availableBrands = availableBrands;
           _isReplacementLoading = false;
         });
       }
@@ -411,9 +411,10 @@ class _SuperDashboardScreenState
                     ),
                   ),
                   const SizedBox(width: 16),
-                  Expanded(
+                    Expanded(
                     child: ProductReplacementCard(
                       replacements: _replacements,
+                      availableBrands: _availableBrands,
                       isLoading: _isReplacementLoading,
                     ),
                   ),

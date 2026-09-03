@@ -48,8 +48,28 @@ class CheckoutStep3Payment extends StatefulWidget {
 class _CheckoutStep3PaymentState
     extends State<CheckoutStep3Payment> {
   bool _isProcessing = false;
+  bool _placeOrderInFlight = false;
 
   Future<void> _handlePlaceOrder() async {
+    // Synchronous guard, checked BEFORE the confirm dialog even opens.
+    // _isProcessing alone wasn't enough — it only gets set true AFTER
+    // the dialog resolves, leaving a real window where rapid taps each
+    // independently start their own call and each place a real order.
+    if (_placeOrderInFlight) return;
+    _placeOrderInFlight = true;
+
+    try {
+      await _placeOrderInternal();
+    } finally {
+      // BOTH flags reset here — _placeOrderInFlight was previously
+      // never reset, meaning every attempt after the very first one
+      // on this screen instance silently did nothing at all.
+      _placeOrderInFlight = false;
+      if (mounted) setState(() => _isProcessing = false);
+    }
+  }
+
+  Future<void> _placeOrderInternal() async {
     final bool? confirmed = await showConfirmDialog(
       context:      context,
       title:        'Place this order?',
@@ -140,20 +160,37 @@ class _CheckoutStep3PaymentState
     }
   }
 
+  // ================================================
+  // SAFE SNACKBAR
+  // Best-effort only — a courtesy toast must never be allowed to
+  // throw and abort whatever comes after it (confirmed in testing:
+  // the order succeeded, but a crash here repeatedly prevented
+  // navigation to Order History right after, on every single order).
+  // ================================================
+  void _showSafeSnackBar(String message, {Color? backgroundColor, Duration? duration}) {
+    try {
+      final BuildContext? ctx = appNavigatorKey.currentContext;
+      if (ctx == null || !ctx.mounted) return;
+      ScaffoldMessenger.of(ctx).showSnackBar(
+        SnackBar(
+          content: Text(message),
+          backgroundColor: backgroundColor,
+          duration: duration ?? const Duration(seconds: 4),
+        ),
+      );
+    } catch (e) {
+      print('_showSafeSnackBar error (non-critical): $e');
+    }
+  }
+
   Future<void> _handleCod(int orderId) async {
     await PaymentService().setCodPending(orderId: orderId);
 
-    ScaffoldMessenger.of(appNavigatorKey.currentContext!).showSnackBar(
-      const SnackBar(
-        content: Text(
-          'Order placed! Admin will verify your address '
-          'and confirm your order.',
-        ),
-        duration: Duration(seconds: 4),
-      ),
-    );
-
     _goToOrderHistory();
+
+    _showSafeSnackBar(
+      'Order placed! Admin will verify your address and confirm your order.',
+    );
   }
 
   Future<void> _handleGcash(int orderId) async {
@@ -165,23 +202,22 @@ class _CheckoutStep3PaymentState
     );
 
     final Uri url = Uri.parse(result.checkoutUrl);
-    if (!await launchUrl(url, mode: LaunchMode.externalApplication)) {
+    if (!await launchUrl(
+      url,
+      mode: LaunchMode.platformDefault,
+      webOnlyWindowName: '_self',
+    )) {
       throw PaymentGatewayException(
-        'Could not open GCash. Please make sure the GCash app is installed, or try again.',
+        'Could not open GCash. Please try again.',
       );
     }
 
-    ScaffoldMessenger.of(appNavigatorKey.currentContext!).showSnackBar(
-      const SnackBar(
-        content: Text(
-          'Complete your GCash payment. Your order will '
-          'appear once payment is confirmed.',
-        ),
-        duration: Duration(seconds: 5),
-      ),
-    );
-
     _goToOrderHistory();
+
+    _showSafeSnackBar(
+      'Complete your GCash payment. Your order will appear once payment is confirmed.',
+      duration: const Duration(seconds: 5),
+    );
   }
 
   Future<void> _handleCard(int orderId) async {
@@ -203,26 +239,25 @@ class _CheckoutStep3PaymentState
     );
 
     if (paid == true) {
-      ScaffoldMessenger.of(appNavigatorKey.currentContext!).showSnackBar(
-        const SnackBar(
-          content: Text(
-            'Payment successful! Your order is being '
-            'reviewed by our team.',
-          ),
-          backgroundColor: Color(0xFF16A34A),
-          duration:        Duration(seconds: 4),
-        ),
-      );
-
       _goToOrderHistory();
+
+      _showSafeSnackBar(
+        'Payment successful! Your order is being reviewed by our team.',
+        backgroundColor: const Color(0xFF16A34A),
+      );
     }
   }
 
   void _goToOrderHistory() {
-    appNavigatorKey.currentState?.pushAndRemoveUntil(
-      MaterialPageRoute(builder: (_) => const OrderHistoryScreen()),
-      (route) => route.isFirst,
-    );
+    // Deferred one frame — navigating away immediately in the same
+    // synchronous call as showSnackBar() tears down the Scaffold
+    // mid-animation, before the SnackBar has a chance to settle.
+    WidgetsBinding.instance.addPostFrameCallback((_) {
+      appNavigatorKey.currentState?.pushAndRemoveUntil(
+        MaterialPageRoute(builder: (_) => const OrderHistoryScreen()),
+        (route) => route.isFirst,
+      );
+    });
   }
 
   @override

@@ -15,10 +15,10 @@ class AiTrendingCard extends StatelessWidget {
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.start,
         children: [
-          Row(
+              Row(
             mainAxisAlignment: MainAxisAlignment.spaceBetween,
             children: [
-              DashboardTheme.cardTitle('AI Trending Shoes'),
+              DashboardTheme.cardTitle('Fast Moving'),
               DashboardTheme.aiBadge(),
             ],
           ),
@@ -30,6 +30,9 @@ class AiTrendingCard extends StatelessWidget {
           else if (trendingShoes.isEmpty)
             const SizedBox(height: 120, child: Center(child: Text('No trending data available', style: TextStyle(fontSize: 13, color: Color(0xFF9CA3AF)))))
           else
+            // Never scrollable — capped at 5 items server-side, so it
+            // always fits without needing a scroll container, unlike
+            // Restock/Product Replacement which have no upper bound.
             for (int i = 0; i < trendingShoes.length; i = i + 1)
               Container(
                 padding: const EdgeInsets.symmetric(vertical: 12),

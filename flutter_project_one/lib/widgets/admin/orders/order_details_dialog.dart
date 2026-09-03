@@ -49,6 +49,16 @@ class _OrderDetailsDialogState extends State<OrderDetailsDialog> {
   // NEW — true while create-delivery-order is running (Mark Shipped tap)
   bool                 _isBookingDelivery = false;
 
+  
+  // Tracks which button-action is currently running: 'reject',
+  // 'approve', 'preparing', or 'completed'. Mark Shipped keeps its
+  // own separate _isBookingDelivery flag above (already had one).
+  // While any action is running, ALL buttons in the group disable —
+  // this closes the same double-tap risk we found and fixed in
+  // checkout tonight (e.g. tapping Approve twice before the first
+  // request finishes).
+  String? _processingAction;
+
   Map<String, dynamic>? _cachedPayment;
   bool                 _paymentLoaded = false;
 
@@ -267,8 +277,31 @@ class _OrderDetailsDialogState extends State<OrderDetailsDialog> {
                 child: Column(
                   crossAxisAlignment: CrossAxisAlignment.start,
                   children: [
-                    _infoRow('Name', widget.order.customerName),
-                    const SizedBox(height: 8),
+                    if (widget.order.isCustomerSuspended) ...[
+                      Container(
+                        width: double.infinity,
+                        padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 10),
+                        margin: const EdgeInsets.only(bottom: 12),
+                        decoration: BoxDecoration(
+                          color: const Color(0xFFFEE2E2),
+                          borderRadius: BorderRadius.circular(6),
+                          border: Border.all(color: const Color(0xFFFCA5A5)),
+                        ),
+                        child: const Row(
+                          children: [
+                            Icon(Icons.warning_amber_rounded, size: 16, color: Color(0xFFDC2626)),
+                            SizedBox(width: 8),
+                            Expanded(
+                              child: Text(
+                                'This customer\'s account is currently suspended or banned.',
+                                style: TextStyle(fontSize: 12, fontWeight: FontWeight.w600, color: Color(0xFFDC2626)),
+                              ),
+                            ),
+                          ],
+                        ),
+                      ),
+                    ],
+                    _infoRow('Name', widget.order.customerName),                    const SizedBox(height: 8),
                     _infoRow('Contact', widget.order.contact.isNotEmpty
                         ? widget.order.contact
                         : '—'),
@@ -819,48 +852,59 @@ class _OrderDetailsDialogState extends State<OrderDetailsDialog> {
         // ── Reject + Approve (payment Pending only) ──────────────────
        if (_currentStatus == 'Pending') ...[
 
-          OutlinedButton(
-            onPressed: () {
-              showCancelReasonDialog(
-                context:      context,
-                title:        'Reject Order',
-                subtitle:     'Select a reason to reject this order',
-                confirmLabel: 'Reject Order',
-                confirmColor: const Color(0xFFEF4444),
-                onConfirm: (String reason) async {
-                  await PaymentService().rejectPayment(
-                    orderId: int.parse(widget.order.orderId),
-                    reason:  reason,
-                  );
-                  if (widget.order.contact.isNotEmpty) {
-                    await SmsService().sendOrderRejected(
-                      phone:   widget.order.contact,
-                      orderId: widget.order.orderId,
-                      reason:  reason,
+                    OutlinedButton(
+            onPressed: _processingAction != null
+                ? null
+                : () {
+                    showCancelReasonDialog(
+                      context:      context,
+                      title:        'Reject Order',
+                      subtitle:     'Select a reason to reject this order',
+                      confirmLabel: 'Reject Order',
+                      confirmColor: const Color(0xFFEF4444),
+                      onConfirm: (String reason) async {
+                        setState(() => _processingAction = 'reject');
+                        try {
+                          await PaymentService().rejectPayment(
+                            orderId: int.parse(widget.order.orderId),
+                            reason:  reason,
+                          );
+                          if (widget.order.contact.isNotEmpty) {
+                            await SmsService().sendOrderRejected(
+                              phone:   widget.order.contact,
+                              orderId: widget.order.orderId,
+                              reason:  reason,
+                            );
+                          }
+                          if (mounted) {
+                            setState(() {
+                              _currentStatus = 'Cancelled';
+                              _paymentStatus = 'Rejected';
+                              _cachedPayment = {...?_cachedPayment, 'payment_status': 'Rejected'};
+                            });
+                            widget.onStatusUpdated('Cancelled', 'Rejected');
+                          }
+                        } finally {
+                          if (mounted) setState(() => _processingAction = null);
+                        }
+                      },
                     );
-                  }
-                  if (mounted) {
-                    setState(() {
-                      _currentStatus = 'Cancelled';
-                      _paymentStatus = 'Rejected';
-                      _cachedPayment = {...?_cachedPayment, 'payment_status': 'Rejected'};
-                    });
-                    widget.onStatusUpdated('Cancelled', 'Rejected');
-                  }
-                },
-              );
-            },
+                  },
             style: OutlinedButton.styleFrom(
               foregroundColor: const Color(0xFFDC2626),
               side: const BorderSide(color: Color(0xFFDC2626)),
               padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 10),
               shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(6)),
             ),
-            child: const Text('Reject Order', style: TextStyle(fontSize: 13)),
+            child: _processingAction == 'reject'
+                ? const SizedBox(width: 14, height: 14, child: CircularProgressIndicator(strokeWidth: 2, color: Color(0xFFDC2626)))
+                : const Text('Reject Order', style: TextStyle(fontSize: 13)),
           ),
 
           ElevatedButton(
-            onPressed: () async {
+            onPressed: _processingAction != null
+                ? null
+                : () async {
               final bool? confirmed = await showConfirmDialog(
                 context:      context,
                 title:        'Approve this payment?',
@@ -870,74 +914,73 @@ class _OrderDetailsDialogState extends State<OrderDetailsDialog> {
               );
               if (confirmed != true) return;
 
-              try {
-                await PaymentService().approvePayment(
-                  orderId: int.parse(widget.order.orderId),
-                );
-              } on InsufficientStockException catch (stockErr) {
-                if (mounted) {
-                  ScaffoldMessenger.of(context).showSnackBar(
-                    SnackBar(
-                      content: Text(stockErr.message),
-                      backgroundColor: const Color(0xFFDC2626),
-                      duration: const Duration(seconds: 6),
-                    ),
-                  );
-                }
-                return;
-              } catch (e) {
-                if (mounted) {
-                  ScaffoldMessenger.of(context).showSnackBar(
-                    SnackBar(
-                      content: Text('Failed to approve payment: $e'),
-                      backgroundColor: const Color(0xFFDC2626),
-                    ),
-                  );
-                }
-                return;
-              }
+              setState(() => _processingAction = 'approve');
 
               try {
-                final Order confirmedOrder = Order(
-                  orderId:       widget.order.orderId,
-                  customerName:  widget.order.customerName,
-                  contact:       widget.order.contact,
-                  landmark:      widget.order.landmark,
-                  address:       widget.order.address,
-                  totalAmount:   widget.order.totalAmount,
-                  paymentMethod: widget.order.paymentMethod,
-                  paymentStatus: 'Paid',
-                  orderStatus:   'Confirmed',
-                  dateTime:      widget.order.dateTime,
-                  items:         widget.order.items,
-                  subtotal:        widget.order.subtotal,
-                  shipping:        widget.order.shipping,
-                  discountAmount:  widget.order.discountAmount,
-                );
-                await ReceiptPdfService().generateAndUpload(confirmedOrder);
-              } catch (receiptErr) {
-                // Silent/log-only — a receipt failure shouldn't block or
-                // alarm the admin over an already-successful approval.
-                // The payment is approved and the order is confirmed
-                // regardless; the receipt can be regenerated separately
-                // if needed. (Confirmed stable across this session's
-                // testing — cash, online/QR, and admin-approved orders
-                // all generated receipts correctly.)
-                print('Receipt generation failed: $receiptErr');
-              }
-              final String resultingPaymentStatus =
-                  _isCod ? (_paymentStatus ?? widget.order.paymentStatus) : 'Paid';
+                try {
+                  await PaymentService().approvePayment(
+                    orderId: int.parse(widget.order.orderId),
+                  );
+                } on InsufficientStockException catch (stockErr) {
+                  if (mounted) {
+                    ScaffoldMessenger.of(context).showSnackBar(
+                      SnackBar(
+                        content: Text(stockErr.message),
+                        backgroundColor: const Color(0xFFDC2626),
+                        duration: const Duration(seconds: 6),
+                      ),
+                    );
+                  }
+                  return;
+                } catch (e) {
+                  if (mounted) {
+                    ScaffoldMessenger.of(context).showSnackBar(
+                      SnackBar(
+                        content: Text('Failed to approve payment: $e'),
+                        backgroundColor: const Color(0xFFDC2626),
+                      ),
+                    );
+                  }
+                  return;
+                }
 
-              if (mounted) {
-                setState(() {
-                  _currentStatus = 'Confirmed';
-                  _paymentStatus = resultingPaymentStatus;
-                  _cachedPayment = {
-                    ...?_cachedPayment,
-                    'payment_status': resultingPaymentStatus,
-                  };
-                });
-                widget.onStatusUpdated('Confirmed', resultingPaymentStatus);
+                try {
+                  final Order confirmedOrder = Order(
+                    orderId:       widget.order.orderId,
+                    customerName:  widget.order.customerName,
+                    contact:       widget.order.contact,
+                    landmark:      widget.order.landmark,
+                    address:       widget.order.address,
+                    totalAmount:   widget.order.totalAmount,
+                    paymentMethod: widget.order.paymentMethod,
+                    paymentStatus: 'Paid',
+                    orderStatus:   'Confirmed',
+                    dateTime:      widget.order.dateTime,
+                    items:         widget.order.items,
+                    subtotal:        widget.order.subtotal,
+                    shipping:        widget.order.shipping,
+                    discountAmount:  widget.order.discountAmount,
+                  );
+                  await ReceiptPdfService().generateAndUpload(confirmedOrder);
+                } catch (receiptErr) {
+                  print('Receipt generation failed: $receiptErr');
+                }
+                final String resultingPaymentStatus =
+                    _isCod ? (_paymentStatus ?? widget.order.paymentStatus) : 'Paid';
+
+                if (mounted) {
+                  setState(() {
+                    _currentStatus = 'Confirmed';
+                    _paymentStatus = resultingPaymentStatus;
+                    _cachedPayment = {
+                      ...?_cachedPayment,
+                      'payment_status': resultingPaymentStatus,
+                    };
+                  });
+                  widget.onStatusUpdated('Confirmed', resultingPaymentStatus);
+                }
+              } finally {
+                if (mounted) setState(() => _processingAction = null);
               }
             },
             style: ElevatedButton.styleFrom(
@@ -947,14 +990,19 @@ class _OrderDetailsDialogState extends State<OrderDetailsDialog> {
               shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(6)),
               elevation: 0,
             ),
-            child: const Text('Approve Payment', style: TextStyle(fontSize: 13)),
+            child: _processingAction == 'approve'
+                ? const SizedBox(width: 14, height: 14, child: CircularProgressIndicator(strokeWidth: 2, color: Colors.white))
+                : const Text('Approve Payment', style: TextStyle(fontSize: 13)),
           ),
+          
         ],
 
         // ── Confirmed → Preparing ─────────────────────────────────────
         if (_currentStatus == 'Confirmed' && paidOrCod)
           ElevatedButton(
-            onPressed: () async {
+            onPressed: _processingAction != null
+                ? null
+                : () async {
               final bool? confirmed = await showConfirmDialog(
                 context:      context,
                 title:        'Mark as Preparing?',
@@ -964,14 +1012,19 @@ class _OrderDetailsDialogState extends State<OrderDetailsDialog> {
               );
               if (confirmed != true) return;
 
-              await _orderService.updateOrderStatus(
-                orderId:   int.parse(widget.order.orderId),
-                status:    'Preparing',
-                adminNote: null,
-              );
-              if (mounted) {
-                setState(() => _currentStatus = 'Preparing');
-                widget.onStatusUpdated('Preparing', _paymentStatus ?? widget.order.paymentStatus);
+              setState(() => _processingAction = 'preparing');
+              try {
+                await _orderService.updateOrderStatus(
+                  orderId:   int.parse(widget.order.orderId),
+                  status:    'Preparing',
+                  adminNote: null,
+                );
+                if (mounted) {
+                  setState(() => _currentStatus = 'Preparing');
+                  widget.onStatusUpdated('Preparing', _paymentStatus ?? widget.order.paymentStatus);
+                }
+              } finally {
+                if (mounted) setState(() => _processingAction = null);
               }
             },
             style: ElevatedButton.styleFrom(
@@ -981,9 +1034,10 @@ class _OrderDetailsDialogState extends State<OrderDetailsDialog> {
               shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(6)),
               elevation: 0,
             ),
-            child: const Text('Mark Preparing', style: TextStyle(fontSize: 13)),
+            child: _processingAction == 'preparing'
+                ? const SizedBox(width: 14, height: 14, child: CircularProgressIndicator(strokeWidth: 2, color: Colors.white))
+                : const Text('Mark Preparing', style: TextStyle(fontSize: 13)),
           ),
-
         // ── Preparing → Shipped ───────────────────────────────────────
         // NOW BOOKS LALAMOVE AUTOMATICALLY instead of requiring a
         // manually-typed link.
@@ -1120,8 +1174,10 @@ class _OrderDetailsDialogState extends State<OrderDetailsDialog> {
 
         // ── Shipped → Completed ───────────────────────────────────────
         if (_currentStatus == 'Shipped' && paidOrCod)
-          ElevatedButton(
-            onPressed: () async {
+                   ElevatedButton(
+            onPressed: _processingAction != null
+                ? null
+                : () async {
               final bool? confirmed = await showConfirmDialog(
                 context:      context,
                 title:        'Mark as Completed?',
@@ -1133,25 +1189,30 @@ class _OrderDetailsDialogState extends State<OrderDetailsDialog> {
               );
               if (confirmed != true) return;
 
-              await _orderService.updateOrderStatus(
-                orderId:   int.parse(widget.order.orderId),
-                status:    'Completed',
-                adminNote: null,
-              );
+              setState(() => _processingAction = 'completed');
+              try {
+                await _orderService.updateOrderStatus(
+                  orderId:   int.parse(widget.order.orderId),
+                  status:    'Completed',
+                  adminNote: null,
+                );
 
-              final String resultingPaymentStatus =
-                  _isCod ? 'Paid' : (_paymentStatus ?? widget.order.paymentStatus);
+                final String resultingPaymentStatus =
+                    _isCod ? 'Paid' : (_paymentStatus ?? widget.order.paymentStatus);
 
-              if (mounted) {
-                setState(() {
-                  _currentStatus = 'Completed';
-                  _paymentStatus = resultingPaymentStatus;
-                  _cachedPayment = {
-                    ...?_cachedPayment,
-                    'payment_status': resultingPaymentStatus,
-                  };
-                });
-                widget.onStatusUpdated('Completed', resultingPaymentStatus);
+                if (mounted) {
+                  setState(() {
+                    _currentStatus = 'Completed';
+                    _paymentStatus = resultingPaymentStatus;
+                    _cachedPayment = {
+                      ...?_cachedPayment,
+                      'payment_status': resultingPaymentStatus,
+                    };
+                  });
+                  widget.onStatusUpdated('Completed', resultingPaymentStatus);
+                }
+              } finally {
+                if (mounted) setState(() => _processingAction = null);
               }
             },
             style: ElevatedButton.styleFrom(
@@ -1161,7 +1222,9 @@ class _OrderDetailsDialogState extends State<OrderDetailsDialog> {
               shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(6)),
               elevation: 0,
             ),
-            child: const Text('Mark Completed', style: TextStyle(fontSize: 13)),
+            child: _processingAction == 'completed'
+                ? const SizedBox(width: 14, height: 14, child: CircularProgressIndicator(strokeWidth: 2, color: Colors.white))
+                : const Text('Mark Completed', style: TextStyle(fontSize: 13)),
           ),
       ],
     );

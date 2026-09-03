@@ -105,7 +105,7 @@ Future<void> sendMessage({
 
    // Notify staff when the CUSTOMER sends a message, and notify the
     // customer when an ADMIN (or cashier/super admin) replies.
-    if (senderRole.toLowerCase() == 'customer') {
+       if (senderRole.toLowerCase() == 'customer') {
       await _notifyStaffNewMessage(
         conversationId: conversationId,
         customerId: senderId,
@@ -170,18 +170,16 @@ Future<void> _notifyStaffNewMessage({
     String? imageUrl,
     String? productId,
   }) async {
-    print('🔔🔔🔔 _notifyStaffNewMessage CALLED 🔔🔔🔔');
+    print(' _notifyStaffNewMessage CALLED ');
     try {
-      // Single round trip — the DB does the name lookup, staff lookup,
-      // and inserts in one atomic call, so a fast account switch on the
-      // client can no longer cut it off mid-flight.
       await _client.rpc('notify_staff_new_message', params: {
         'p_customer_id': customerId,
+        'p_conversation_id': int.parse(conversationId),
         'p_text': text,
         'p_image_url': imageUrl,
         'p_product_id': productId == null ? null : int.parse(productId),
       });
-      print('🔔 RPC completed successfully');
+      print(' RPC completed successfully');
     } catch (error) {
       print('_notifyStaffNewMessage error: $error');
     }
@@ -217,7 +215,7 @@ Future<void> _notifyStaffNewMessage({
   Future<List<Conversation>> fetchAllConversations() async {
     final response = await _client
         .from('conversations')
-        .select('*, users(first_name, last_name)')
+        .select('*, users(first_name, last_name, email, phone, is_disabled, ban_tier, last_active_at)')
         .order('created_at', ascending: false);
 
     return (response as List)
@@ -240,21 +238,33 @@ Future<void> _notifyStaffNewMessage({
         .subscribe();
   }
 
-  // ── Mark all messages in a conversation as read ───────────────
+  // ── Mark all CUSTOMER messages in a conversation as read ───────
+  // Only the customer's messages need marking here — admin's own
+  // sent messages don't need "read by admin" tracking, and
+  // including them was exactly why unreadCount() was inflated
+  // (an admin's own outgoing message sits at is_read=false forever
+  // otherwise, and got miscounted as something the admin hadn't seen).
   Future<void> markConversationRead(String conversationId) async {
     await _client
         .from('messages')
         .update({'is_read': true})
         .eq('conversation_id', int.parse(conversationId))
+        .eq('sender_role', 'Customer')
         .eq('is_read', false);
   }
 
   // ── Count unread messages for a conversation ──────────────────
+  // Only counts messages FROM the customer that the admin hasn't
+  // seen yet — previously this counted ANY unread row regardless of
+  // sender, so an admin's own recently-sent message (always inserted
+  // with is_read: false) could inflate the badge even though the
+  // admin obviously already knows what they themselves just typed.
   Future<int> unreadCount(String conversationId) async {
     final response = await _client
         .from('messages')
         .select('message_id')
         .eq('conversation_id', int.parse(conversationId))
+        .eq('sender_role', 'Customer')
         .eq('is_read', false);
 
     return (response as List).length;

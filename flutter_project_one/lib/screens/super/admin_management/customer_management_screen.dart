@@ -34,16 +34,19 @@ class _CustomerManagementScreenState
   bool _showFilterPanel = false;
   String? _selectedStatus;
 
-  // Staged — same reasoning as Admin Management: build() reads
+    // Staged — same reasoning as Admin Management: build() reads
   // _selectedStatus directly, so a chip tap alone would refilter
   // instantly without this.
   String? _pendingStatus;
 
-  @override
+  bool _isLoading = true;
+
+   @override
   void initState() {
     super.initState();
-    Future.microtask(() {
-      ref.read(customerAccountsProvider.notifier).loadAccounts();
+    Future.microtask(() async {
+      await ref.read(customerAccountsProvider.notifier).loadAccounts();
+      if (mounted) setState(() => _isLoading = false);
     });
   }
 
@@ -52,6 +55,39 @@ class _CustomerManagementScreenState
     _searchController.dispose();
     super.dispose();
   }
+
+   Widget _buildStatCard(String label, int count, Color color) {
+    return Container(
+      padding: const EdgeInsets.all(16),
+      decoration: BoxDecoration(
+        color: Colors.white,
+        borderRadius: BorderRadius.circular(8),
+        border: Border.all(color: const Color(0xFFE5E7EB)),
+      ),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          Text(label, style: const TextStyle(fontSize: 12, color: Color(0xFF6B7280))),
+          const SizedBox(height: 6),
+          Text('$count', style: TextStyle(fontSize: 22, fontWeight: FontWeight.bold, color: color)),
+        ],
+      ),
+    );
+  }
+
+    String _formatDateTime(String? raw) {
+    if (raw == null || raw.isEmpty || raw == '-') return '-';
+    final DateTime? parsed = DateTime.tryParse(raw);
+    if (parsed == null) return raw;
+    final DateTime local = parsed.toLocal();
+    const months = ['Jan','Feb','Mar','Apr','May','Jun','Jul','Aug','Sep','Oct','Nov','Dec'];
+    int hour12 = local.hour % 12;
+    if (hour12 == 0) hour12 = 12;
+    final String minute = local.minute.toString().padLeft(2, '0');
+    final String period = local.hour >= 12 ? 'PM' : 'AM';
+    return '${months[local.month - 1]} ${local.day}, ${local.year}, $hour12:$minute $period';
+  }
+
 
   // ================================================
   // FILTER ACTIVE CUSTOMERS FOR MAIN TABLE
@@ -88,14 +124,7 @@ class _CustomerManagementScreenState
     });
   }
 
-  // ================================================
-  // HANDLE DISABLE
-  // ================================================
-  Future<void> _handleDisable(CustomerAccount customer, String reason) async {
-    await ref
-        .read(customerAccountsProvider.notifier)
-        .disableAccount(customer.id, reason: reason);
-  }
+ 
 
   // ================================================
   // HANDLE ACTIVATE
@@ -104,6 +133,25 @@ class _CustomerManagementScreenState
     await ref
         .read(customerAccountsProvider.notifier)
         .enableAccount(customer.id);
+  }
+
+  Widget _buildPresenceCell(CustomerAccount customer) {
+    if (customer.isOnline) {
+      return Align(
+        alignment: Alignment.centerLeft,
+        child: Container(
+          padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 4),
+          decoration: BoxDecoration(
+            color: const Color(0xFFDCFCE7),
+            borderRadius: BorderRadius.circular(20),
+            border: Border.all(color: const Color(0xFF86EFAC)),
+          ),
+          child: const Text('Online',
+              style: TextStyle(fontSize: 12, fontWeight: FontWeight.w500, color: Color(0xFF16A34A))),
+        ),
+      );
+    }
+     return Text(_formatDateTime(customer.lastLogin), style: const TextStyle(fontSize: 13, color: Color(0xFF111827)));
   }
 
   // ================================================
@@ -147,42 +195,18 @@ class _CustomerManagementScreenState
     );
   }
 
-  // ================================================
-  // BUILD 3-DOT MENU ACTION — View & Disable only
-  // ================================================
-  Widget _buildActionMenu(CustomerAccount customer) {
+   Widget _buildActionMenu(CustomerAccount customer) {
     return Align(
       alignment: Alignment.centerLeft,
-      child: PopupMenuButton<String>(
-        icon: const Icon(Icons.more_vert, size: 20, color: Color(0xFF6B7280)),
-        shape: RoundedRectangleBorder(
-          borderRadius: BorderRadius.circular(8),
-          side: const BorderSide(color: Color(0xFFE5E7EB)),
+      child: OutlinedButton(
+        onPressed: () => showCustomerEditDialog(context: context, account: customer),
+        style: OutlinedButton.styleFrom(
+          foregroundColor: const Color(0xFF374151),
+          side: const BorderSide(color: Color(0xFFD1D5DB)),
+          padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 8),
+          shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(6)),
         ),
-        elevation: 4,
-        onSelected: (String value) {
-          if (value == 'view') {
-            showCustomerEditDialog(
-              context: context,
-              account: customer,
-              onDisable: (String reason) => _handleDisable(customer, reason),
-            );
-          }
-        },
-        itemBuilder: (BuildContext ctx) {
-          return [
-            PopupMenuItem<String>(
-              value: 'view',
-              child: Row(
-                children: const [
-                  Icon(Icons.visibility_outlined, size: 15, color: Color(0xFF374151)),
-                  SizedBox(width: 8),
-                  Text('View', style: TextStyle(fontSize: 13, color: Color(0xFF374151))),
-                ],
-              ),
-            ),
-          ];
-        },
+        child: const Text('View', style: TextStyle(fontSize: 12)),
       ),
     );
   }
@@ -202,8 +226,8 @@ class _CustomerManagementScreenState
           overflow: TextOverflow.ellipsis,
         ),
         _buildStatusBadge(customer.status),
-        Text(customer.lastLogin, style: const TextStyle(fontSize: 13, color: Color(0xFF111827))),
-        Text(customer.registeredOn, style: const TextStyle(fontSize: 13, color: Color(0xFF111827))),
+       _buildPresenceCell(customer),
+        Text(_formatDateTime(customer.registeredOn), style: const TextStyle(fontSize: 13, color: Color(0xFF111827))),
         _buildActionMenu(customer),
       ]);
     }
@@ -250,6 +274,20 @@ class _CustomerManagementScreenState
                 ],
               ),
 
+                            const SizedBox(height: 24),
+
+              Row(
+                children: [
+                  Expanded(child: _buildStatCard('Total Customers', allCustomers.length, const Color(0xFF2563EB))),
+                  const SizedBox(width: 16),
+                  Expanded(child: _buildStatCard('Active', allCustomers.where((c) => !c.isDisabled).length, const Color(0xFF16A34A))),
+                  const SizedBox(width: 16),
+                  Expanded(child: _buildStatCard('Currently Warned', allCustomers.where((c) => c.banTier == 1).length, const Color(0xFFF59E0B))),
+                  const SizedBox(width: 16),
+                  Expanded(child: _buildStatCard('Suspended / Banned', allCustomers.where((c) => c.isDisabled).length, const Color(0xFFDC2626))),
+                ],
+              ),
+
               const SizedBox(height: 24),
 
               Row(
@@ -292,7 +330,7 @@ class _CustomerManagementScreenState
                   const Spacer(),
 
                   // disabled account button
-                  ElevatedButton(
+                    OutlinedButton(
                     onPressed: () {
                       showCustomerDisabledDialog(
                         context: context,
@@ -300,16 +338,15 @@ class _CustomerManagementScreenState
                         onActivate: _handleActivate,
                       );
                     },
-                    style: ElevatedButton.styleFrom(
-                      backgroundColor: const Color(0xFFEF4444),
-                      foregroundColor: Colors.white,
-                      elevation: 0,
+                    style: OutlinedButton.styleFrom(
+                      foregroundColor: const Color(0xFF374151),
+                      side: const BorderSide(color: Color(0xFFD1D5DB)),
                       padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 12),
                       shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(8)),
                     ),
-                    child: const Text(
-                      'Disabled Account',
-                      style: TextStyle(fontSize: 13, fontWeight: FontWeight.w500),
+                    child: Text(
+                      'Suspended / Banned Accounts (${disabledCustomers.length})',
+                      style: const TextStyle(fontSize: 13, fontWeight: FontWeight.w500),
                     ),
                   ),
                 ],
@@ -317,20 +354,23 @@ class _CustomerManagementScreenState
 
               const SizedBox(height: 16),
 
-              Expanded(
-                child: SingleChildScrollView(
-                  child: CommonTable(
-                    headers: const [
-                      'Name',
-                      'Email',
-                      'Status',
-                      'Last Login',
-                      'Registered On',
-                      'Action',
-                    ],
-                    rows: _buildRows(activeCustomers),
-                  ),
-                ),
+                            Expanded(
+                child: _isLoading
+                    ? const Center(child: CircularProgressIndicator(strokeWidth: 2))
+                    : SingleChildScrollView(
+                                               child: CommonTable(
+                          headers: const [
+                            'Name',
+                            'Email',
+                            'Status',
+                            'Last Login',
+                            'Registered On',
+                            'Action',
+                          ],
+                          columnFlex: const [2, 3, 1, 2, 2, 1],
+                          rows: _buildRows(activeCustomers),
+                        ),
+                      ),
               ),
             ],
           ),

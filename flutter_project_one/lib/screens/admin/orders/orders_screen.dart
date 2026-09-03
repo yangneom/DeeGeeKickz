@@ -308,6 +308,32 @@ class _OrdersScreenState extends ConsumerState<OrdersScreen> {
     );
   }
 
+  Widget _buildCustomerCell(Order order) {
+    return Column(
+      crossAxisAlignment: CrossAxisAlignment.start,
+      children: [
+        Text(
+          order.customerName,
+          style: const TextStyle(fontSize: 13, color: Color(0xFF111827)),
+        ),
+        if (order.isCustomerSuspended) ...[
+          const SizedBox(height: 2),
+          Container(
+            padding: const EdgeInsets.symmetric(horizontal: 6, vertical: 2),
+            decoration: BoxDecoration(
+              color: const Color(0xFFFEE2E2),
+              borderRadius: BorderRadius.circular(4),
+            ),
+            child: const Text(
+              '⚠ Suspended customer',
+              style: TextStyle(fontSize: 10, fontWeight: FontWeight.w600, color: Color(0xFFDC2626)),
+            ),
+          ),
+        ],
+      ],
+    );
+  }
+
   List<List<Widget>> _buildRows() {
 
     List<List<Widget>> tableRows = [];
@@ -318,7 +344,10 @@ class _OrdersScreenState extends ConsumerState<OrdersScreen> {
 
       List<Widget> oneRow = [
 
-        // column 1 — total amount
+        // column 1 — customer (name + suspended flag if applicable)
+        _buildCustomerCell(order),
+
+        // column 2 — total amount
         Text(
           '₱${order.totalAmount.toStringAsFixed(0)}',
           style: const TextStyle(
@@ -571,8 +600,9 @@ class _OrdersScreenState extends ConsumerState<OrdersScreen> {
                             ),
                           )
                         : SingleChildScrollView(
-                            child: CommonTable(
+                                                       child: CommonTable(
                               headers: const [
+                                'Customer',
                                 'Total Amount',
                                 'Payment Method',
                                 'Payment Status',
@@ -580,6 +610,7 @@ class _OrdersScreenState extends ConsumerState<OrdersScreen> {
                                 'Date & Time',
                                 'Action',
                               ],
+                              columnFlex: const [2, 1, 1, 1, 1, 2, 1],
                               rows: _buildRows(),
                             ),
                           ),

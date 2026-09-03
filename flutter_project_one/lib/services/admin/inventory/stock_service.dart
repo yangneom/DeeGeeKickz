@@ -68,12 +68,12 @@ class StockService {
       } catch (logError) {
         print('adjustStock: activity log failed (adjustment still succeeded): $logError');
       }
-
-      // Only removals can push stock down into low/out-of-stock —
-      // adding stock never needs to trigger this notification.
-      if (!isAddStock) {
-        await _checkAndNotifyLowStock(sizeId: sizeId, label: label);
-      }
+      // Low/out-of-stock notifications now fire automatically from
+      // the trg_check_low_stock database trigger on ANY stock_quantity
+      // change — covers manual adjustment, cashier sales, and order
+      // approval commits from one place. Calling it again here would
+      // duplicate the notification (confirmed: admins were seeing
+      // every low-stock alert exactly twice).
 
       return null;
    } on PostgrestException catch (error) {

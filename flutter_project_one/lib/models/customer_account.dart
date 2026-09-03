@@ -19,6 +19,10 @@ class CustomerAccount {
   final bool isDisabled;
   final String? disabledDate;
   final String? disableReason;
+  final int warningCount;
+  final int banTier;
+  final String? disabledUntil;
+  final DateTime? lastActiveAt;
 
   const CustomerAccount({
     required this.id,
@@ -33,6 +37,10 @@ class CustomerAccount {
     this.isDisabled = false,
     this.disabledDate,
     this.disableReason,
+    this.warningCount = 0,
+    this.banTier = 0,
+    this.disabledUntil,
+    this.lastActiveAt,
   });
 
   // full name helper
@@ -40,6 +48,27 @@ class CustomerAccount {
 
   // derived status label for the badge
   String get status => isDisabled ? 'Disabled' : 'Active';
+
+  // Human-readable tier label for the detail modal.
+  String get banTierLabel {
+    switch (banTier) {
+      case 1:
+        return 'Warned (Tier 1)';
+      case 2:
+        return 'Suspended 24h (Tier 2)';
+      case 3:
+        return 'Suspended 7 days (Tier 3)';
+      default:
+        return banTier >= 4 ? 'Permanently Banned (Tier $banTier)' : 'No violations';
+    }
+  }
+
+  // "Online" if active within the last 5 minutes, based on the
+  // heartbeat main.dart writes every 2 minutes while a session is open.
+  bool get isOnline {
+    if (lastActiveAt == null) return false;
+    return DateTime.now().difference(lastActiveAt!) <= const Duration(minutes: 5);
+  }
 
   // ================================================
   // FROM JSON
@@ -87,6 +116,12 @@ class CustomerAccount {
       isDisabled: json['is_disabled'] ?? false,
       disabledDate: json['disabled_at']?.toString(),
       disableReason: json['disabled_reason']?.toString(),
+      warningCount: (json['warning_count'] as num?)?.toInt() ?? 0,
+      banTier: (json['ban_tier'] as num?)?.toInt() ?? 0,
+      disabledUntil: json['disabled_until']?.toString(),
+      lastActiveAt: json['last_active_at'] != null
+          ? DateTime.tryParse(json['last_active_at'].toString())
+          : null,
     );
   }
 }

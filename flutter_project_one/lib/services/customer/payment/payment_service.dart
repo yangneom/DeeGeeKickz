@@ -279,9 +279,10 @@ class PaymentService {
       // customer-facing notification at all when rejected.
       await _notifyCustomerOrderRejected(orderId: orderId, reason: reason);
 
+      await _evaluateAbuseAfterCancellation(orderId);
+
     } catch (e) {
-      print('PaymentService.rejectPayment error: $e');
-      rethrow;
+      print('PaymentService.rejectPayment error: $e');      rethrow;
     }
   }
 
@@ -449,9 +450,10 @@ Future<void> cancelOrder({
           'payment_status': 'Cancelled',
         }).eq('order_id', orderId);
       }
+
+      await _evaluateAbuseAfterCancellation(orderId);
     } catch (e) {
-      print('PaymentService.cancelOrder error: $e');
-      rethrow;
+      print('PaymentService.cancelOrder error: $e');      rethrow;
     }
   }
   // ================================================
@@ -622,6 +624,30 @@ Future<void> cancelOrder({
     } catch (e) {
       print('PaymentService.setCodPending error: $e');
       rethrow;
+    }
+  }
+
+    // ================================================
+  // EVALUATE ABUSE AFTER CANCELLATION
+  // Non-critical — must never fail the cancellation/rejection
+  // itself, which has already succeeded by the time this runs.
+  // ================================================
+  Future<void> _evaluateAbuseAfterCancellation(int orderId) async {
+    try {
+      final row = await _supabase
+          .from('orders')
+          .select('user_id')
+          .eq('order_id', orderId)
+          .maybeSingle();
+
+      final String? userId = row?['user_id'] as String?;
+      if (userId == null) return;
+
+      await _supabase.rpc('evaluate_customer_abuse', params: {
+        'p_user_id': userId,
+      });
+    } catch (e) {
+      print('_evaluateAbuseAfterCancellation error: $e');
     }
   }
 }

@@ -24,7 +24,8 @@ class AppNotification {
   final String body;
   final DateTime createdAt;
   final bool isRead;
-  final String? orderId;    // nullable — only set for order notifications
+  final String? orderId;      // nullable — only set for order notifications
+  final String? referenceId;  // generic reference (size_id, feedback_id, conversation_id — depends on type)
 
   const AppNotification({
     required this.id,
@@ -34,6 +35,7 @@ class AppNotification {
     required this.createdAt,
     this.isRead = false,
     this.orderId,
+    this.referenceId,
   });
 
   bool get isUnread => !isRead;
@@ -59,7 +61,8 @@ class AppNotification {
       body:      map['body'] as String,
       createdAt: DateTime.parse(map['created_at'] as String),
       isRead:    map['is_read'] as bool? ?? false,
-      orderId:   map['order_id']?.toString(),
+      orderId:      map['order_id']?.toString(),
+      referenceId:  map['reference_id']?.toString(),
     );
   }
 

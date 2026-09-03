@@ -14,100 +14,93 @@ import 'package:flutter/material.dart';
 // ================================================
 class CommonTable extends StatelessWidget {
 
-  // headers = list of column titles
-  // example: ['Reference Number', 'Date & Time', 'Total']
   final List<String> headers;
-
-  // rows = list of rows
-  // each row is a list of widgets (not just text!)
-  // so we can put anything inside a cell —
-  // text, badges, buttons, icons, etc.
-  // example: [[Text('123456'), Text('Feb 13'), Text('5,500')]]
   final List<List<Widget>> rows;
+
+  // Optional — lets a screen give some columns more room than others
+  // (e.g. a long "Action" description vs. a short "Role"). Falls back
+  // to equal width (flex: 1) for every column if not provided, so
+  // every other screen using this table is unaffected.
+  final List<int>? columnFlex;
 
   const CommonTable({
     super.key,
     required this.headers,
     required this.rows,
+    this.columnFlex,
   });
+
+  int _flexFor(int index) {
+    if (columnFlex != null && index < columnFlex!.length) {
+      return columnFlex![index];
+    }
+    return 1;
+  }
 
   // ================================================
   // BUILD HEADER ROW
-  // This builds the top row with column titles
   // ================================================
   Widget _buildHeaderRow() {
     return Container(
-      padding: const EdgeInsets.symmetric(
-        horizontal: 16,
-        vertical: 12,
-      ),
+      padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 12),
       decoration: const BoxDecoration(
         color: Colors.white,
-        border: Border(
-          bottom: BorderSide(
-            color: Color(0xFFE5E7EB),
-          ),
-        ),
+        border: Border(bottom: BorderSide(color: Color(0xFFE5E7EB))),
       ),
-      child: Row(
-        children: headers.map((String header) {
-
-          // each header takes equal space
-          return Expanded(
-            child: Text(
-              header,
-              style: const TextStyle(
-                fontSize: 13,
-                fontWeight: FontWeight.w600,
-                color: Color(0xFF374151),
+           child: Row(
+        children: [
+          for (int i = 0; i < headers.length; i++) ...[
+            if (i > 0) const SizedBox(width: 16),
+            Expanded(
+              flex: _flexFor(i),
+              child: Text(
+                headers[i],
+                style: const TextStyle(
+                  fontSize: 13,
+                  fontWeight: FontWeight.w600,
+                  color: Color(0xFF374151),
+                ),
               ),
             ),
-          );
-        }).toList(),
+          ],
+        ],
       ),
     );
   }
 
   // ================================================
   // BUILD ONE DATA ROW
-  // This builds one row of data in the table
+  // Every column now gets a 16px gutter before it (except the
+  // first) — previously cells were placed directly adjacent with
+  // zero gap, so text from one column ran straight into the next
+  // (e.g. "Preparing" touching "Orders").
   // ================================================
   Widget _buildDataRow(List<Widget> rowCells, int rowIndex) {
-
-    // alternate row background color
-    // even rows = white, odd rows = light gray
     Color rowColor = Colors.white;
     if (rowIndex % 2 != 0) {
       rowColor = const Color(0xFFF9FAFB);
     }
 
     return Container(
-      padding: const EdgeInsets.symmetric(
-        horizontal: 16,
-        vertical: 14,
-      ),
+      padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 14),
       decoration: BoxDecoration(
         color: rowColor,
-        border: const Border(
-          bottom: BorderSide(
-            color: Color(0xFFE5E7EB),
-          ),
-        ),
+        border: const Border(bottom: BorderSide(color: Color(0xFFE5E7EB))),
       ),
       child: Row(
-        children: rowCells.map((Widget cell) {
-
-          // each cell takes equal space
-          return Expanded(
-            child: cell,
-          );
-        }).toList(),
+        crossAxisAlignment: CrossAxisAlignment.center,
+                children: [
+          for (int i = 0; i < rowCells.length; i++) ...[
+            if (i > 0) const SizedBox(width: 16),
+            Expanded(flex: _flexFor(i), child: rowCells[i]),
+          ],
+        ],
       ),
     );
   }
 
   // ================================================
-  // BUILD — puts everything together
+  // BUILD
   // ================================================
   @override
   Widget build(BuildContext context) {
@@ -116,24 +109,15 @@ class CommonTable extends StatelessWidget {
       decoration: BoxDecoration(
         color: Colors.white,
         borderRadius: BorderRadius.circular(8),
-        border: Border.all(
-          color: const Color(0xFFE5E7EB),
-        ),
+        border: Border.all(color: const Color(0xFFE5E7EB)),
       ),
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.start,
         mainAxisSize: MainAxisSize.min,
         children: [
-
-          // build the header row first
           _buildHeaderRow(),
-
-          // then build each data row
-          // we use a normal for loop so it is easy to understand
           for (int i = 0; i < rows.length; i = i + 1)
             _buildDataRow(rows[i], i),
-
-          // show empty message if no data
           if (rows.isEmpty)
             Container(
               padding: const EdgeInsets.all(32),

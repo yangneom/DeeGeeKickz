@@ -21,9 +21,14 @@ class ProductDetailScreen extends ConsumerStatefulWidget {
   /// are never frozen at whatever they were when this was tapped.
   final Product product;
 
+  /// When true, auto-scrolls to the Reviews section once loaded —
+  /// used when arriving here from a "review reply" notification.
+  final bool scrollToReviews;
+
   const ProductDetailScreen({
     super.key,
     required this.product,
+    this.scrollToReviews = false,
   });
 
   @override
@@ -34,6 +39,7 @@ class ProductDetailScreen extends ConsumerStatefulWidget {
 class _ProductDetailScreenState extends ConsumerState<ProductDetailScreen> {
   static const double _mdBreakpoint = 768;
   ProductVariant? _selectedVariant;
+  final GlobalKey _reviewsKey = GlobalKey();
 
   void _onVariantChanged(ProductVariant v) {
     setState(() => _selectedVariant = v);
@@ -49,7 +55,29 @@ class _ProductDetailScreenState extends ConsumerState<ProductDetailScreen> {
     // trusting whatever was cached from earlier in the session.
     WidgetsBinding.instance.addPostFrameCallback((_) {
       ref.invalidate(productsProvider);
+      if (widget.scrollToReviews) {
+        _scrollToReviewsWhenReady();
+      }
     });
+  }
+
+  // Reviews load async (ProductReviewsSection watches its own
+  // provider), so the key's context may not exist on the very first
+  // frame — retry briefly instead of scrolling to nothing.
+  Future<void> _scrollToReviewsWhenReady() async {
+    for (int attempt = 0; attempt < 10; attempt++) {
+      await Future.delayed(const Duration(milliseconds: 200));
+      if (!mounted) return;
+      final ctx = _reviewsKey.currentContext;
+      if (ctx != null) {
+        Scrollable.ensureVisible(
+          ctx,
+          duration: const Duration(milliseconds: 400),
+          curve: Curves.easeInOut,
+        );
+        return;
+      }
+    }
   }
 
    @override
@@ -149,25 +177,28 @@ class _ProductDetailScreenState extends ConsumerState<ProductDetailScreen> {
                       },
                     ),
 
-                    // ── Reviews ───────────────────────────────────
-                    LayoutBuilder(
-                      builder: (context, constraints) {
-                        final isDesktop =
-                            constraints.maxWidth >= _mdBreakpoint;
-                        final hPad = isDesktop ? 48.0 : 16.0;
-                        return Padding(
-                          padding:
-                              EdgeInsets.symmetric(horizontal: hPad),
-                          child: ConstrainedBox(
-                            constraints:
-                                const BoxConstraints(maxWidth: 1440),
-                            child: ProductReviewsSection(
-                              productId: productId,
-                              productName: product.productName,
+                                   // ── Reviews ───────────────────────────────────
+                    KeyedSubtree(
+                      key: _reviewsKey,
+                      child: LayoutBuilder(
+                        builder: (context, constraints) {
+                          final isDesktop =
+                              constraints.maxWidth >= _mdBreakpoint;
+                          final hPad = isDesktop ? 48.0 : 16.0;
+                          return Padding(
+                            padding:
+                                EdgeInsets.symmetric(horizontal: hPad),
+                            child: ConstrainedBox(
+                              constraints:
+                                  const BoxConstraints(maxWidth: 1440),
+                              child: ProductReviewsSection(
+                                productId: productId,
+                                productName: product.productName,
+                              ),
                             ),
-                          ),
-                        );
-                      },
+                          );
+                        },
+                      ),
                     ),
 
                     const SizedBox(height: 32),

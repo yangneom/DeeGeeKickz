@@ -182,58 +182,68 @@ class AuthService {
   static const String incompleteRegistrationMarker = 'INCOMPLETE_REGISTRATION';
 
 
-  Future<String?> login({
-    required String email,
-    required String password,
-  }) async {
-    try {
-      await _supabase.auth.signInWithPassword(
-        email: email.trim(),
-        password: password.trim(),
-      );
-      
-      final currentUser = _supabase.auth.currentUser;
+   Future<String?> login({
+  required String email,
+  required String password,
+}) async {
+  try {
 
-      // ── Check if account is disabled ──
-      // Uses maybeSingle(), not single() — single() throws if zero rows
-      // come back, which happens for orphaned accounts (password/email
-      // verified, but phone step never finished so no users row exists).
+    await _supabase.auth.signInWithPassword(
+      email: email.trim(),
+      password: password.trim(),
+    );
+
+    final currentUser = _supabase.auth.currentUser;
+
+    print('===================================');
+    print('LOGGED IN USER UID = ${currentUser?.id}');
+    print('LOGGED IN USER EMAIL = ${currentUser?.email}');
+    print('===================================');
+
+    if (currentUser != null) {
+      // Auto-clear a temporary suspension if its time has passed —
+      // makes tier-2/3 suspensions self-healing, no cron job needed.
+      try {
+        await _supabase.rpc('check_and_clear_expired_suspension', params: {
+          'p_user_id': currentUser.id,
+        });
+      } catch (e) {
+        print('check_and_clear_expired_suspension error: $e');
+      }
+
+      // Re-check AFTER the auto-clear above — this is what actually
+      // blocks a still-suspended/banned account from logging back in
+      // with a correct password.
       final profile = await _supabase
           .from('users')
-          .select('is_disabled, disabled_reason, role')
-          .eq('id', currentUser!.id)
+          .select('is_disabled, disabled_reason')
+          .eq('id', currentUser.id)
           .maybeSingle();
 
-      if (profile == null) {
-        // Session exists and password was correct, but there's no
-        // profile row — signup was never finished. Keep the session
-        // alive (don't sign out) so the caller can pull saved name/phone
-        // from user metadata and resume the phone-verification step.
-        print('Login: no profile row found for ${currentUser.id} — incomplete registration');
-        return incompleteRegistrationMarker;
-      }
-
-      final isDisabled = profile['is_disabled'] as bool? ?? false;
-
+      final bool isDisabled = profile?['is_disabled'] as bool? ?? false;
       if (isDisabled) {
-        await _supabase.auth.signOut(); // force sign out immediately
-        return 'Your account has been disabled. Please contact support.';
+        final String reason = profile?['disabled_reason'] as String? ??
+            'Your account has been suspended.';
+        await _supabase.auth.signOut();
+        return reason;
       }
 
-      print('Login successful for ${email.trim()}');
-      return null;
-
-    } on AuthException catch (error) {
-      print('LOGIN ERROR = ${error.message}');
-      if (error.message.toLowerCase().contains('email not confirmed')) {
-        return unconfirmedEmailMarker;
-      }
-      return error.message;
-    } catch (error) {
-      print('Login unknown error: $error');
-      return 'Something went wrong. Please try again.';
+      // Record this login — nothing previously wrote to last_login,
+      // which is why every account table showed "-" for every row.
+      await _supabase
+          .from('users')
+          .update({'last_login': DateTime.now().toIso8601String()})
+          .eq('id', currentUser.id);
     }
+
+    print('Login successful for ${email.trim()}');
+    return null;
+
+  } on AuthException catch (error) {
+    print('LOGIN ERROR = ${error.message}');
+    return error.message;
   }
+}
 
   // ── LOGOUT ──
 

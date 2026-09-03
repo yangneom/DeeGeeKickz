@@ -2,7 +2,8 @@ import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import '../../../widgets/common/tables/common_table.dart';
 import '../../../widgets/common/buttons/export_button.dart';
-import '../../../widgets/super/activity_log/activity_log_filter_panel.dart';
+import '../../../widgets/common/buttons/filter_button.dart';
+import '../../../widgets/common/buttons/filter_panel.dart';
 import '../../../providers/super/activity_log_provider.dart';
 import '../../../core/utils/csv_export_helper.dart';
 import '../../../core/utils/excel_export_helper.dart';
@@ -31,12 +32,20 @@ class _ActivityLogScreenState extends ConsumerState<ActivityLogScreen> {
   String? _selectedModule;
   DateTime? _selectedStartDate;
   DateTime? _selectedEndDate;
+  bool _isLoading = true;
+
+  // Staged — same pattern as Admin Management: FilterButton/FilterPanel
+  // only commit to _selectedRole/_selectedModule when "Apply" is tapped,
+  // not on every chip tap.
+  String? _pendingRole;
+  String? _pendingModule;
 
   @override
   void initState() {
     super.initState();
-    Future.microtask(() {
-      ref.read(activityLogsProvider.notifier).loadLogs();
+    Future.microtask(() async {
+      await ref.read(activityLogsProvider.notifier).loadLogs();
+      if (mounted) setState(() => _isLoading = false);
     });
   }
 
@@ -44,14 +53,14 @@ class _ActivityLogScreenState extends ConsumerState<ActivityLogScreen> {
   // FORMAT DATE TIME
   // ================================================
   String _formatDateTime(DateTime dt) {
-    String month = dt.month.toString().padLeft(2, '0');
-    String day = dt.day.toString().padLeft(2, '0');
-    String year = dt.year.toString();
-    String hour = dt.hour.toString().padLeft(2, '0');
-    String minute = dt.minute.toString().padLeft(2, '0');
-    return '$month-$day-$year  $hour:$minute';
+    final DateTime local = dt.toLocal();
+    const months = ['Jan','Feb','Mar','Apr','May','Jun','Jul','Aug','Sep','Oct','Nov','Dec'];
+    int hour12 = local.hour % 12;
+    if (hour12 == 0) hour12 = 12;
+    final String minute = local.minute.toString().padLeft(2, '0');
+    final String period = local.hour >= 12 ? 'PM' : 'AM';
+    return '${months[local.month - 1]} ${local.day}, ${local.year}, $hour12:$minute $period';
   }
-
   // parse the created_at value (Supabase returns an ISO string)
   DateTime? _parseDateTime(dynamic value) {
     if (value == null) return null;
@@ -101,6 +110,8 @@ class _ActivityLogScreenState extends ConsumerState<ActivityLogScreen> {
     setState(() {
       _selectedRole = null;
       _selectedModule = null;
+      _pendingRole = null;
+      _pendingModule = null;
       _selectedStartDate = null;
       _selectedEndDate = null;
       _showFilterPanel = false;
@@ -134,14 +145,11 @@ class _ActivityLogScreenState extends ConsumerState<ActivityLogScreen> {
   }
 
   // ================================================
-  // BUILD TABLE ROWS
-  // ================================================
-  // ================================================
   // EXPORT TO CSV
   // Exports exactly what's currently visible — i.e. respects
   // whatever filters are active, not the full unfiltered log.
   // ================================================
- static const List<String> _exportHeaders = [
+  static const List<String> _exportHeaders = [
     'Name',
     'Role',
     'Action',
@@ -195,32 +203,24 @@ class _ActivityLogScreenState extends ConsumerState<ActivityLogScreen> {
       final dateTime = _parseDateTime(item['created_at']);
 
       tableRows.add([
-        // column 1 — name
         Text(
           item['admin_name']?.toString() ?? '-',
           style: const TextStyle(fontSize: 13, color: Color(0xFF111827)),
         ),
-
-        // column 2 — role
         Text(
           item['role']?.toString() ?? '-',
           style: const TextStyle(fontSize: 13, color: Color(0xFF111827)),
         ),
-
-        // column 3 — action
-        Text(
+               Text(
           item['action']?.toString() ?? '-',
           style: const TextStyle(fontSize: 13, color: Color(0xFF6B7280)),
-          overflow: TextOverflow.ellipsis,
+          // No ellipsis — wraps to a second line instead of cutting
+          // off, now that this column has more relative room anyway.
         ),
-
-        // column 4 — affected module
         Text(
           item['affected_module']?.toString() ?? '-',
           style: const TextStyle(fontSize: 13, color: Color(0xFF111827)),
         ),
-
-        // column 5 — date & time
         Text(
           dateTime != null ? _formatDateTime(dateTime) : '-',
           style: const TextStyle(fontSize: 13, color: Color(0xFF111827)),
@@ -241,91 +241,172 @@ class _ActivityLogScreenState extends ConsumerState<ActivityLogScreen> {
 
     return Scaffold(
       backgroundColor: const Color(0xFFF8F9FA),
-      body: GestureDetector(
+      body: Padding(
+        padding: const EdgeInsets.all(32),
+        child: Column(
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
 
-        // close filter panel when tapping outside
-        onTap: () {
-          if (_showFilterPanel == true) {
-            setState(() {
-              _showFilterPanel = false;
-            });
-          }
-        },
-
-        child: Padding(
-          padding: const EdgeInsets.all(32),
-          child: Column(
-            crossAxisAlignment: CrossAxisAlignment.start,
-            children: [
-
-              // ── TITLE ──
-              const Column(
-                crossAxisAlignment: CrossAxisAlignment.start,
-                children: [
-                  Text(
-                    'Activity Log',
-                    style: TextStyle(
-                      fontSize: 24,
-                      fontWeight: FontWeight.bold,
-                      color: Color(0xFF111827),
-                    ),
-                  ),
-                  SizedBox(height: 4),
-                  Text(
-                    'Track and review all actions and changes made within the system.',
-                    style: TextStyle(
-                      fontSize: 13,
-                      color: Color(0xFF9CA3AF),
-                    ),
-                  ),
-                ],
-              ),
-
-              const SizedBox(height: 24),
-
-              // ── FILTER + EXPORT ROW ──
-              Row(
-                mainAxisAlignment: MainAxisAlignment.end,
-                children: [
-
-                  // export button
-                  // export button — clicking "Export" itself is the
-                  // quick-default CSV path; the dropdown arrow offers
-                  // an explicit CSV/Excel choice via ExportButton's
-                  // built-in PopupMenuButton.
-                  ExportButton(
-                    onExport: () => _exportToCsv(filteredLogs),
-                    onFormatSelected: (format) {
-                      if (format == 'excel') {
-                        _exportToExcel(filteredLogs);
-                      } else {
-                        _exportToCsv(filteredLogs);
-                      }
-                    },
-                  ),
-
-                ],
-              ),
-
-              const SizedBox(height: 16),
-
-              // ── TABLE ──
-              Expanded(
-                child: SingleChildScrollView(
-                  child: CommonTable(
-                    headers: const [
-                      'Name',
-                      'Role',
-                      'Action',
-                      'Affected Module',
-                      'Date & Time',
-                    ],
-                    rows: _buildRows(filteredLogs),
+            // ── TITLE ──
+            const Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                Text(
+                  'Activity Log',
+                  style: TextStyle(
+                    fontSize: 24,
+                    fontWeight: FontWeight.bold,
+                    color: Color(0xFF111827),
                   ),
                 ),
-              ),
-            ],
-          ),
+                SizedBox(height: 4),
+                Text(
+                  'Track and review all actions and changes made within the system.',
+                  style: TextStyle(
+                    fontSize: 13,
+                    color: Color(0xFF9CA3AF),
+                  ),
+                ),
+              ],
+            ),
+
+            const SizedBox(height: 24),
+
+            // ── FILTER + EXPORT ROW ──
+            // No Stack needed here — FilterButton positions its own
+            // panel via OverlayPortal, anchored directly under itself.
+            Row(
+              mainAxisAlignment: MainAxisAlignment.spaceBetween,
+              children: [
+
+                Row(
+                  children: [
+                    FilterButton(
+                      isOpen: _showFilterPanel,
+                      onTap: () {
+                        setState(() {
+                          _pendingRole = _selectedRole;
+                          _pendingModule = _selectedModule;
+                          _showFilterPanel = !_showFilterPanel;
+                        });
+                      },
+                      selectedValues: {
+                        'Role': _pendingRole,
+                        'Affected Module': _pendingModule,
+                      },
+                      onValueChanged: (section, value) {
+                        setState(() {
+                          if (section == 'Role') _pendingRole = value;
+                          if (section == 'Affected Module') _pendingModule = value;
+                        });
+                      },
+                      onClear: _clearFilters,
+                      onApply: () {
+                        setState(() {
+                          _selectedRole = _pendingRole;
+                          _selectedModule = _pendingModule;
+                          _showFilterPanel = false;
+                        });
+                      },
+                      sections: [
+                        FilterSection(
+                          title: 'Role',
+                          options: [
+                            FilterOption(label: 'Cashier', value: 'Cashier'),
+                            FilterOption(label: 'Admin', value: 'Admin'),
+                            FilterOption(label: 'Super Admin', value: 'Super Admin'),
+                          ],
+                        ),
+                        FilterSection(
+                          title: 'Affected Module',
+                          options: [
+                            FilterOption(label: 'Admin Management', value: 'Admin Management'),
+                            FilterOption(label: 'Customer Management', value: 'Customer Management'),
+                            FilterOption(label: 'Inventory', value: 'Inventory'),
+                            FilterOption(label: 'Orders', value: 'Orders'),
+                            FilterOption(label: 'Promotions', value: 'Promotions'),
+                            FilterOption(label: 'Sales', value: 'Sales'),
+                            FilterOption(label: 'Feedback Moderation', value: 'Feedback Moderation'),
+                          ],
+                        ),
+                      ],
+                    ),
+
+                    const SizedBox(width: 8),
+
+                    OutlinedButton.icon(
+                      onPressed: () => _pickDate(isStart: true),
+                      icon: const Icon(Icons.calendar_today_outlined, size: 14),
+                      label: Text(
+                        _selectedStartDate != null
+                            ? '${_selectedStartDate!.month}/${_selectedStartDate!.day}/${_selectedStartDate!.year}'
+                            : 'Start date',
+                        style: const TextStyle(fontSize: 12),
+                      ),
+                      style: OutlinedButton.styleFrom(
+                        foregroundColor: const Color(0xFF374151),
+                        side: const BorderSide(color: Color(0xFFD1D5DB)),
+                        padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 11),
+                        shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(8)),
+                      ),
+                    ),
+
+                    const SizedBox(width: 8),
+
+                    OutlinedButton.icon(
+                      onPressed: () => _pickDate(isStart: false),
+                      icon: const Icon(Icons.calendar_today_outlined, size: 14),
+                      label: Text(
+                        _selectedEndDate != null
+                            ? '${_selectedEndDate!.month}/${_selectedEndDate!.day}/${_selectedEndDate!.year}'
+                            : 'End date',
+                        style: const TextStyle(fontSize: 12),
+                      ),
+                      style: OutlinedButton.styleFrom(
+                        foregroundColor: const Color(0xFF374151),
+                        side: const BorderSide(color: Color(0xFFD1D5DB)),
+                        padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 11),
+                        shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(8)),
+                      ),
+                    ),
+                  ],
+                ),
+
+                ExportButton(
+                  onExport: () => _exportToCsv(filteredLogs),
+                  onFormatSelected: (format) {
+                    if (format == 'excel') {
+                      _exportToExcel(filteredLogs);
+                    } else {
+                      _exportToCsv(filteredLogs);
+                    }
+                  },
+                ),
+
+              ],
+            ),
+
+            const SizedBox(height: 16),
+
+            // ── TABLE ──
+            Expanded(
+              child: _isLoading
+                  ? const Center(child: CircularProgressIndicator(strokeWidth: 2))
+                  : SingleChildScrollView(
+                                            child: CommonTable(
+                        headers: const [
+                          'Name',
+                          'Role',
+                          'Action',
+                          'Affected Module',
+                          'Date & Time',
+                        ],
+                        columnFlex: const [2, 1, 4, 2, 2],
+                        rows: _buildRows(filteredLogs),
+                      ),
+                    ),
+            ),
+          ],
         ),
       ),
     );

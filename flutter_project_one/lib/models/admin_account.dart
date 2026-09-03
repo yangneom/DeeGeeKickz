@@ -6,6 +6,8 @@ class AdminAccount {
   final String phone;
   final String role;
   final bool isDisabled;
+  final String lastLogin;
+  final String registeredOn;
 
   const AdminAccount({
     required this.id,
@@ -15,6 +17,8 @@ class AdminAccount {
     required this.phone,
     required this.role,
     required this.isDisabled,
+    this.lastLogin = '-',
+    this.registeredOn = '-',
   });
 
   factory AdminAccount.fromJson(
@@ -28,6 +32,8 @@ class AdminAccount {
       phone: json['phone'] ?? '',
       role: json['role'] ?? '',
       isDisabled: json['is_disabled'] ?? false,
+      lastLogin: json['last_login']?.toString() ?? '-',
+      registeredOn: json['registered_date']?.toString() ?? '-',
     );
   }
 
@@ -39,6 +45,8 @@ class AdminAccount {
     String? phone,
     String? role,
     bool? isDisabled,
+    String? lastLogin,
+    String? registeredOn,
   }) {
     return AdminAccount(
       id: id ?? this.id,
@@ -48,6 +56,8 @@ class AdminAccount {
       phone: phone ?? this.phone,
       role: role ?? this.role,
       isDisabled: isDisabled ?? this.isDisabled,
+      lastLogin: lastLogin ?? this.lastLogin,
+      registeredOn: registeredOn ?? this.registeredOn,
     );
   }
 }

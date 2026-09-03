@@ -8,7 +8,63 @@ import '../../../providers/customer/chat_provider.dart';
 import '../../../providers/product/product_provider.dart';
 import '../../../models/chat_message_model.dart';
 import '../../../models/product.dart' as db_product;
+import 'dart:async';
 
+void _showCustomerInfoDialog(BuildContext context, Conversation conversation) {
+  showDialog(
+    context: context,
+    builder: (ctx) => Dialog(
+      backgroundColor: Colors.white,
+      shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
+      child: Container(
+        width: 360,
+        padding: const EdgeInsets.all(24),
+        child: Column(
+          mainAxisSize: MainAxisSize.min,
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            const Text(
+              'Customer Info',
+              style: TextStyle(fontSize: 16, fontWeight: FontWeight.w700, color: Color(0xFF111827)),
+            ),
+            const SizedBox(height: 16),
+            _infoLine('Name', conversation.customerName),
+            const SizedBox(height: 10),
+            _infoLine('Email', conversation.customerEmail.isEmpty ? '-' : conversation.customerEmail),
+            const SizedBox(height: 10),
+            _infoLine('Phone', conversation.customerPhone.isEmpty ? '-' : conversation.customerPhone),
+            const SizedBox(height: 10),
+            _infoLine('Presence', conversation.isCustomerOnline ? 'Online' : 'Offline'),
+            const SizedBox(height: 10),
+            _infoLine(
+              'Account Status',
+              conversation.isCustomerSuspended ? conversation.customerBanTierLabel : 'Active',
+          ),
+            const SizedBox(height: 20),
+            Align(
+              alignment: Alignment.centerRight,
+              child: TextButton(
+                onPressed: () => Navigator.pop(ctx),
+                child: const Text('Close'),
+              ),
+            ),
+          ],
+        ),
+      ),
+    ),
+  );
+}
+
+Widget _infoLine(String label, String value) {
+  return Column(
+    crossAxisAlignment: CrossAxisAlignment.start,
+    children: [
+      Text(label, style: const TextStyle(fontSize: 11, color: Color(0xFF9CA3AF))),
+      const SizedBox(height: 2),
+      Text(value, style: const TextStyle(fontSize: 13, color: Color(0xFF111827))),
+    ],
+  );
+}
 class MessagesScreen extends ConsumerStatefulWidget {
   const MessagesScreen({super.key});
 
@@ -20,8 +76,23 @@ class _MessagesScreenState extends ConsumerState<MessagesScreen> {
   final TextEditingController _inputController = TextEditingController();
   final ScrollController _scrollController = ScrollController();
 
+  // Refreshes conversation data (including customer online/suspended
+  // status) every 30s while this screen is open — otherwise presence
+  // shown here is frozen at whatever it was the moment Messages was
+  // first opened, and never updates no matter how long you wait.
+  Timer? _presenceRefreshTimer;
+
+  @override
+  void initState() {
+    super.initState();
+    _presenceRefreshTimer = Timer.periodic(const Duration(seconds: 30), (_) {
+      ref.read(adminChatProvider.notifier).loadConversations();
+    });
+  }
+
   @override
   void dispose() {
+    _presenceRefreshTimer?.cancel();
     _inputController.dispose();
     _scrollController.dispose();
     super.dispose();
@@ -396,27 +467,48 @@ class _ConversationListItem extends StatelessWidget {
                           : const Color(0xFF111827),
                     ),
                   ),
-                  const SizedBox(height: 2),
-                  Container(
-                    padding: const EdgeInsets.symmetric(
-                        horizontal: 5, vertical: 1),
-                    color: conversation.status == ConversationStatus.open
-                        ? Colors.black
-                        : const Color(0xFFEEEEEE),
-                    child: Text(
-                      conversation.status == ConversationStatus.open
-                          ? 'OPEN'
-                          : 'CLOSED',
-                      style: TextStyle(
-                        fontFamily: 'Inter',
-                        fontSize: 9,
-                        fontWeight: FontWeight.w700,
-                        letterSpacing: 0.8,
+                                    const SizedBox(height: 2),
+                  Row(
+                    children: [
+                      Container(
+                        padding: const EdgeInsets.symmetric(
+                            horizontal: 5, vertical: 1),
                         color: conversation.status == ConversationStatus.open
-                            ? Colors.white
-                            : const Color(0xFF656464),
+                            ? Colors.black
+                            : const Color(0xFFEEEEEE),
+                        child: Text(
+                          conversation.status == ConversationStatus.open
+                              ? 'OPEN'
+                              : 'CLOSED',
+                          style: TextStyle(
+                            fontFamily: 'Inter',
+                            fontSize: 9,
+                            fontWeight: FontWeight.w700,
+                            letterSpacing: 0.8,
+                            color: conversation.status == ConversationStatus.open
+                                ? Colors.white
+                                : const Color(0xFF656464),
+                          ),
+                        ),
                       ),
-                    ),
+                      if (conversation.isCustomerSuspended) ...[
+                        const SizedBox(width: 4),
+                        Container(
+                          padding: const EdgeInsets.symmetric(horizontal: 5, vertical: 1),
+                          color: const Color(0xFFFEE2E2),
+                          child: const Text(
+                            'SUSPENDED',
+                            style: TextStyle(
+                              fontFamily: 'Inter',
+                              fontSize: 9,
+                              fontWeight: FontWeight.w700,
+                              letterSpacing: 0.5,
+                              color: Color(0xFFDC2626),
+                            ),
+                          ),
+                        ),
+                      ],
+                    ],
                   ),
                 ],
               ),
@@ -582,33 +674,56 @@ class _ChatWindow extends StatelessWidget {
                         color: Colors.black,
                       ),
                     ),
-                    const SizedBox(height: 2),
+                                       const SizedBox(height: 2),
                     Row(
                       children: [
                         Container(
                           width: 6,
                           height: 6,
-                          decoration: const BoxDecoration(
-                            color: Color(0xFF22C55E),
+                          decoration: BoxDecoration(
+                            color: conversation.isCustomerOnline
+                                ? const Color(0xFF22C55E)
+                                : const Color(0xFF9CA3AF),
                             shape: BoxShape.circle,
                           ),
                         ),
                         const SizedBox(width: 4),
-                        const Text(
-                          'Online',
+                        Text(
+                          conversation.isCustomerOnline ? 'Online' : 'Offline',
                           style: TextStyle(
                             fontFamily: 'Inter',
                             fontSize: 12,
-                            color: Color(0xFF22C55E),
+                            color: conversation.isCustomerOnline
+                                ? const Color(0xFF22C55E)
+                                : const Color(0xFF9CA3AF),
                           ),
                         ),
+                        if (conversation.isCustomerSuspended) ...[
+                          const SizedBox(width: 8),
+                          Container(
+                            padding: const EdgeInsets.symmetric(horizontal: 6, vertical: 1),
+                            decoration: BoxDecoration(
+                              color: const Color(0xFFFEE2E2),
+                              borderRadius: BorderRadius.circular(3),
+                            ),
+                            child: Text(
+                              conversation.customerBanTierLabel,
+                              style: const TextStyle(
+                                fontFamily: 'Inter',
+                                fontSize: 10,
+                                fontWeight: FontWeight.w600,
+                                color: Color(0xFFDC2626),
+                              ),
+                            ),
+                          ),
+                        ],
                       ],
                     ),
                   ],
                 ),
               ),
               GestureDetector(
-                onTap: () {},
+                onTap: () => _showCustomerInfoDialog(context, conversation),
                 child: Container(
                   width: 32,
                   height: 32,

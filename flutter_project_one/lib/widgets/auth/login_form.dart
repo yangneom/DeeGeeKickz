@@ -58,13 +58,23 @@ class _LoginFormState extends ConsumerState<LoginForm> {
   // ================================================
   // HANDLE LOGIN FUNCTION
   // ================================================
-  Future<void> _handleLogin() async {
+    Future<void> _handleLogin() async {
 
     bool formIsValid = _formKey.currentState!.validate();
     if (formIsValid == false) return;
 
-    ref.read(isLoadingProvider.notifier).setLoading(true);
-    ref.read(errorMessageProvider.notifier).setError(null);
+    // Captured ONCE, up front — these notifier references stay valid
+    // even after this widget is disposed by navigation, unlike calling
+    // ref.read(...) again later, which throws if the widget's own
+    // element has already been torn down mid-navigation. That throw
+    // was silent and uncaught before, leaving isLoading stuck at
+    // true forever (it's a global provider), which is why a fresh
+    // login screen could show a permanently-spinning button.
+    final loadingNotifier = ref.read(isLoadingProvider.notifier);
+    final errorNotifier = ref.read(errorMessageProvider.notifier);
+
+    loadingNotifier.setLoading(true);
+    errorNotifier.setError(null);
 
     try {
 
@@ -175,9 +185,9 @@ final String? role = await authService.getUserRole();
         'Something went wrong. Please try again.',
       );
 
-    } finally {
+       } finally {
 
-      ref.read(isLoadingProvider.notifier).setLoading(false);
+      loadingNotifier.setLoading(false);
 
     }
   }

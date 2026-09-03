@@ -60,44 +60,51 @@ class RestockPredictionCard extends StatelessWidget {
           else if (restockItems.isEmpty)
             const SizedBox(height: 200, child: Center(child: Text('No restock predictions — stock levels look healthy', textAlign: TextAlign.center, style: TextStyle(fontSize: 13, color: Color(0xFF9CA3AF)))))
           else
-            for (int i = 0; i < restockItems.length; i = i + 1)
-              Container(
-                padding: const EdgeInsets.symmetric(vertical: 12),
-                decoration: BoxDecoration(
-                  border: i < restockItems.length - 1 ? const Border(bottom: BorderSide(color: Color(0xFFF3F4F6))) : null,
-                ),
-                child: Column(
-                  crossAxisAlignment: CrossAxisAlignment.start,
-                  children: [
-                    Row(
-                      children: [
-                        const Icon(Icons.circle, size: 8, color: DashboardTheme.aiPrimary),
-                        const SizedBox(width: 8),
-                        Expanded(
-                          child: Text(restockItems[i]['productName'] ?? '', style: const TextStyle(fontSize: 13, fontWeight: FontWeight.w600, color: Color(0xFF111827)), overflow: TextOverflow.ellipsis),
-                        ),
-                      ],
-                    ),
-                    const SizedBox(height: 8),
-                    _buildStockBar(restockItems[i]['currentStock'] ?? 0, restockItems[i]['idealStock'] ?? 1),
-                    const SizedBox(height: 8),
-                    Row(
-                      children: [
-                        Text('Stockout in ${restockItems[i]['daysUntilStockout']} days', style: const TextStyle(fontSize: 11, color: DashboardTheme.danger, fontWeight: FontWeight.w500)),
-                        const Spacer(),
-                        Text('Restock: ${restockItems[i]['recommendedRestock']} units', style: const TextStyle(fontSize: 11, color: Color(0xFF2563EB), fontWeight: FontWeight.w500)),
-                      ],
-                    ),
-                    if (restockItems[i]['insight'] != null && (restockItems[i]['insight'] as String).isNotEmpty) ...[
-                      const SizedBox(height: 6),
-                      Text(
-                        restockItems[i]['insight'],
-                        style: const TextStyle(fontSize: 11, color: Color(0xFF6B7280), fontStyle: FontStyle.italic),
+                        SizedBox(
+              height: 280,
+              child: ListView.builder(
+                  itemCount: restockItems.length,
+                  itemBuilder: (context, i) {
+                    return Container(
+                      padding: const EdgeInsets.symmetric(vertical: 12, horizontal: 4),
+                      decoration: BoxDecoration(
+                        border: i < restockItems.length - 1 ? const Border(bottom: BorderSide(color: Color(0xFFF3F4F6))) : null,
                       ),
-                    ],
-                  ],
-                ),
+                      child: Column(
+                        crossAxisAlignment: CrossAxisAlignment.start,
+                        children: [
+                          Row(
+                            children: [
+                              const Icon(Icons.circle, size: 8, color: DashboardTheme.aiPrimary),
+                              const SizedBox(width: 8),
+                              Expanded(
+                                child: Text(restockItems[i]['productName'] ?? '', style: const TextStyle(fontSize: 13, fontWeight: FontWeight.w600, color: Color(0xFF111827)), overflow: TextOverflow.ellipsis),
+                              ),
+                            ],
+                          ),
+                          const SizedBox(height: 8),
+                          _buildStockBar(restockItems[i]['currentStock'] ?? 0, restockItems[i]['idealStock'] ?? 1),
+                          const SizedBox(height: 8),
+                          Row(
+                            children: [
+                              Text('Stockout in ${restockItems[i]['daysUntilStockout']} days', style: const TextStyle(fontSize: 11, color: DashboardTheme.danger, fontWeight: FontWeight.w500)),
+                              const Spacer(),
+                              Text('Restock: ${restockItems[i]['recommendedRestock']} units', style: const TextStyle(fontSize: 11, color: Color(0xFF2563EB), fontWeight: FontWeight.w500)),
+                            ],
+                          ),
+                          if (restockItems[i]['insight'] != null && (restockItems[i]['insight'] as String).isNotEmpty) ...[
+                            const SizedBox(height: 6),
+                            Text(
+                              restockItems[i]['insight'],
+                              style: const TextStyle(fontSize: 11, color: Color(0xFF6B7280), fontStyle: FontStyle.italic),
+                            ),
+                          ],
+                        ],
+                      ),
+                    );
+                                    },
               ),
+            ),
         ],
       ),
     );

@@ -3,16 +3,18 @@ import 'package:supabase_flutter/supabase_flutter.dart';
 // ================================================
 // AI DASHBOARD SERVICE
 //
-// Calls two Supabase Edge Functions:
-//   - 'ai-dashboard'            (Groq) — trend / trending / restock
-//   - 'ai-product-replacement'  (Gemini + Google Search grounding)
+// Calls two Supabase Edge Functions, both now backed by OpenAI
+// (gpt-5.6-luna):
+//   - 'ai-dashboard'            — trend / trending / restock
+//   - 'ai-product-replacement'  — 6a (customer_replacement) and
+//                                 6b (new_product_suggestion)
 //
-// Both API keys live server-side as Edge Function secrets —
+// The OpenAI API key lives server-side as an Edge Function secret —
 // never exposed to the Flutter client.
 //
-// NOTE: file kept as GroqService (not renamed) to avoid
-// breaking existing imports across the dashboard screen/widgets.
-// It now also handles the Gemini-based replacement call.
+// NOTE: file kept as GroqService (not renamed) to avoid breaking
+// existing imports across the dashboard screen/widgets. Neither
+// function it calls uses Groq or Gemini anymore.
 // ================================================
 class GroqService {
   final SupabaseClient _supabase = Supabase.instance.client;
@@ -49,8 +51,6 @@ class GroqService {
     }
   }
 
-  // Separate call so the screen can show the insight text alongside
-  // the numeric prediction without re-parsing.
   Future<String> getSalesTrendInsight({
     required List<double> monthlySales,
   }) async {
@@ -74,8 +74,6 @@ class GroqService {
 
   // ================================================
   // TRENDING SHOES
-  // salesData growth% is real, pre-computed data (see
-  // DashboardService.getProductSalesGrowth) — Groq ranks it.
   // ================================================
   Future<List<Map<String, dynamic>>> getTrendingShoes({
     required List<Map<String, dynamic>> salesData,
@@ -104,8 +102,6 @@ class GroqService {
 
   // ================================================
   // RESTOCK PREDICTION
-  // Math (daysUntilStockout, recommendedRestock) is computed
-  // deterministically inside the Edge Function itself.
   // ================================================
   Future<List<Map<String, dynamic>>> getRestockPrediction({
     required List<Map<String, dynamic>> inventoryData,
@@ -133,14 +129,15 @@ class GroqService {
   }
 
   // ================================================
-  // PRODUCT REPLACEMENT (Gemini + Google Search)
-  // One call per discontinued product — run in parallel
-  // from the screen via Future.wait.
+  // PRODUCT REPLACEMENT — 6a, customer-facing
+  // Catalog-first check happens server-side; this just calls
+  // the Edge Function in customer_replacement mode.
   // ================================================
   Future<Map<String, dynamic>?> getProductReplacement({
     required String discontinuedProduct,
     required String brand,
     required List<String> availableBrands,
+    bool forceRefresh = false,
   }) async {
     try {
       final response = await _supabase.functions.invoke(
@@ -149,6 +146,8 @@ class GroqService {
           'discontinuedProduct': discontinuedProduct,
           'brand': brand,
           'availableBrands': availableBrands,
+          'mode': 'customer_replacement',
+          'forceRefresh': forceRefresh,
         },
       );
 
@@ -161,6 +160,44 @@ class GroqService {
       return Map<String, dynamic>.from(data['data']);
     } catch (error) {
       print('getProductReplacement error: $error');
+      return null;
+    }
+  }
+
+  // ================================================
+  // SUGGEST NEW PRODUCT — 6b, admin-initiated
+  // Always AI + web search — deliberately skips the catalog-first
+  // check, since the point is finding something NOT already stocked.
+  // Separate cache key from getProductReplacement, so the two never
+  // overwrite each other.
+  // ================================================
+  Future<Map<String, dynamic>?> getNewProductSuggestion({
+    required String discontinuedProduct,
+    required String brand,
+    required List<String> availableBrands,
+    bool forceRefresh = false,
+  }) async {
+    try {
+      final response = await _supabase.functions.invoke(
+        'ai-product-replacement',
+        body: {
+          'discontinuedProduct': discontinuedProduct,
+          'brand': brand,
+          'availableBrands': availableBrands,
+          'mode': 'new_product_suggestion',
+          'forceRefresh': forceRefresh,
+        },
+      );
+
+      final data = response.data;
+      if (data == null || data['success'] != true) {
+        print('getNewProductSuggestion failed: ${data?['error']}');
+        return null;
+      }
+
+      return Map<String, dynamic>.from(data['data']);
+    } catch (error) {
+      print('getNewProductSuggestion error: $error');
       return null;
     }
   }

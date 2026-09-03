@@ -100,6 +100,14 @@ class Order {
   final String? receiptUrl;
   final String? cancelReason;
 
+  // NEW — whether this order's customer is CURRENTLY suspended/banned.
+  // Read from the same nested `users` join already used for name/phone
+  // — no new query or join needed, just one more selected column.
+  // Optional with a default, so every existing Order(...) construction
+  // site across the app (checkout, receipts, status updates) keeps
+  // compiling untouched.
+  final bool isCustomerSuspended;
+
   bool get hasCoordinates => lat != null && lng != null;
 
   Order({
@@ -124,8 +132,8 @@ class Order {
     this.receiptUrl,
     this.cancelReason,
     this.adminNote,
+    this.isCustomerSuspended = false,
   });
-
     factory Order.fromMap(
     Map<String, dynamic> map, {
     String  paymentStatus = '',
@@ -144,7 +152,8 @@ class Order {
     final String customerName = '$firstName $lastName'.trim().isEmpty
         ? 'Unknown'
         : '$firstName $lastName'.trim();
-    final String contact = user['phone'] ?? '';
+       final String contact = user['phone'] ?? '';
+    final bool isCustomerSuspended = user['is_disabled'] == true;
 
     // ── address info ──
     final dynamic rawAddr           = map['address'];
@@ -201,9 +210,10 @@ class Order {
       subtotal:        (map['subtotal'] as num?)?.toDouble() ?? 0,
       shipping:        (map['shipping'] as num?)?.toDouble() ?? 0,
       discountAmount:  (map['discount_amount'] as num?)?.toDouble() ?? 0,
-      receiptUrl:      receiptUrl,
+           receiptUrl:      receiptUrl,
       cancelReason:    cancelReason,
       adminNote:       adminNote,
+      isCustomerSuspended: isCustomerSuspended,
     );
   }
 }

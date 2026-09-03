@@ -87,10 +87,11 @@ class OrderManagementService {
           created_at,
           user_id,
           address_id,
-          users (
+            users (
             first_name,
             last_name,
-            phone
+            phone,
+            is_disabled
           ),
           address (
             street,

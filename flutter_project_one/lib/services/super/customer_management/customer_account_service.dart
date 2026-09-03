@@ -3,6 +3,21 @@ import 'package:supabase_flutter/supabase_flutter.dart';
 import '../../../models/customer_account.dart';
 import '../activity_log/activity_log_service.dart';
 
+class CustomerViolation {
+  final String violationType;
+  final int tierApplied;
+  final String detectedAt;
+
+  const CustomerViolation({
+    required this.violationType,
+    required this.tierApplied,
+    required this.detectedAt,
+  });
+
+  String get label =>
+      violationType == 'rapid_ordering' ? 'Rapid Ordering' : 'High Cancellation Rate';
+}
+
 class CustomerFlagSummary {
   final int cancelledOrdersCount;
   final int failedPaymentCount;
@@ -23,6 +38,26 @@ class CustomerFlagSummary {
 class CustomerAccountService {
   CustomerAccountService() {
     print('CustomerAccountService CREATED');
+  }
+
+    // ================================================
+  // GET VIOLATION HISTORY
+  // Full audit trail for the customer detail modal.
+  // ================================================
+  Future<List<CustomerViolation>> getViolationHistory(String userId) async {
+    final List<dynamic> rows = await _supabase
+        .from('customer_violations')
+        .select('violation_type, tier_applied, detected_at')
+        .eq('user_id', userId)
+        .order('detected_at', ascending: false);
+
+    return rows.map((row) {
+      return CustomerViolation(
+        violationType: row['violation_type'] as String,
+        tierApplied: (row['tier_applied'] as num).toInt(),
+        detectedAt: row['detected_at'].toString(),
+      );
+    }).toList();
   }
 
   final SupabaseClient _supabase = Supabase.instance.client;

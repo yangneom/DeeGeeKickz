@@ -5,6 +5,7 @@ import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:flutter_screenutil/flutter_screenutil.dart';
 import 'package:flutter_dotenv/flutter_dotenv.dart';
 import 'package:app_links/app_links.dart';
+import 'dart:async';
 
 import 'screens/customer/homescreen/home_screen.dart';
 import 'screens/customer/orders/order_history_screen.dart';
@@ -130,18 +131,52 @@ class MyApp extends ConsumerStatefulWidget {
 class _MyAppState extends ConsumerState<MyApp> {
   final GlobalKey<NavigatorState> _navigatorKey = appNavigatorKey;
   AppLinks? _appLinks;
+  Timer? _presenceHeartbeat;
 
   @override
-  void initState() {
+   void initState() {
     super.initState();
     if (!kIsWeb) {
       _initDeepLinks();
     }
     _listenForAuthEvents();
+    _startPresenceHeartbeat();
     WidgetsBinding.instance.addPostFrameCallback((_) {
       _loadInitialCart();
       _checkForOrphanedSignup();
     });
+  }
+
+  @override
+  void dispose() {
+    _presenceHeartbeat?.cancel();
+    super.dispose();
+  }
+
+  // ================================================
+  // PRESENCE HEARTBEAT
+  // Updates last_active_at every 2 minutes while a session is open,
+  // so "Online" in Customer Management reflects genuinely active
+  // use — not just the moment someone happened to log in.
+  // ================================================
+  void _startPresenceHeartbeat() {
+    _updateLastActive();
+    _presenceHeartbeat = Timer.periodic(const Duration(minutes: 2), (_) {
+      _updateLastActive();
+    });
+  }
+
+  Future<void> _updateLastActive() async {
+    final user = Supabase.instance.client.auth.currentUser;
+    if (user == null) return;
+    try {
+      await Supabase.instance.client
+          .from('users')
+          .update({'last_active_at': DateTime.now().toIso8601String()})
+          .eq('id', user.id);
+    } catch (e) {
+      print('presence heartbeat error: $e');
+    }
   }
 
   Future<void> _loadInitialCart() async {

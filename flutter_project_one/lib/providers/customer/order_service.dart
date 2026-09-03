@@ -91,6 +91,16 @@ class OrderService {
 
       final int orderId = (result as num).toInt();
 
+      // Non-critical — evaluates the rapid-ordering abuse pattern.
+      // Must never fail order placement, which already succeeded.
+      try {
+        await _supabase.rpc('evaluate_customer_abuse', params: {
+          'p_user_id': userId,
+        });
+      } catch (e) {
+        print('evaluate_customer_abuse error: $e');
+      }
+
       // Non-critical — must never fail the order itself, which has
       // already fully committed by this point.
       await _notifyStaffNewOrder(

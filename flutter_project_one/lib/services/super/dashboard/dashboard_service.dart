@@ -61,32 +61,56 @@ class DashboardService {
     final thisMonthStart = _startOfMonth(now);
     final lastMonthStart = DateTime(now.year, now.month - 1, 1);
 
-    // ── Orders this month & last month (revenue + count) ──
-    final thisMonthOrders = await _supabase
+        // ── Orders this month & last month (revenue + count) ──
+    // Uses the SAME qualifying definition as SalesReportService:
+    //   In-Store -> order_status == 'Completed'
+    //   Online   -> payment_status == 'Paid'
+    // Previously this only excluded 'Cancelled', which meant
+    // Pending/Awaiting Payment orders (not yet actually paid for)
+    // were counted as real revenue here, disagreeing with the
+    // audited numbers on the Sales Report screen.
+    final List<dynamic> allOrders = await _supabase
         .from('orders')
-        .select('total_amount, order_status')
-        .gte('created_at', thisMonthStart.toIso8601String())
-        .neq('order_status', 'Cancelled');
+        .select('order_id, total_amount, order_status, order_type, created_at');
 
-    final lastMonthOrders = await _supabase
-        .from('orders')
-        .select('total_amount, order_status')
-        .gte('created_at', lastMonthStart.toIso8601String())
-        .lt('created_at', thisMonthStart.toIso8601String())
-        .neq('order_status', 'Cancelled');
+    final List<dynamic> paidPayments = await _supabase
+        .from('payment')
+        .select('order_id')
+        .eq('payment_status', 'Paid');
 
-    double sumRevenue(List<dynamic> rows) {
-      double total = 0;
-      for (final row in rows) {
-        total += (row['total_amount'] as num?)?.toDouble() ?? 0;
-      }
-      return total;
+    final Set<int> paidOrderIds =
+        paidPayments.map((p) => (p['order_id'] as num).toInt()).toSet();
+
+    bool isQualifying(Map<String, dynamic> row) {
+      final String type = row['order_type'] ?? 'online';
+      final String status = row['order_status'] ?? '';
+      final int orderId = (row['order_id'] as num).toInt();
+      if (type == 'In-Store') return status == 'Completed';
+      return paidOrderIds.contains(orderId);
     }
 
-    final double monthlyRevenue = sumRevenue(thisMonthOrders as List);
-    final double previousMonthRevenue = sumRevenue(lastMonthOrders as List);
-    final int totalOrders = thisMonthOrders.length;
-    final int previousMonthOrders = lastMonthOrders.length;
+    double monthlyRevenue = 0;
+    double previousMonthRevenue = 0;
+    int totalOrders = 0;
+    int previousMonthOrders = 0;
+
+    for (final dynamic row in allOrders) {
+      final Map<String, dynamic> order = row as Map<String, dynamic>;
+      if (!isQualifying(order)) continue;
+
+      final DateTime created =
+          DateTime.parse(order['created_at'].toString()).toLocal();
+      final double total = (order['total_amount'] as num?)?.toDouble() ?? 0;
+
+      if (!created.isBefore(thisMonthStart)) {
+        monthlyRevenue += total;
+        totalOrders++;
+      } else if (!created.isBefore(lastMonthStart) &&
+          created.isBefore(thisMonthStart)) {
+        previousMonthRevenue += total;
+        previousMonthOrders++;
+      }
+    }
 
     // ── Low stock items (available <= 5) ──
     final lowStockRows = await _supabase
@@ -250,56 +274,84 @@ class DashboardService {
   // dailySalesRate computed from last 30 days of real sales.
   // ================================================
   Future<List<Map<String, dynamic>>> getInventoryForRestock() async {
-    final thirtyDaysAgo = DateTime.now().subtract(const Duration(days: 30));
+  final thirtyDaysAgo = DateTime.now().subtract(const Duration(days: 30));
 
-    // Sales in the last 30 days per product
-    final salesRows = await _supabase
-        .from('order_item')
-        .select('product_name_snapshot, quantity, orders!inner(created_at)');
+  // Sales in the last 30 days, per SIZE (not per product) — a specific
+  // size selling out while other sizes of the same product are fully
+  // stocked needs to be visible on its own. The old code summed stock
+  // across every size of a product (Puma RS-X: 201 units total), so a
+  // single sold-out, fast-moving size never crossed the threshold.
+  final salesRows = await _supabase
+      .from('order_item')
+      .select('size_id, quantity, orders!inner(created_at)')
+      .not('size_id', 'is', null);
 
-    final Map<String, int> salesByProduct = {};
-    for (final row in salesRows as List) {
-      final name = row['product_name_snapshot']?.toString() ?? 'Unknown';
-      final createdAtStr = row['orders']?['created_at']?.toString();
-      final createdAt = createdAtStr != null ? DateTime.tryParse(createdAtStr) : null;
-      if (createdAt == null || createdAt.isBefore(thirtyDaysAgo)) continue;
-      final qty = (row['quantity'] as num?)?.toInt() ?? 0;
-      salesByProduct[name] = (salesByProduct[name] ?? 0) + qty;
-    }
+  final Map<int, int> salesBySize = {};
+  for (final row in salesRows as List) {
+    final sizeId = (row['size_id'] as num?)?.toInt();
+    if (sizeId == null) continue;
+    final createdAtStr = row['orders']?['created_at']?.toString();
+    final createdAt = createdAtStr != null ? DateTime.tryParse(createdAtStr) : null;
+    if (createdAt == null || createdAt.isBefore(thirtyDaysAgo)) continue;
+    final qty = (row['quantity'] as num?)?.toInt() ?? 0;
+    salesBySize[sizeId] = (salesBySize[sizeId] ?? 0) + qty;
+  }
 
-    // Current stock per product (summed across variants/sizes)
-    final stockRows = await _supabase
-        .from('product')
-        .select('product_name, is_archived, product_variant(product_variant_size(stock_quantity))')
-        .eq('is_archived', false);
+  // Same nested-select shape already used elsewhere in this file —
+  // just now carrying size_id/color/size/reserved through instead of
+  // collapsing everything into one product-level total.
+  final stockRows = await _supabase
+      .from('product')
+      .select(
+        'product_name, is_archived, '
+        'product_variant(color_name, product_variant_size(size_id, size, stock_quantity, reserved_quantity))',
+      )
+      .eq('is_archived', false);
 
-    final List<Map<String, dynamic>> result = [];
-    for (final product in stockRows as List) {
-      final name = product['product_name']?.toString() ?? 'Unknown';
-      final variants = product['product_variant'] as List<dynamic>? ?? [];
+  final List<Map<String, dynamic>> result = [];
 
-      int totalStock = 0;
-      for (final variant in variants) {
-        final sizes = variant['product_variant_size'] as List<dynamic>? ?? [];
-        for (final size in sizes) {
-          totalStock += (size['stock_quantity'] as num?)?.toInt() ?? 0;
+  for (final product in stockRows as List) {
+    final productName = product['product_name']?.toString() ?? 'Unknown';
+    final variants = product['product_variant'] as List<dynamic>? ?? [];
+
+    for (final variant in variants) {
+      final colorName = variant['color_name']?.toString() ?? '';
+      final sizes = variant['product_variant_size'] as List<dynamic>? ?? [];
+
+      for (final size in sizes) {
+        final sizeId = (size['size_id'] as num?)?.toInt();
+        if (sizeId == null) continue;
+
+        final stock = (size['stock_quantity'] as num?)?.toInt() ?? 0;
+        final reserved = (size['reserved_quantity'] as num?)?.toInt() ?? 0;
+        final available = stock - reserved;
+        final sizeLabel = size['size']?.toString() ?? '';
+
+        final salesCount = salesBySize[sizeId] ?? 0;
+        final dailyRate = salesCount / 30.0;
+
+                // Flag a SPECIFIC size that's actually selling AND running
+        // low — not the product as a whole. Two ways to qualify:
+        // (1) less than 14 days of stock left at current pace, OR
+        // (2) an absolute floor of 3 units — catches genuinely slow
+        // sellers (e.g. 1 sale/month) whose 14-day math rounds down
+        // to nearly zero and would otherwise never get flagged, even
+        // sitting at just 2 units left.
+        final bool velocityLow = available <= dailyRate * 14;
+        final bool absoluteFloorLow = available <= 3;
+
+        if (dailyRate > 0 && (velocityLow || absoluteFloorLow)) {
+          result.add({
+            'productName': '$productName ($colorName, size $sizeLabel)',
+            'currentStock': available,
+            'maxStock': 100,
+            'dailySalesRate': dailyRate,
+          });
         }
       }
-
-      final salesCount = salesByProduct[name] ?? 0;
-      final dailyRate = salesCount / 30.0;
-
-      // Only flag products actually selling AND running low
-      if (dailyRate > 0 && totalStock <= dailyRate * 14) {
-        result.add({
-          'productName': name,
-          'currentStock': totalStock,
-          'maxStock': 100, // display scale for the progress bar
-          'dailySalesRate': dailyRate,
-        });
-      }
     }
-
-    return result;
   }
+
+  return result;
+}
 }

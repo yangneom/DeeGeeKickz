@@ -1,118 +1,191 @@
-// supabase/functions/ai-dashboard/index.ts
 import { serve } from "https://deno.land/std@0.168.0/http/server.ts";
+import { createClient } from "https://esm.sh/@supabase/supabase-js@2";
 
-const GROQ_API_KEY = Deno.env.get("GROQ_API_KEY")!;
-const GROQ_URL = "https://api.groq.com/openai/v1/chat/completions";
-const MODEL = "llama-3.3-70b-versatile";
+const OPENAI_API_KEY = Deno.env.get("OPENAI_API_KEY")!;
+const OPENAI_URL = "https://api.openai.com/v1/chat/completions";
+const MODEL = "gpt-5.6-luna";
+
+const CACHE_TTL_MS = 24 * 60 * 60 * 1000; // once per day
 
 const corsHeaders = {
   "Access-Control-Allow-Origin": "*",
   "Access-Control-Allow-Headers": "authorization, x-client-info, apikey, content-type",
 };
 
-async function callGroq(systemPrompt: string, userPrompt: string) {
-  const res = await fetch(GROQ_URL, {
+const supabase = createClient(
+  Deno.env.get("SUPABASE_URL")!,
+  Deno.env.get("SUPABASE_SERVICE_ROLE_KEY")!
+);
+
+// Turns the actual payload into a short hash so the cache key
+// changes whenever the underlying sales/inventory data changes —
+// previously the key was just "trend"/"trending"/"restock", so a
+// stale prediction could be served for up to 24h even after real
+// numbers changed.
+async function hashPayload(payload: unknown): Promise<string> {
+  const encoder = new TextEncoder();
+  const data = encoder.encode(JSON.stringify(payload));
+  const hashBuffer = await crypto.subtle.digest("SHA-256", data);
+  return Array.from(new Uint8Array(hashBuffer))
+    .map((b) => b.toString(16).padStart(2, "0"))
+    .join("")
+    .slice(0, 16);
+}
+
+// ── Cache helper ─────────────────────────────────────────────
+// Reads/writes ai_dashboard_cache. A cache miss (or stale/expired
+// entry) falls through to computeFn(), then stores the fresh result.
+// forceRefresh bypasses the read (used by a future manual "Refresh"
+// button) but still writes the new result back into the cache.
+async function getOrCompute(
+  cacheKey: string,
+  forceRefresh: boolean,
+  computeFn: () => Promise<unknown>
+) {
+  if (!forceRefresh) {
+    const { data } = await supabase
+      .from("ai_dashboard_cache")
+      .select("result_json, generated_at")
+      .eq("cache_key", cacheKey)
+      .maybeSingle();
+
+    if (data) {
+      const age = Date.now() - new Date(data.generated_at).getTime();
+      if (age < CACHE_TTL_MS) {
+        return data.result_json;
+      }
+    }
+  }
+
+  const fresh = await computeFn();
+
+  await supabase.from("ai_dashboard_cache").upsert({
+    cache_key: cacheKey,
+    result_json: fresh,
+    generated_at: new Date().toISOString(),
+  });
+
+  return fresh;
+}
+
+async function callOpenAI(systemPrompt: string, userPrompt: string) {
+  const res = await fetch(OPENAI_URL, {
     method: "POST",
     headers: {
       "Content-Type": "application/json",
-      "Authorization": `Bearer ${GROQ_API_KEY}`,
+      "Authorization": `Bearer ${OPENAI_API_KEY}`,
     },
-    body: JSON.stringify({
+        body: JSON.stringify({
       model: MODEL,
       response_format: { type: "json_object" },
       messages: [
         { role: "system", content: systemPrompt },
         { role: "user", content: userPrompt },
       ],
-      temperature: 0.3,
+      // gpt-5.6-luna only supports the default temperature (1) —
+      // confirmed via a real 400 error when 0.3 was sent. Newer
+      // reasoning-oriented models often drop support for sampling
+      // temperature entirely; omitting the field uses the default.
     }),
   });
 
   if (!res.ok) {
     const errText = await res.text();
-    throw new Error(`Groq API error ${res.status}: ${errText}`);
+    throw new Error(`OpenAI API error ${res.status}: ${errText}`);
   }
 
   const data = await res.json();
   const content = data.choices?.[0]?.message?.content;
-  if (!content) throw new Error("Groq returned no content");
+  if (!content) throw new Error("OpenAI returned no content");
   return JSON.parse(content);
 }
 
-async function handleTrend(payload: { monthlySales: number[] }) {
-  const { monthlySales } = payload;
-  const result = await callGroq(
-    `You are a retail sales forecaster for a sneaker store. Given a list of ` +
-    `monthly revenue figures (in PHP), predict the next 3 months and give a ` +
-    `one-sentence actionable insight. Respond ONLY with JSON: ` +
-    `{"predictedSales": [number, number, number], "insight": "string"}`,
-    `Monthly sales history (oldest to newest): ${JSON.stringify(monthlySales)}`
+async function handleTrend(payload: { monthlySales: number[] }, forceRefresh: boolean) {
+  // Fixed key, not hash-based — this is a directional trend forecast,
+  // not an exact figure, so a few hours of slightly-stale data is an
+  // acceptable tradeoff for guaranteeing at most one OpenAI call per
+  // day regardless of how many orders come in during that day.
+  return getOrCompute("trend", forceRefresh, () =>
+    callOpenAI(
+      `You are a retail sales forecaster for a sneaker store. Given a list of ` +
+      `monthly revenue figures (in PHP), predict the next 3 months and give a ` +
+      `one-sentence actionable insight. Respond ONLY with JSON: ` +
+      `{"predictedSales": [number, number, number], "insight": "string"}`,
+      `Monthly sales history (oldest to newest): ${JSON.stringify(payload.monthlySales)}`
+    )
   );
-  return result;
 }
 
-async function handleTrending(payload: {
-  salesData: { productName: string; salesCount: number; growthPercent: number }[];
-}) {
-  const { salesData } = payload;
-  const result = await callGroq(
-    `You are analyzing real sneaker sales data (numbers are already computed, ` +
-    `do not change them). Select and rank the top trending products. ` +
-    `Respond ONLY with JSON: {"trending": [{"productName": "string", ` +
-    `"salesCount": number, "growthPercent": number}]} using the exact ` +
-    `numbers given, just reordered/selected by significance.`,
-    `Sales data: ${JSON.stringify(salesData)}`
-  );
-  return result;
-}
-
-// ── Restock Prediction ───────────────────────────────────────
-// "target" = ideal stock level for 30 days of runway at current
-// sales pace. This replaces the old fake maxStock:100 placeholder —
-// the progress bar now compares real stock against a real,
-// sales-driven target instead of a made-up ceiling.
-async function handleRestock(payload: {
-  inventoryData: { productName: string; currentStock: number; dailySalesRate: number }[];
-}) {
-  const { inventoryData } = payload;
-
-  const computed = inventoryData.map((item) => {
-    const rate = item.dailySalesRate > 0 ? item.dailySalesRate : 0.1;
-    const daysUntilStockout = Math.max(0, Math.round(item.currentStock / rate));
-    const target = Math.ceil(rate * 30); // ideal 30-day stock level
-    const recommendedRestock = Math.max(0, target - item.currentStock);
+async function handleTrending(
+  payload: { salesData: { productName: string; salesCount: number; growthPercent: number }[] },
+  forceRefresh: boolean
+) {
+  // Fixed key — same reasoning as "trend": strictly once per 24h,
+  // even if sales data shifts during that window.
+  return getOrCompute("trending", forceRefresh, async () => {
+    const aiResult = await callOpenAI(
+      `You are analyzing real sneaker sales data (numbers are already computed, ` +
+      `do not change them). Select and rank EXACTLY the top 5 trending products ` +
+      `(or fewer if fewer than 5 are given, ranked most to least significant). ` +
+      `Respond ONLY with JSON: {"trending": [{"productName": "string", ` +
+      `"salesCount": number, "growthPercent": number}]} using the exact ` +
+      `numbers given, just reordered/selected by significance.`,
+      `Sales data: ${JSON.stringify(payload.salesData)}`
+    );
 
     return {
-      productName: item.productName,
-      currentStock: item.currentStock,
-      idealStock: target,          // ← new: real number, replaces fake maxStock
-      daysUntilStockout,
-      recommendedRestock,
+      trending: Array.isArray(aiResult.trending)
+        ? aiResult.trending.slice(0, 5)
+        : [],
     };
   });
+}
+async function handleRestock(
+  payload: { inventoryData: { productName: string; currentStock: number; dailySalesRate: number }[] },
+  forceRefresh: boolean
+) {
+  // Fixed key — same reasoning as "trend": strictly once per 24h,
+  // even if stock levels shift during that window.
+  return getOrCompute("restock", forceRefresh, async () => {
+    const { inventoryData } = payload;
 
-  computed.sort((a, b) => a.daysUntilStockout - b.daysUntilStockout);
+    const computed = inventoryData.map((item) => {
+      const rate = item.dailySalesRate > 0 ? item.dailySalesRate : 0.1;
+      const daysUntilStockout = Math.max(0, Math.round(item.currentStock / rate));
+      const target = Math.ceil(rate * 30);
+      const recommendedRestock = Math.max(0, target - item.currentStock);
 
-  if (computed.length === 0) {
-    return { restockItems: [] };
-  }
+      return {
+        productName: item.productName,
+        currentStock: item.currentStock,
+        idealStock: target,
+        daysUntilStockout,
+        recommendedRestock,
+      };
+    });
 
-  try {
-    const withInsights = await callGroq(
-      `You are a retail inventory assistant for a sneaker store. You will be ` +
-      `given a list of products with precomputed stockout data (do not change ` +
-      `any numbers). For each item, add a short one-sentence "insight" — a ` +
-      `practical note about urgency or suggested action. Respond ONLY with JSON: ` +
-      `{"restockItems": [{"productName": "string", "currentStock": number, ` +
-      `"idealStock": number, "daysUntilStockout": number, "recommendedRestock": number, ` +
-      `"insight": "string"}]} preserving every item and every number exactly as given.`,
-      `Restock data: ${JSON.stringify(computed)}`
-    );
-    return withInsights;
-  } catch (err) {
-    console.error("Groq insight generation failed, falling back to raw data:", err);
-    return { restockItems: computed };
-  }
+    computed.sort((a, b) => a.daysUntilStockout - b.daysUntilStockout);
+
+    if (computed.length === 0) {
+      return { restockItems: [] };
+    }
+
+    try {
+      return await callOpenAI(
+        `You are a retail inventory assistant for a sneaker store. You will be ` +
+        `given a list of products with precomputed stockout data (do not change ` +
+        `any numbers). For each item, add a short one-sentence "insight" — a ` +
+        `practical note about urgency or suggested action. Respond ONLY with JSON: ` +
+        `{"restockItems": [{"productName": "string", "currentStock": number, ` +
+        `"idealStock": number, "daysUntilStockout": number, "recommendedRestock": number, ` +
+        `"insight": "string"}]} preserving every item and every number exactly as given.`,
+        `Restock data: ${JSON.stringify(computed)}`
+      );
+    } catch (err) {
+      console.error("OpenAI insight generation failed, falling back to raw data:", err);
+      return { restockItems: computed };
+    }
+  });
 }
 
 serve(async (req) => {
@@ -121,15 +194,79 @@ serve(async (req) => {
   }
 
   try {
-    const { action, payload } = await req.json();
+    // Only a real, logged-in Super Admin may trigger this — otherwise
+    // any authenticated account (even a Customer) could call this
+    // endpoint directly and trigger real OpenAI spend, bypassing the
+    // dashboard UI entirely.
+    const authHeader = req.headers.get("Authorization");
+    if (!authHeader) {
+      return new Response(
+        JSON.stringify({ success: false, error: "Missing authorization" }),
+        { status: 401, headers: { ...corsHeaders, "Content-Type": "application/json" } },
+      );
+    }
+
+    const { data: { user } } = await supabase.auth.getUser(
+      authHeader.replace("Bearer ", "")
+    );
+
+    if (!user) {
+      return new Response(
+        JSON.stringify({ success: false, error: "Invalid session" }),
+        { status: 401, headers: { ...corsHeaders, "Content-Type": "application/json" } },
+      );
+    }
+
+    const { data: profile } = await supabase
+      .from("users")
+      .select("role")
+      .eq("id", user.id)
+      .maybeSingle();
+
+    if (profile?.role !== "Super Admin") {
+      return new Response(
+        JSON.stringify({ success: false, error: "Forbidden — Super Admin only" }),
+        { status: 403, headers: { ...corsHeaders, "Content-Type": "application/json" } },
+      );
+    }
+
+       const { action, payload } = await req.json();
+
+    if (!payload || typeof payload !== "object") {
+      return new Response(
+        JSON.stringify({ success: false, error: "Invalid payload" }),
+        { status: 400, headers: { ...corsHeaders, "Content-Type": "application/json" } },
+      );
+    }
+
     let result;
 
+    // forceRefresh removed — no UI currently sends it; re-add with a
+    // proper cooldown if a real "Refresh" button gets built later.
     if (action === "trend") {
-      result = await handleTrend(payload);
+      if (!Array.isArray(payload.monthlySales)) {
+        return new Response(
+          JSON.stringify({ success: false, error: "monthlySales must be an array" }),
+          { status: 400, headers: { ...corsHeaders, "Content-Type": "application/json" } },
+        );
+      }
+      result = await handleTrend(payload, false);
     } else if (action === "trending") {
-      result = await handleTrending(payload);
+      if (!Array.isArray(payload.salesData)) {
+        return new Response(
+          JSON.stringify({ success: false, error: "salesData must be an array" }),
+          { status: 400, headers: { ...corsHeaders, "Content-Type": "application/json" } },
+        );
+      }
+      result = await handleTrending(payload, false);
     } else if (action === "restock") {
-      result = await handleRestock(payload);
+      if (!Array.isArray(payload.inventoryData)) {
+        return new Response(
+          JSON.stringify({ success: false, error: "inventoryData must be an array" }),
+          { status: 400, headers: { ...corsHeaders, "Content-Type": "application/json" } },
+        );
+      }
+      result = await handleRestock(payload, false);
     } else {
       return new Response(
         JSON.stringify({ success: false, error: "Unknown action" }),
