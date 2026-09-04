@@ -65,8 +65,10 @@ class BottomNavBar extends ConsumerWidget {
   };
 
     void _navigateTo(BuildContext context, int index) {
+    final navigator = Navigator.of(context);
+
     if (index == 0) {
-      Navigator.of(context).popUntil((r) => r.isFirst);
+      navigator.popUntil((r) => r.isFirst);
       return;
     }
 
@@ -75,30 +77,35 @@ class BottomNavBar extends ConsumerWidget {
       return;
     }
 
-    // Always return to the root, then push fresh — avoids the
-    // predicate-based popUntil race that could crash mid-transition
-    // (see: Assertion failed / Duplicate GlobalKey errors).
-    final navigator = Navigator.of(context);
-    navigator.popUntil((r) => r.isFirst);
-
+    // pushAndRemoveUntil — same atomic-transaction fix as
+    // app_top_bar.dart, for the same underlying crash.
     switch (index) {
       case 1:
-        navigator.push(MaterialPageRoute(
-          settings: const RouteSettings(name: 'shop'),
-          builder: (_) => const ShopScreen(),
-        ));
+        navigator.pushAndRemoveUntil(
+          MaterialPageRoute(
+            settings: const RouteSettings(name: 'shop'),
+            builder: (_) => const ShopScreen(),
+          ),
+          (r) => r.isFirst,
+        );
         break;
       case 2:
-        navigator.push(MaterialPageRoute(
-          settings: const RouteSettings(name: 'bag'),
-          builder: (_) => const CartScreen(),
-        ));
+        navigator.pushAndRemoveUntil(
+          MaterialPageRoute(
+            settings: const RouteSettings(name: 'bag'),
+            builder: (_) => const CartScreen(),
+          ),
+          (r) => r.isFirst,
+        );
         break;
       case 3:
-        navigator.push(MaterialPageRoute(
-          settings: const RouteSettings(name: 'orders'),
-          builder: (_) => const OrderHistoryScreen(),
-        ));
+        navigator.pushAndRemoveUntil(
+          MaterialPageRoute(
+            settings: const RouteSettings(name: 'orders'),
+            builder: (_) => const OrderHistoryScreen(),
+          ),
+          (r) => r.isFirst,
+        );
         break;
     }
   }

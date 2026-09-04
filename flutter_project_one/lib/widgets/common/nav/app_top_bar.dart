@@ -60,29 +60,37 @@ class AppTopBar extends ConsumerWidget implements PreferredSizeWidget {
   // route was never given a name, popUntil here can't find it and
   // will fall through to pushing a new one instead. Check main.dart's
   // initial route if Shop/Promo ever seem to "do nothing" from here.
-    void _onNavTap(BuildContext context, String route) {
+        void _onNavTap(BuildContext context, String route) {
+    final navigator = Navigator.of(context);
+
     if (route == 'home') {
-      Navigator.of(context).popUntil((r) => r.isFirst);
+      navigator.popUntil((r) => r.isFirst);
       return;
     }
 
-    // Always return to the root, then push fresh — avoids the
-    // predicate-based popUntil race that could crash mid-transition.
-    final navigator = Navigator.of(context);
-    navigator.popUntil((r) => r.isFirst);
-
+    // pushAndRemoveUntil does removal + insertion as ONE atomic
+    // navigator transaction — a separate popUntil() then push() (the
+    // old code) manipulates the same Navigator's element tree twice
+    // in one frame, which is exactly what produced the
+    // "_elements.contains(element) is not true" assertion crash.
     switch (route) {
       case 'shop':
-        navigator.push(MaterialPageRoute(
-          settings: const RouteSettings(name: 'shop'),
-          builder: (_) => const ShopScreen(),
-        ));
+        navigator.pushAndRemoveUntil(
+          MaterialPageRoute(
+            settings: const RouteSettings(name: 'shop'),
+            builder: (_) => const ShopScreen(),
+          ),
+          (r) => r.isFirst,
+        );
         break;
       case 'promo':
-        navigator.push(MaterialPageRoute(
-          settings: const RouteSettings(name: 'promo'),
-          builder: (_) => const PromoScreen(),
-        ));
+        navigator.pushAndRemoveUntil(
+          MaterialPageRoute(
+            settings: const RouteSettings(name: 'promo'),
+            builder: (_) => const PromoScreen(),
+          ),
+          (r) => r.isFirst,
+        );
         break;
     }
   }

@@ -2,13 +2,87 @@ import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:supabase_flutter/supabase_flutter.dart';
 import '../../../providers/auth/auth_provider.dart';
+import '../../../services/auth/auth_service.dart';
+import '../../common/dialog/profile_dialog.dart';
 
-class CashierTopBar extends ConsumerWidget {
+class CashierTopBar extends ConsumerStatefulWidget {
   const CashierTopBar({super.key});
 
   @override
-  Widget build(BuildContext context, WidgetRef ref) {
+  ConsumerState<CashierTopBar> createState() => _CashierTopBarState();
+}
 
+class _CashierTopBarState extends ConsumerState<CashierTopBar> {
+  final AuthService _authService = AuthService();
+  bool _reminderChecked = false;
+
+  @override
+  void initState() {
+    super.initState();
+    WidgetsBinding.instance.addPostFrameCallback((_) => _checkPasswordReminder());
+  }
+
+  Future<void> _checkPasswordReminder() async {
+    if (_reminderChecked) return;
+    _reminderChecked = true;
+
+    final due = await _authService.isPasswordChangeDue();
+    if (!mounted || !due) return;
+
+    _showPasswordReminderDialog();
+  }
+
+  void _showPasswordReminderDialog() {
+    showDialog(
+      context: context,
+      barrierDismissible: true,
+      builder: (dialogContext) => AlertDialog(
+        title: const Text('Time to update your password'),
+        content: const Text(
+          'For account security, please update your password. '
+          'It\'s been 30 days or more since your last change.',
+        ),
+        actions: [
+          TextButton(
+            onPressed: () => Navigator.pop(dialogContext),
+            child: const Text('Later'),
+          ),
+          ElevatedButton(
+            onPressed: () async {
+              Navigator.pop(dialogContext);
+              final user = Supabase.instance.client.auth.currentUser;
+              if (user == null) return;
+
+              final data = await Supabase.instance.client
+                  .from('users')
+                  .select('first_name, last_name, email, phone, role')
+                  .eq('id', user.id)
+                  .single();
+
+              if (!mounted) return;
+              showDialog(
+                context: context,
+                builder: (_) => ProfileDialog(
+                  userId: user.id,
+                  firstName: data['first_name'] ?? '',
+                  lastName: data['last_name'] ?? '',
+                  email: data['email'] ?? user.email ?? '',
+                  phone: data['phone'] ?? '',
+                  role: data['role'] ?? '',
+                  canEdit: false,
+                  autoOpenPasswordSection: true,
+                ),
+              );
+            },
+            child: const Text('Change Now'),
+          ),
+        ],
+      ),
+    );
+  }
+
+  @override
+  Widget build(BuildContext context) {
     final authState = ref.watch(authStateProvider);
 
     return Container(
@@ -23,7 +97,6 @@ class CashierTopBar extends ConsumerWidget {
       child: Row(
         mainAxisAlignment: MainAxisAlignment.end,
         children: [
-
           authState.when(
             data: (state) {
               final user = state.session?.user;
@@ -32,62 +105,85 @@ class CashierTopBar extends ConsumerWidget {
               return FutureBuilder<Map<String, dynamic>?>(
                 future: Supabase.instance.client
                     .from('users')
-                    .select('first_name, last_name')
+                    .select('first_name, last_name, email, phone, role')
                     .eq('id', user.id)
                     .single()
                     .then((v) => v),
                 builder: (context, snapshot) {
+                  String firstName = '';
+                  String lastName = '';
                   String displayName = 'Cashier';
+                  String email = user.email ?? '';
+                  String phone = '';
+                  String role = '';
 
                   if (snapshot.hasData && snapshot.data != null) {
-                    final first = snapshot.data!['first_name'] ?? '';
-                    final last = snapshot.data!['last_name'] ?? '';
-                    displayName = '$first $last'.trim();
+                    final data = snapshot.data!;
+                    firstName = data['first_name'] ?? '';
+                    lastName = data['last_name'] ?? '';
+                    displayName = '$firstName $lastName'.trim();
                     if (displayName.isEmpty) displayName = 'Cashier';
+                    email = data['email'] ?? email;
+                    phone = data['phone'] ?? '';
+                    role = data['role'] ?? '';
                   }
 
-                  return Column(
-                    mainAxisAlignment: MainAxisAlignment.center,
-                    crossAxisAlignment: CrossAxisAlignment.end,
-                    children: [
-                      const Text(
-                        'Hello',
-                        style: TextStyle(
-                          fontSize: 11,
-                          color: Color(0xFF9CA3AF),
+                  return GestureDetector(
+                    onTap: () {
+                      showDialog(
+                        context: context,
+                        builder: (_) => ProfileDialog(
+                          userId: user.id,
+                          firstName: firstName,
+                          lastName: lastName,
+                          email: email,
+                          phone: phone,
+                          role: role,
+                          canEdit: false,
                         ),
-                      ),
-                      Text(
-                        displayName,
-                        style: const TextStyle(
-                          fontSize: 13,
-                          fontWeight: FontWeight.w600,
-                          color: Color(0xFF111827),
+                      );
+                    },
+                    child: Row(
+                      children: [
+                        Column(
+                          mainAxisAlignment: MainAxisAlignment.center,
+                          crossAxisAlignment: CrossAxisAlignment.end,
+                          children: [
+                            const Text(
+                              'Hello',
+                              style: TextStyle(
+                                fontSize: 11,
+                                color: Color(0xFF9CA3AF),
+                              ),
+                            ),
+                            Text(
+                              displayName,
+                              style: const TextStyle(
+                                fontSize: 13,
+                                fontWeight: FontWeight.w600,
+                                color: Color(0xFF111827),
+                              ),
+                            ),
+                          ],
                         ),
-                      ),
-                    ],
+                        const SizedBox(width: 12),
+                        CircleAvatar(
+                          radius: 18,
+                          backgroundColor: Colors.grey.shade200,
+                          child: const Icon(
+                            Icons.person_outline,
+                            size: 20,
+                            color: Color(0xFF6B7280),
+                          ),
+                        ),
+                      ],
+                    ),
                   );
                 },
               );
             },
             loading: () => const SizedBox.shrink(),
             error: (_, __) => const SizedBox.shrink(),
-          ),
-
-          const SizedBox(width: 12),
-
-          Container(
-            width: 36,
-            height: 36,
-            decoration: BoxDecoration(
-              shape: BoxShape.circle,
-              color: Colors.grey.shade200,
-            ),
-            child: const Icon(
-              Icons.person_outline,
-              size: 20,
-              color: Color(0xFF6B7280),
-            ),
           ),
         ],
       ),
