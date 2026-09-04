@@ -40,7 +40,7 @@ class _SetPasswordFormState extends State<SetPasswordForm> {
     super.dispose();
   }
 
-  // ── Submit ────────────────────────────────────
+  // ── Submit ──────────────────────────────────── (unchanged)
   Future<void> _submit() async {
     if (!_formKey.currentState!.validate()) return;
 
@@ -52,12 +52,10 @@ class _SetPasswordFormState extends State<SetPasswordForm> {
     try {
       final supabase = Supabase.instance.client;
 
-      // 1. Update password in Supabase Auth
       await supabase.auth.updateUser(
         UserAttributes(password: _passwordController.text.trim()),
       );
 
-      // 2. Mark password_set = true in public.users
       final userId = supabase.auth.currentUser?.id;
       if (userId != null) {
         await supabase
@@ -71,16 +69,13 @@ class _SetPasswordFormState extends State<SetPasswordForm> {
 
       if (!mounted) return;
 
-      // 3. Show success then go to login
       ScaffoldMessenger.of(context).showSnackBar(
         const SnackBar(
           content: Text(
-            'PASSWORD SET SUCCESSFULLY. PLEASE LOG IN.',
+            'Password set successfully. Please log in.',
             style: TextStyle(
-              fontFamily: 'Inter',
-              fontSize: 12,
+              fontSize: 13,
               fontWeight: FontWeight.w600,
-              letterSpacing: 1,
             ),
           ),
           backgroundColor: Colors.black,
@@ -88,12 +83,10 @@ class _SetPasswordFormState extends State<SetPasswordForm> {
         ),
       );
 
-      // Sign out so they log in fresh with new password
       await supabase.auth.signOut();
 
       if (!mounted) return;
 
-      // Navigate to login — pop everything
       Navigator.of(context).pushNamedAndRemoveUntil(
         '/login',
         (route) => false,
@@ -116,28 +109,13 @@ class _SetPasswordFormState extends State<SetPasswordForm> {
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.start,
         children: [
-          // ── Header ─────────────────────────────
+          // ── Header — matches Sign Up's title/subtitle treatment ──
           const Text(
-            'DEEGEEKICKZ',
+            'Set Your Password',
             style: TextStyle(
-              fontFamily: 'Inter',
-              fontSize: 22,
-              fontWeight: FontWeight.w800,
-              letterSpacing: 3,
-              color: Colors.black,
-            ),
-          ),
-
-          const SizedBox(height: 32),
-
-          const Text(
-            'SET YOUR PASSWORD',
-            style: TextStyle(
-              fontFamily: 'Inter',
-              fontSize: 20,
-              fontWeight: FontWeight.w700,
-              letterSpacing: 1,
-              color: Colors.black,
+              fontSize: 26,
+              fontWeight: FontWeight.bold,
+              color: Color(0xFF111827),
             ),
           ),
 
@@ -147,34 +125,32 @@ class _SetPasswordFormState extends State<SetPasswordForm> {
             'Create a secure password for your account. '
             'You will use this to log in from now on.',
             style: TextStyle(
-              fontFamily: 'Inter',
               fontSize: 13,
               height: 1.6,
-              color: Color(0xFF4C4546),
+              color: Color(0xFF6B7280),
             ),
           ),
 
           const SizedBox(height: 32),
 
           // ── New password ────────────────────────
-          _fieldLabel('NEW PASSWORD'),
-          const SizedBox(height: 8),
+          _fieldLabel('New Password'),
+          const SizedBox(height: 6),
           TextFormField(
             controller: _passwordController,
             obscureText: _obscurePassword,
             style: const TextStyle(
-              fontFamily: 'Inter',
-              fontSize: 15,
-              color: Colors.black,
+              fontSize: 14,
+              color: Color(0xFF111827),
             ),
             decoration: _inputDecoration(
-              hint: 'At least 8 characters',
+              hint: 'Enter your password',
               suffixIcon: IconButton(
                 icon: Icon(
                   _obscurePassword
-                      ? Icons.visibility_outlined
-                      : Icons.visibility_off_outlined,
-                  color: const Color(0xFF4C4546),
+                      ? Icons.visibility_off_outlined
+                      : Icons.visibility_outlined,
+                  color: const Color(0xFF6B7280),
                   size: 20,
                 ),
                 onPressed: () =>
@@ -195,24 +171,23 @@ class _SetPasswordFormState extends State<SetPasswordForm> {
           const SizedBox(height: 20),
 
           // ── Confirm password ────────────────────
-          _fieldLabel('CONFIRM PASSWORD'),
-          const SizedBox(height: 8),
+          _fieldLabel('Confirm Password'),
+          const SizedBox(height: 6),
           TextFormField(
             controller: _confirmController,
             obscureText: _obscureConfirm,
             style: const TextStyle(
-              fontFamily: 'Inter',
-              fontSize: 15,
-              color: Colors.black,
+              fontSize: 14,
+              color: Color(0xFF111827),
             ),
             decoration: _inputDecoration(
               hint: 'Re-enter your password',
               suffixIcon: IconButton(
                 icon: Icon(
                   _obscureConfirm
-                      ? Icons.visibility_outlined
-                      : Icons.visibility_off_outlined,
-                  color: const Color(0xFF4C4546),
+                      ? Icons.visibility_off_outlined
+                      : Icons.visibility_outlined,
+                  color: const Color(0xFF6B7280),
                   size: 20,
                 ),
                 onPressed: () =>
@@ -237,13 +212,16 @@ class _SetPasswordFormState extends State<SetPasswordForm> {
             Container(
               width: double.infinity,
               padding: const EdgeInsets.all(12),
-              color: const Color(0xFFFFEDED),
+              decoration: BoxDecoration(
+                color: const Color(0xFFFEE2E2),
+                borderRadius: BorderRadius.circular(8),
+                border: Border.all(color: const Color(0xFFFCA5A5)),
+              ),
               child: Text(
                 _errorMessage!,
                 style: const TextStyle(
-                  fontFamily: 'Inter',
                   fontSize: 13,
-                  color: Color(0xFFBA1A1A),
+                  color: Color(0xFFDC2626),
                 ),
               ),
             ),
@@ -256,8 +234,11 @@ class _SetPasswordFormState extends State<SetPasswordForm> {
             child: GestureDetector(
               onTap: _loading ? null : _submit,
               child: Container(
-                padding: const EdgeInsets.symmetric(vertical: 18),
-                color: Colors.black,
+                padding: const EdgeInsets.symmetric(vertical: 16),
+                decoration: BoxDecoration(
+                  color: Colors.black,
+                  borderRadius: BorderRadius.circular(8),
+                ),
                 alignment: Alignment.center,
                 child: _loading
                     ? const SizedBox(
@@ -269,12 +250,10 @@ class _SetPasswordFormState extends State<SetPasswordForm> {
                         ),
                       )
                     : const Text(
-                        'SET PASSWORD',
+                        'Set Password',
                         style: TextStyle(
-                          fontFamily: 'Inter',
-                          fontSize: 14,
+                          fontSize: 15,
                           fontWeight: FontWeight.w600,
-                          letterSpacing: 2,
                           color: Colors.white,
                         ),
                       ),
@@ -290,11 +269,9 @@ class _SetPasswordFormState extends State<SetPasswordForm> {
     return Text(
       text,
       style: const TextStyle(
-        fontFamily: 'Inter',
         fontSize: 13,
-        fontWeight: FontWeight.w600,
-        letterSpacing: 0.7,
-        color: Colors.black,
+        fontWeight: FontWeight.w500,
+        color: Color(0xFF374151),
       ),
     );
   }
@@ -306,38 +283,36 @@ class _SetPasswordFormState extends State<SetPasswordForm> {
     return InputDecoration(
       hintText: hint,
       hintStyle: const TextStyle(
-        fontFamily: 'Inter',
-        fontSize: 15,
-        color: Color(0xFFCFC4C5),
+        fontSize: 14,
+        color: Color(0xFF9CA3AF),
       ),
       suffixIcon: suffixIcon,
       filled: true,
-      fillColor: const Color(0xFFF3F3F4),
-      contentPadding: const EdgeInsets.all(16),
+      fillColor: Colors.white,
+      contentPadding: const EdgeInsets.symmetric(horizontal: 14, vertical: 14),
       border: OutlineInputBorder(
-        borderRadius: BorderRadius.circular(0),
-        borderSide: const BorderSide(color: Color(0xFFCFC4C5)),
+        borderRadius: BorderRadius.circular(8),
+        borderSide: const BorderSide(color: Color(0xFFE5E7EB)),
       ),
       enabledBorder: OutlineInputBorder(
-        borderRadius: BorderRadius.circular(0),
-        borderSide: const BorderSide(color: Color(0xFFCFC4C5)),
+        borderRadius: BorderRadius.circular(8),
+        borderSide: const BorderSide(color: Color(0xFFE5E7EB)),
       ),
       focusedBorder: OutlineInputBorder(
-        borderRadius: BorderRadius.circular(0),
-        borderSide: const BorderSide(color: Colors.black, width: 2),
+        borderRadius: BorderRadius.circular(8),
+        borderSide: const BorderSide(color: Colors.black, width: 1.5),
       ),
       errorBorder: OutlineInputBorder(
-        borderRadius: BorderRadius.circular(0),
-        borderSide: const BorderSide(color: Color(0xFFBA1A1A)),
+        borderRadius: BorderRadius.circular(8),
+        borderSide: const BorderSide(color: Color(0xFFDC2626)),
       ),
       focusedErrorBorder: OutlineInputBorder(
-        borderRadius: BorderRadius.circular(0),
-        borderSide: const BorderSide(color: Color(0xFFBA1A1A), width: 2),
+        borderRadius: BorderRadius.circular(8),
+        borderSide: const BorderSide(color: Color(0xFFDC2626), width: 1.5),
       ),
       errorStyle: const TextStyle(
-        fontFamily: 'Inter',
         fontSize: 12,
-        color: Color(0xFFBA1A1A),
+        color: Color(0xFFDC2626),
       ),
     );
   }

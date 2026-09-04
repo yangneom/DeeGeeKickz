@@ -333,11 +333,12 @@ final String? role = await authService.getUserRole();
                   vertical: 14,
                 ),
               ),
-              validator: (String? value) {
+                            validator: (String? value) {
                 if (value == null || value.isEmpty) {
                   return 'Please enter your email';
                 }
-                if (!value.contains('@')) {
+                final RegExp emailRegex = RegExp(r'^[^\s@]+@[^\s@]+\.[^\s@]+$');
+                if (!emailRegex.hasMatch(value.trim())) {
                   return 'Please enter a valid email';
                 }
                 return null;
@@ -384,12 +385,12 @@ final String? role = await authService.getUserRole();
                   },
                 ),
               ),
-              validator: (String? value) {
+                            validator: (String? value) {
                 if (value == null || value.isEmpty) {
                   return 'Please enter your password';
                 }
-                if (value.length < 6) {
-                  return 'Password must be at least 6 characters';
+                if (value.length < 8) {
+                  return 'Password must be at least 8 characters';
                 }
                 return null;
               },

@@ -16,7 +16,43 @@ serve(async (req) => {
   }
 
   try {
+        const authHeader = req.headers.get("Authorization");
+    if (!authHeader) {
+      return new Response(
+        JSON.stringify({ success: false, error: "Missing authorization" }),
+        { status: 401, headers: { ...corsHeaders, "Content-Type": "application/json" } },
+      );
+    }
+
+    const adminClient = createClient(SUPABASE_URL, SERVICE_ROLE_KEY);
+
+    const { data: { user: callingUser } } = await adminClient.auth.getUser(
+      authHeader.replace("Bearer ", "")
+    );
+    if (!callingUser) {
+      return new Response(
+        JSON.stringify({ success: false, error: "Invalid session" }),
+        { status: 401, headers: { ...corsHeaders, "Content-Type": "application/json" } },
+      );
+    }
+
     const { user_id, new_password } = await req.json();
+
+    const { data: profile } = await adminClient
+      .from("users")
+      .select("role")
+      .eq("id", callingUser.id)
+      .maybeSingle();
+
+    const isSelf = callingUser.id === user_id;
+    const isSuperAdmin = profile?.role === "Super Admin";
+
+    if (!isSelf && !isSuperAdmin) {
+      return new Response(
+        JSON.stringify({ success: false, error: "Forbidden" }),
+        { status: 403, headers: { ...corsHeaders, "Content-Type": "application/json" } },
+      );
+    }
 
     if (!user_id || !new_password) {
       return new Response(
@@ -31,9 +67,7 @@ serve(async (req) => {
         { status: 400, headers: { ...corsHeaders, "Content-Type": "application/json" } },
       );
     }
-
-    const adminClient = createClient(SUPABASE_URL, SERVICE_ROLE_KEY);
-
+      
     const { error } = await adminClient.auth.admin.updateUserById(user_id, {
       password: new_password,
     });

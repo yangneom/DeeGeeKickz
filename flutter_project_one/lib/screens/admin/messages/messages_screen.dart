@@ -740,22 +740,33 @@ class _ChatWindow extends StatelessWidget {
         ),
 
         // Messages
-        Expanded(
+                Expanded(
           child: isLoading
               ? const Center(
                   child: CircularProgressIndicator(color: Colors.black))
               : Container(
                   color: const Color(0xFFF9FAFB),
-                  child: ListView.builder(
-                    controller: scrollController,
-                    padding: const EdgeInsets.all(20),
-                    itemCount: messages.length,
-                    itemBuilder: (context, i) =>
-                        _AdminMessageBubble(
-                      message: messages[i],
-                      customerName: conversation.customerName,
-                    ),
-                  ),
+                  child: messages.isEmpty
+                      ? Center(
+                          child: Text(
+                            'No messages yet. Say hello to ${conversation.customerName}!',
+                            style: const TextStyle(
+                              fontFamily: 'Inter',
+                              fontSize: 13,
+                              color: Color(0xFF9CA3AF),
+                            ),
+                          ),
+                        )
+                      : ListView.builder(
+                          controller: scrollController,
+                          padding: const EdgeInsets.all(20),
+                          itemCount: messages.length,
+                          itemBuilder: (context, i) =>
+                              _AdminMessageBubble(
+                            message: messages[i],
+                            customerName: conversation.customerName,
+                          ),
+                        ),
                 ),
         ),
 

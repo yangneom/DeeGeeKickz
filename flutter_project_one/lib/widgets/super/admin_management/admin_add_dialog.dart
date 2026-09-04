@@ -48,8 +48,9 @@ class _AdminAddDialogState extends State<AdminAddDialog> {
   final TextEditingController _lastNameController = TextEditingController();
   final TextEditingController _emailController = TextEditingController();
 
-  String _selectedRole = 'Admin';
+    String _selectedRole = 'Admin';
   String? _errorMessage;
+  bool _isLoading = false;
 
   @override
   void dispose() {
@@ -86,22 +87,43 @@ Future<void> _handleAdd() async {
       confirmColor: const Color(0xFF2563EB),
     );
 
-    if (confirmed != true) return;
+     if (confirmed != true) return;
     // Cancelling here leaves the form exactly as it was — nothing is
     // cleared, so the admin can adjust details and try again without
     // retyping everything.
 
     if (!mounted) return;
 
-    await widget.onAdd(
-      firstName: firstName,
-      lastName: lastName,
-      email: _emailController.text.trim(),
-      role: _selectedRole,
-    );
+    setState(() {
+      _isLoading = true;
+      _errorMessage = null;
+    });
 
-    if (mounted) {
-      Navigator.pop(context);
+    try {
+      await widget.onAdd(
+        firstName: firstName,
+        lastName: lastName,
+        email: _emailController.text.trim(),
+        role: _selectedRole,
+      );
+
+      if (mounted) {
+        Navigator.pop(context);
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(
+            content: Text('$firstName $lastName was added as $_selectedRole.'),
+            backgroundColor: const Color(0xFF16A34A),
+          ),
+        );
+      }
+    } catch (e) {
+      if (mounted) {
+        setState(() {
+          _errorMessage = 'Could not create account: ${e.toString().replaceFirst('Exception: ', '')}';
+        });
+      }
+    } finally {
+      if (mounted) setState(() => _isLoading = false);
     }
   }
 
@@ -358,8 +380,8 @@ Future<void> _handleAdd() async {
                           ),
                         ),
                         const SizedBox(width: 10),
-                        ElevatedButton(
-                          onPressed: _handleAdd,
+                                                ElevatedButton(
+                          onPressed: _isLoading ? null : _handleAdd,
                           style: ElevatedButton.styleFrom(
                             backgroundColor: const Color(0xFF2563EB),
                             foregroundColor: Colors.white,
@@ -372,10 +394,16 @@ Future<void> _handleAdd() async {
                               borderRadius: BorderRadius.circular(8),
                             ),
                           ),
-                          child: const Text(
-                            'Add Account',
-                            style: TextStyle(fontSize: 13),
-                          ),
+                          child: _isLoading
+                              ? const SizedBox(
+                                  width: 14,
+                                  height: 14,
+                                  child: CircularProgressIndicator(strokeWidth: 2, color: Colors.white),
+                                )
+                              : const Text(
+                                  'Add Account',
+                                  style: TextStyle(fontSize: 13),
+                                ),
                         ),
                       ],
                     ),
