@@ -45,7 +45,7 @@ class AuthService {
   }
 
   // ── REGISTER (step 1: create auth user only, no profile insert yet) ──
-  Future<String?> register({
+    Future<String?> register({
     required String firstName,
     required String lastName,
     required String email,
@@ -53,6 +53,19 @@ class AuthService {
     required String password,
   }) async {
     try {
+      // Checked via a SECURITY DEFINER RPC, not a direct table query —
+      // RLS only allows reading your OWN row, and no session exists
+      // yet at this point in registration, so a plain .select() here
+      // would silently return nothing every time instead of catching
+      // real duplicates.
+      final bool phoneTaken = await _supabase.rpc(
+        'is_phone_taken',
+        params: {'p_phone': phone.trim()},
+      );
+      if (phoneTaken) {
+        return 'An account already exists with this phone number.';
+      }
+
       final response = await _supabase.auth.signUp(
         email: email.trim(),
         password: password.trim(),

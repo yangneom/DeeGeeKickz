@@ -7,7 +7,8 @@ import 'package:file_picker/file_picker.dart';
 import 'package:supabase_flutter/supabase_flutter.dart';
 import 'package:flutter_project_one/widgets/common/dialog/confirm_dialog.dart';
 import 'package:flutter_project_one/services/admin/inventory/inventory_service.dart';
-
+import 'dart:typed_data';
+import 'package:crop_your_image/crop_your_image.dart';
 // ================================================
 // SHOW ADD PRODUCT DIALOG
 // onProductAdded → called after product is saved
@@ -150,6 +151,79 @@ class _AddProductDialogState extends ConsumerState<AddProductDialog> {
     }
   }
 
+  Future<Uint8List?> _cropImage(Uint8List bytes) async {
+    final CropController cropController = CropController();
+    Uint8List? result;
+
+    await showDialog<void>(
+      context: context,
+      barrierDismissible: false,
+      builder: (dialogContext) {
+        return Dialog(
+          backgroundColor: Colors.white,
+          shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(8)),
+          child: SizedBox(
+            width: 420,
+            height: 520,
+            child: Column(
+              children: [
+                Padding(
+                  padding: const EdgeInsets.all(16),
+                  child: Row(
+                    mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                    children: [
+                      const Text('Crop Image', style: TextStyle(fontSize: 15, fontWeight: FontWeight.w600)),
+                      IconButton(
+                        icon: const Icon(Icons.close, size: 20),
+                        onPressed: () => Navigator.of(dialogContext).pop(),
+                      ),
+                    ],
+                  ),
+                ),
+                                Expanded(
+                  child: Crop(
+                    controller: cropController,
+                    image: bytes,
+                    aspectRatio: 4 / 5,
+                    onCropped: (CropResult cropResult) {
+                      // Package v2.0.0 changed onCropped to hand back a
+                      // CropResult (success/error) instead of raw bytes
+                      // directly — this switch extracts the actual data.
+                      switch (cropResult) {
+                        case CropSuccess(:final croppedImage):
+                          result = croppedImage;
+                        case CropFailure(:final cause):
+                          print('Crop failed: $cause');
+                      }
+                      Navigator.of(dialogContext).pop();
+                    },
+                  ),
+                ),
+                Padding(
+                  padding: const EdgeInsets.all(16),
+                  child: SizedBox(
+                    width: double.infinity,
+                    child: ElevatedButton(
+                      onPressed: () => cropController.crop(),
+                      style: ElevatedButton.styleFrom(
+                        backgroundColor: Colors.black,
+                        foregroundColor: Colors.white,
+                        padding: const EdgeInsets.symmetric(vertical: 14),
+                        shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(8)),
+                      ),
+                      child: const Text('Crop & Use'),
+                    ),
+                  ),
+                ),
+              ],
+            ),
+          ),
+        );
+      },
+    );
+
+    return result;
+  }
   // ================================================
   // DISPOSE
   // ================================================
@@ -223,11 +297,12 @@ class _AddProductDialogState extends ConsumerState<AddProductDialog> {
   // uses file_picker to let admin select images
   // max 4 images per variant
   // ================================================
-  Future<void> _pickImages(int variantIndex) async {
+   Future<void> _pickImages(int variantIndex) async {
     try {
       FilePickerResult? result = await FilePicker.platform.pickFiles(
         type: FileType.image,
         allowMultiple: true,
+        withData: true, // ensures bytes are available for cropping on web
       );
 
       if (result == null) return;
@@ -253,8 +328,32 @@ class _AddProductDialogState extends ConsumerState<AddProductDialog> {
       // only take up to the remaining slots
       List<PlatformFile> newFiles = result.files.take(remaining).toList();
 
+      // Crop each newly-picked image before it's added — locked to
+      // 4:5 portrait, matching the customer-facing mobile gallery's
+      // actual display ratio. Cancelling a crop skips just that one
+      // image, not the whole batch.
+      List<PlatformFile> croppedFiles = [];
+      for (final file in newFiles) {
+        Uint8List? bytes = file.bytes;
+        if (bytes == null && file.path != null) {
+          bytes = await File(file.path!).readAsBytes();
+        }
+        if (bytes == null) continue;
+
+        final Uint8List? cropped = await _cropImage(bytes);
+        if (cropped == null) continue;
+
+        croppedFiles.add(PlatformFile(
+          name: file.name,
+          size: cropped.length,
+          bytes: cropped,
+        ));
+      }
+
+      if (croppedFiles.isEmpty) return;
+
       setState(() {
-        _variants[variantIndex].pickedImageFiles.addAll(newFiles);
+        _variants[variantIndex].pickedImageFiles.addAll(croppedFiles);
       });
 
     } catch (error) {
@@ -1016,7 +1115,7 @@ class _AddProductDialogState extends ConsumerState<AddProductDialog> {
 
           const SizedBox(height: 14),
 
-          _buildLabel('Size & Stock'),
+          _buildLabel('Size (EU) & Stock'),
 
           Column(
             children: List.generate(variant.sizeRows.length, (int rowIndex) {
@@ -1029,17 +1128,26 @@ class _AddProductDialogState extends ConsumerState<AddProductDialog> {
                     // size field
                     Expanded(
                       child: TextFormField(
-                        controller: row.sizeController,
+                                           controller: row.sizeController,
+                        maxLength: 10,
+                        keyboardType: const TextInputType.numberWithOptions(decimal: true),
+                        inputFormatters: [
+                          FilteringTextInputFormatter.allow(RegExp(r'[0-9.]')),
+                        ],
                         style: const TextStyle(fontSize: 12),
-                        decoration: _inputDecoration('Enter Size').copyWith(
+                        decoration: _inputDecoration('Enter Size (EU)').copyWith(
                           fillColor: Colors.white,
+                          counterText: '',
                           contentPadding: const EdgeInsets.symmetric(
                             horizontal: 10,
                             vertical: 10,
                           ),
                         ),
-                        validator: (v) =>
-                            (v == null || v.isEmpty) ? 'Required' : null,
+                        validator: (v) {
+                          if (v == null || v.isEmpty) return 'Required';
+                          if (v.length > 10) return 'Max 10 characters';
+                          return null;
+                        },
                       ),
                     ),
 

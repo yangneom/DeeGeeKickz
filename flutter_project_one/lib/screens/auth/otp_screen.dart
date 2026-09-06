@@ -5,6 +5,7 @@ import '../../providers/auth/auth_provider.dart';
 import '../customer/homescreen/home_screen.dart';
 import '../../providers/customer/customer_cart_provider.dart';
 import 'login_screen.dart';
+import '../../widgets/common/dialog/confirm_dialog.dart';
 
 enum _OtpStep { email, phone }
 
@@ -45,9 +46,9 @@ class _OtpVerificationScreenState extends ConsumerState<OtpVerificationScreen> {
     super.dispose();
   }
 
-  void _startTimer() {
+    void _startTimer() {
     _timer?.cancel();
-    setState(() => _secondsLeft = 60);
+    setState(() => _secondsLeft = 30);
     _timer = Timer.periodic(const Duration(seconds: 1), (t) {
       if (_secondsLeft <= 1) {
         t.cancel();
@@ -165,9 +166,9 @@ class _OtpVerificationScreenState extends ConsumerState<OtpVerificationScreen> {
       context: context,
       barrierColor: Colors.black.withOpacity(0.6),
       builder: (dialogContext) {
-        return Dialog(
+                return Dialog(
           backgroundColor: Colors.white,
-          shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(4)),
+          shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(8)),
           insetPadding: const EdgeInsets.symmetric(horizontal: 24),
           child: Padding(
             padding: const EdgeInsets.all(24),
@@ -176,11 +177,10 @@ class _OtpVerificationScreenState extends ConsumerState<OtpVerificationScreen> {
               crossAxisAlignment: CrossAxisAlignment.start,
               children: [
                 const Text(
-                  'EDIT PHONE NUMBER',
+                  'Edit phone number',
                   style: TextStyle(
-                    fontSize: 16,
+                    fontSize: 18,
                     fontWeight: FontWeight.bold,
-                    letterSpacing: 0.5,
                     color: Colors.black,
                   ),
                 ),
@@ -198,15 +198,10 @@ class _OtpVerificationScreenState extends ConsumerState<OtpVerificationScreen> {
                   decoration: InputDecoration(
                     hintText: 'e.g. 09171234567',
                     hintStyle: TextStyle(color: Colors.grey.shade400),
-                    filled: true,
-                    fillColor: const Color(0xFFF5F5F5),
                     contentPadding: const EdgeInsets.symmetric(horizontal: 14, vertical: 14),
-                    border: OutlineInputBorder(
-                      borderRadius: BorderRadius.circular(4),
-                      borderSide: BorderSide.none,
-                    ),
+                    border: OutlineInputBorder(borderRadius: BorderRadius.circular(8)),
                     focusedBorder: OutlineInputBorder(
-                      borderRadius: BorderRadius.circular(4),
+                      borderRadius: BorderRadius.circular(8),
                       borderSide: const BorderSide(color: Colors.black, width: 1.5),
                     ),
                   ),
@@ -221,7 +216,7 @@ class _OtpVerificationScreenState extends ConsumerState<OtpVerificationScreen> {
                           foregroundColor: Colors.black,
                           side: BorderSide(color: Colors.grey.shade400),
                           padding: const EdgeInsets.symmetric(vertical: 14),
-                          shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(4)),
+                          shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(8)),
                         ),
                         child: const Text('Cancel', style: TextStyle(fontSize: 14)),
                       ),
@@ -235,11 +230,11 @@ class _OtpVerificationScreenState extends ConsumerState<OtpVerificationScreen> {
                           foregroundColor: Colors.white,
                           elevation: 0,
                           padding: const EdgeInsets.symmetric(vertical: 14),
-                          shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(4)),
+                          shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(8)),
                         ),
                         child: const Text(
-                          'SAVE & RESEND',
-                          style: TextStyle(fontSize: 13, fontWeight: FontWeight.w600, letterSpacing: 0.5),
+                          'Save & Resend',
+                          style: TextStyle(fontSize: 14, fontWeight: FontWeight.w600),
                         ),
                       ),
                     ),
@@ -293,75 +288,144 @@ class _OtpVerificationScreenState extends ConsumerState<OtpVerificationScreen> {
     }
   }
 
-  Future<void> _handleCancelSignup() async {
-    final bool? confirmed = await showDialog<bool>(
+    Future<void> _handleEditEmail() async {
+    final pending = ref.read(pendingRegistrationProvider);
+    if (pending == null) return;
+
+    final controller = TextEditingController(text: pending.email);
+
+    final String? newEmail = await showDialog<String>(
       context: context,
       barrierColor: Colors.black.withOpacity(0.6),
-      builder: (dialogContext) => Dialog(
-        backgroundColor: Colors.white,
-        shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(4)),
-        insetPadding: const EdgeInsets.symmetric(horizontal: 24),
-        child: Padding(
-          padding: const EdgeInsets.all(24),
-          child: Column(
-            mainAxisSize: MainAxisSize.min,
-            crossAxisAlignment: CrossAxisAlignment.start,
-            children: [
-              const Text(
-                'CANCEL SIGNUP?',
-                style: TextStyle(
-                  fontSize: 16,
-                  fontWeight: FontWeight.bold,
-                  letterSpacing: 0.5,
-                  color: Colors.black,
+      builder: (dialogContext) {
+                return Dialog(
+          backgroundColor: Colors.white,
+          shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(8)),
+          insetPadding: const EdgeInsets.symmetric(horizontal: 24),
+          child: Padding(
+            padding: const EdgeInsets.all(24),
+            child: Column(
+              mainAxisSize: MainAxisSize.min,
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                const Text(
+                  'Edit email address',
+                  style: TextStyle(
+                    fontSize: 18,
+                    fontWeight: FontWeight.bold,
+                    color: Colors.black,
+                  ),
                 ),
-              ),
-              const SizedBox(height: 10),
-              Text(
-                'This will stop your registration. You\'ll need to sign up again from the start if you change your mind.',
-                style: TextStyle(fontSize: 13, color: Colors.grey.shade600, height: 1.5),
-              ),
-              const SizedBox(height: 24),
-              Row(
-                children: [
-                  Expanded(
-                    child: OutlinedButton(
-                      onPressed: () => Navigator.of(dialogContext).pop(false),
-                      style: OutlinedButton.styleFrom(
-                        foregroundColor: Colors.black,
-                        side: BorderSide(color: Colors.grey.shade400),
-                        padding: const EdgeInsets.symmetric(vertical: 14),
-                        shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(4)),
-                      ),
-                      child: const Text('Keep going', style: TextStyle(fontSize: 14)),
+                const SizedBox(height: 6),
+                Text(
+                  'We\'ll send a new code to the corrected address.',
+                  style: TextStyle(fontSize: 13, color: Colors.grey.shade600),
+                ),
+                const SizedBox(height: 20),
+                TextField(
+                  controller: controller,
+                  keyboardType: TextInputType.emailAddress,
+                  autofocus: true,
+                  style: const TextStyle(fontSize: 15, color: Colors.black),
+                  decoration: InputDecoration(
+                    hintText: 'you@example.com',
+                    hintStyle: TextStyle(color: Colors.grey.shade400),
+                    contentPadding: const EdgeInsets.symmetric(horizontal: 14, vertical: 14),
+                    border: OutlineInputBorder(borderRadius: BorderRadius.circular(8)),
+                    focusedBorder: OutlineInputBorder(
+                      borderRadius: BorderRadius.circular(8),
+                      borderSide: const BorderSide(color: Colors.black, width: 1.5),
                     ),
                   ),
-                  const SizedBox(width: 12),
-                  Expanded(
-                    child: ElevatedButton(
-                      onPressed: () => Navigator.of(dialogContext).pop(true),
-                      style: ElevatedButton.styleFrom(
-                        backgroundColor: const Color(0xFFBA1A1A),
-                        foregroundColor: Colors.white,
-                        elevation: 0,
-                        padding: const EdgeInsets.symmetric(vertical: 14),
-                        shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(4)),
-                      ),
-                      child: const Text(
-                        'CANCEL SIGNUP',
-                        style: TextStyle(fontSize: 12, fontWeight: FontWeight.w600, letterSpacing: 0.5),
+                ),
+                const SizedBox(height: 24),
+                Row(
+                  children: [
+                    Expanded(
+                      child: OutlinedButton(
+                        onPressed: () => Navigator.of(dialogContext).pop(),
+                        style: OutlinedButton.styleFrom(
+                          foregroundColor: Colors.black,
+                          side: BorderSide(color: Colors.grey.shade400),
+                          padding: const EdgeInsets.symmetric(vertical: 14),
+                          shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(8)),
+                        ),
+                        child: const Text('Cancel', style: TextStyle(fontSize: 14)),
                       ),
                     ),
-                  ),
-                ],
-              ),
-            ],
+                    const SizedBox(width: 12),
+                    Expanded(
+                      child: ElevatedButton(
+                        onPressed: () => Navigator.of(dialogContext).pop(controller.text.trim()),
+                        style: ElevatedButton.styleFrom(
+                          backgroundColor: Colors.black,
+                          foregroundColor: Colors.white,
+                          elevation: 0,
+                          padding: const EdgeInsets.symmetric(vertical: 14),
+                          shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(8)),
+                        ),
+                        child: const Text(
+                          'Save & Resend',
+                          style: TextStyle(fontSize: 14, fontWeight: FontWeight.w600),
+                        ),
+                      ),
+                    ),
+                  ],
+                ),
+              ],
+            ),
           ),
-        ),
+        );
+      },
+    );
+
+    if (newEmail == null || newEmail.isEmpty || !mounted) return;
+
+    setState(() {
+      _isLoading = true;
+      _errorMessage = null;
+    });
+
+    ref.read(pendingRegistrationProvider.notifier).set(
+      PendingRegistration(
+        firstName: pending.firstName,
+        lastName: pending.lastName,
+        email: newEmail,
+        phone: pending.phone,
       ),
     );
 
-    if (confirmed != true || !mounted) return;
+    final String? error = await ref.read(authServiceProvider).resendEmailOtp(email: newEmail);
+
+    setState(() => _isLoading = false);
+
+    if (error != null) {
+      setState(() => _errorMessage = error);
+      return;
+    }
+
+    setState(() {
+      _codeController.clear();
+      _errorMessage = null;
+    });
+    _startTimer();
+
+    if (mounted) {
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(content: Text('A new code was sent to $newEmail.')),
+      );
+    }
+  }
+
+  Future<void> _handleCancelSignup() async {
+    final bool? confirmed = await showConfirmDialog(
+      context: context,
+      title: 'Cancel signup?',
+      message: 'This will stop your registration. You\'ll need to sign up again '
+          'from the start if you change your mind.',
+      confirmLabel: 'Cancel Signup',
+      confirmColor: const Color(0xFFDC2626),
+    );
 
     if (confirmed != true || !mounted) return;
 
@@ -420,12 +484,15 @@ class _OtpVerificationScreenState extends ConsumerState<OtpVerificationScreen> {
       child: Scaffold(
         backgroundColor: Colors.white,
       appBar: AppBar(backgroundColor: Colors.white, elevation: 0, foregroundColor: Colors.black),
-      body: SafeArea(
+           body: SafeArea(
         child: SingleChildScrollView(
           padding: const EdgeInsets.symmetric(horizontal: 24, vertical: 20),
-          child: Column(
-            crossAxisAlignment: CrossAxisAlignment.start,
-            children: [
+          child: Center(
+            child: ConstrainedBox(
+              constraints: const BoxConstraints(maxWidth: 420),
+              child: Column(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
               // Step indicator
               Row(
                 children: [
@@ -443,38 +510,38 @@ class _OtpVerificationScreenState extends ConsumerState<OtpVerificationScreen> {
                 style: const TextStyle(fontSize: 22, fontWeight: FontWeight.bold),
               ),
               const SizedBox(height: 8),
-              Text(
+                          Text(
                 destination == null
                     ? 'Enter the code we sent you.'
-                    : 'Enter the 6-digit code sent to $destination',
+                    : 'Enter the code sent to $destination',
                 style: const TextStyle(fontSize: 14, color: Colors.grey),
               ),
 
-              // ── Wrong number? Edit — only on the phone step ──
-              if (!isEmailStep) ...[
-                const SizedBox(height: 8),
-                GestureDetector(
-                  onTap: _isLoading ? null : _handleEditPhoneNumber,
-                  child: const Text(
-                    'Wrong number? Edit',
-                    style: TextStyle(
-                      fontSize: 13,
-                      fontWeight: FontWeight.w600,
-                      color: Colors.black,
-                      decoration: TextDecoration.underline,
-                    ),
+              // ── Wrong email/number? Edit — available on both steps ──
+              const SizedBox(height: 8),
+              GestureDetector(
+                onTap: _isLoading
+                    ? null
+                    : (isEmailStep ? _handleEditEmail : _handleEditPhoneNumber),
+                child: Text(
+                  isEmailStep ? 'Wrong email? Edit' : 'Wrong number? Edit',
+                  style: const TextStyle(
+                    fontSize: 13,
+                    fontWeight: FontWeight.w600,
+                    color: Colors.black,
+                    decoration: TextDecoration.underline,
                   ),
                 ),
-              ],
+              ),
 
               const SizedBox(height: 24),
 
-              TextFormField(
+                            TextFormField(
                 controller: _codeController,
                 keyboardType: TextInputType.number,
                 maxLength: 8,
                 decoration: InputDecoration(
-                  hintText: '8-digit code',
+                  hintText: 'Enter code',
                   counterText: '',
                   border: OutlineInputBorder(borderRadius: BorderRadius.circular(8)),
                 ),
@@ -483,8 +550,9 @@ class _OtpVerificationScreenState extends ConsumerState<OtpVerificationScreen> {
 
               Align(
                 alignment: Alignment.centerRight,
-                child: _secondsLeft > 0
-                    ? Text('Resend code in 0:${_secondsLeft.toString().padLeft(2, '0')}',
+                  child: _secondsLeft > 0
+                    ? Text(
+                        'Resend code in ${_secondsLeft ~/ 60}:${(_secondsLeft % 60).toString().padLeft(2, '0')}',
                         style: const TextStyle(color: Colors.grey, fontSize: 13))
                     : TextButton(onPressed: _handleResend, child: const Text('Resend code')),
               ),
@@ -531,8 +599,9 @@ class _OtpVerificationScreenState extends ConsumerState<OtpVerificationScreen> {
                     style: TextStyle(fontSize: 12, color: Colors.grey.shade500),
                   ),
                 ),
+              ),                            ],
               ),
-            ],
+            ),
           ),
         ),
       ),

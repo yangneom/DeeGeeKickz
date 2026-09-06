@@ -103,10 +103,7 @@ class InventoryService {
     }
   }
 
-  // ==========================================
-  // ADD PRODUCT
-  // ==========================================
-  Future<String?> addProduct({
+    Future<String?> addProduct({
     required String productName,
     required String brandName,
     required String categoryName,
@@ -114,62 +111,15 @@ class InventoryService {
     required List<Map<String, dynamic>> variants,
   }) async {
     try {
-      final brand = await _supabase
-          .from('brand')
-          .select('brand_id')
-          .eq('brand_name', brandName)
-          .single();
+      final dynamic result = await _supabase.rpc('add_product_with_variants', params: {
+        'p_product_name': productName,
+        'p_brand_name': brandName,
+        'p_category_name': categoryName,
+        'p_description': description,
+        'p_variants': variants,
+      });
 
-      final category = await _supabase
-          .from('category')
-          .select('category_id')
-          .eq('category_name', categoryName)
-          .single();
-
-      final int brandId = brand['brand_id'];
-      final int categoryId = category['category_id'];
-
-      final product = await _supabase
-          .from('product')
-          .insert({
-            'product_name': productName,
-            'brand_id': brandId,
-            'category_id': categoryId,
-            'description': description,
-            'is_archived': false,
-          })
-          .select('product_id')
-          .single();
-
-      final int productId = product['product_id'];
-
-      for (final variant in variants) {
-        final variantResult = await _supabase
-            .from('product_variant')
-            .insert({
-              'product_id': productId,
-              'color_name': variant['colorName'],
-              'cost_price': variant['costPrice'],
-              'retail_price': variant['retailPrice'],
-              'ar_effect_url': variant['arEffectUrl'], // NEW — null if none
-
-            })
-            .select('variant_id')
-            .single();
-
-        final int variantId = variantResult['variant_id'];
-
-        for (final sizeRow in variant['sizeRows']) {
-          await _supabase
-              .from('product_variant_size')
-              .insert({
-                'variant_id': variantId,
-                'size': sizeRow['size'],
-                'stock_quantity': sizeRow['stockQty'],
-                'reserved_quantity': 0,
-              });
-        }
-      }
+      final int productId = result as int;
 
       await _activityLog.log(
         action: 'Added new product $productName',
@@ -178,9 +128,6 @@ class InventoryService {
         metadata: {'brand': brandName, 'category': categoryName},
       );
 
-      // Notify customers only — Super Admin already sees this via
-      // Activity Log, so a separate notification would be redundant
-      // for them (per confirmed scope decision).
       try {
         await _supabase.rpc('notify_customers_new_product', params: {
           'p_product_id': productId,
@@ -197,6 +144,12 @@ class InventoryService {
           error.message.contains('product_active_name_unique')) {
         return 'A product named "$productName" already exists. Please choose a different name.';
       }
+      if (error.code == '22001') {
+        return 'One of the fields you entered is too long. Please shorten it and try again.';
+      }
+      if (error.message.contains('not found')) {
+        return error.message;
+      }
 
       return 'Failed to add product. Please try again.';
     } catch (error) {
@@ -204,7 +157,6 @@ class InventoryService {
       return 'Failed to add product. Please try again.';
     }
   }
-  
 
   // ==========================================
   // UPDATE PRODUCT
@@ -238,162 +190,14 @@ class InventoryService {
     required List<Map<String, dynamic>> variants,
   }) async {
     try {
-      final int parsedProductId = int.parse(productId);
-
-      // ── Resolve brand / category IDs ──
-      final brand = await _supabase
-          .from('brand')
-          .select('brand_id')
-          .eq('brand_name', brandName)
-          .single();
-
-      final category = await _supabase
-          .from('category')
-          .select('category_id')
-          .eq('category_name', categoryName)
-          .single();
-
-      final int brandId = brand['brand_id'];
-      final int categoryId = category['category_id'];
-
-      // ── Update product row ──
-      await _supabase.from('product').update({
-        'product_name': productName,
-        'brand_id': brandId,
-        'category_id': categoryId,
-        'description': description,
-      }).eq('product_id', parsedProductId);
-
-      // ── Collect submitted variant IDs (non-null only) ──
-      final List<int> submittedVariantIds = variants
-          .map((v) => v['variantId'] as int?)
-          .whereType<int>()
-          .toList();
-
-      // ── Delete variants that were removed from the UI ──
-      // Fetch current variant IDs for this product
-      final List<dynamic> existingVariantRows = await _supabase
-          .from('product_variant')
-          .select('variant_id')
-          .eq('product_id', parsedProductId);
-
-      final List<int> existingVariantIds = existingVariantRows
-          .map((r) => r['variant_id'] as int)
-          .toList();
-
-      final List<int> variantIdsToDelete = existingVariantIds
-          .where((id) => !submittedVariantIds.contains(id))
-          .toList();
-
-      if (variantIdsToDelete.isNotEmpty) {
-        // Cascade: sizes and images are deleted via FK ON DELETE CASCADE
-        // If your DB doesn't have CASCADE, delete children first:
-        await _supabase
-            .from('product_variant_size')
-            .delete()
-            .inFilter('variant_id', variantIdsToDelete);
-
-        await _supabase
-            .from('product_image')
-            .delete()
-            .inFilter('variant_id', variantIdsToDelete);
-
-        await _supabase
-            .from('product_variant')
-            .delete()
-            .inFilter('variant_id', variantIdsToDelete);
-      }
-
-      // ── Process each submitted variant ──
-      for (final variant in variants) {
-        final int? variantId = variant['variantId'] as int?;
-        final List<dynamic> sizeRows =
-            variant['sizeRows'] as List<dynamic>;
-
-        late int resolvedVariantId;
-
-        if (variantId == null) {
-          // ── INSERT new variant ──
-          final result = await _supabase
-              .from('product_variant')
-              .insert({
-                'product_id': parsedProductId,
-                'color_name': variant['colorName'],
-                'cost_price': variant['costPrice'],
-                'retail_price': variant['retailPrice'],
-                'ar_effect_url': variant['arEffectUrl'], // NEW
-
-              })
-              .select('variant_id')
-              .single();
-
-          resolvedVariantId = result['variant_id'] as int;
-        } else {
-          // ── UPDATE existing variant ──
-          resolvedVariantId = variantId;
-
-          await _supabase.from('product_variant').update({
-            'color_name': variant['colorName'],
-            'cost_price': variant['costPrice'],
-            'retail_price': variant['retailPrice'],
-            'ar_effect_url': variant['arEffectUrl'], // NEW
-
-          }).eq('variant_id', resolvedVariantId);
-        }
-
-        // ── Collect submitted size IDs ──
-        final List<int> submittedSizeIds = sizeRows
-            .map((s) => s['sizeId'] as int?)
-            .whereType<int>()
-            .toList();
-
-        // ── Delete removed size rows ──
-        final List<dynamic> existingSizeRows = await _supabase
-            .from('product_variant_size')
-            .select('size_id')
-            .eq('variant_id', resolvedVariantId);
-
-        final List<int> existingSizeIds = existingSizeRows
-            .map((r) => r['size_id'] as int)
-            .toList();
-
-        final List<int> sizeIdsToDelete = existingSizeIds
-            .where((id) => !submittedSizeIds.contains(id))
-            .toList();
-
-        if (sizeIdsToDelete.isNotEmpty) {
-          await _supabase
-              .from('product_variant_size')
-              .delete()
-              .inFilter('size_id', sizeIdsToDelete);
-        }
-
-        // ── Insert or update each size row ──
-        for (final sizeRow in sizeRows) {
-          final int? sizeId = sizeRow['sizeId'] as int?;
-
-          if (sizeId == null) {
-            // ── INSERT new size ──
-            await _supabase
-                .from('product_variant_size')
-                .insert({
-                  'variant_id': resolvedVariantId,
-                  'size': sizeRow['size'],
-                  'stock_quantity': sizeRow['stockQty'],
-                  'reserved_quantity': 0,
-                });
-          } else {
-            // ── UPDATE existing size ──
-            await _supabase
-                .from('product_variant_size')
-                .update({
-                  'size': sizeRow['size'],
-                  'stock_quantity': sizeRow['stockQty'],
-                })
-                .eq('size_id', sizeId);
-          }
-        }
-      }
+      await _supabase.rpc('update_product_with_variants', params: {
+        'p_product_id': int.parse(productId),
+        'p_product_name': productName,
+        'p_brand_name': brandName,
+        'p_category_name': categoryName,
+        'p_description': description,
+        'p_variants': variants,
+      });
 
       await _activityLog.log(
         action: 'Updated product $productName',
@@ -401,13 +205,19 @@ class InventoryService {
         targetId: productId,
       );
 
-     return null;
+      return null;
     } on PostgrestException catch (error) {
       print('updateProduct error: $error');
 
       if (error.code == '23505' &&
           error.message.contains('product_active_name_unique')) {
         return 'A product named "$productName" already exists. Please choose a different name.';
+      }
+      if (error.code == '22001') {
+        return 'One of the fields you entered is too long. Please shorten it and try again.';
+      }
+      if (error.message.contains('not found')) {
+        return error.message;
       }
 
       return 'Failed to update product. Please try again.';
@@ -416,7 +226,6 @@ class InventoryService {
       return 'Failed to update product. Please try again.';
     }
   }
-
   // ==========================================
   // ARCHIVE PRODUCT
   // ==========================================

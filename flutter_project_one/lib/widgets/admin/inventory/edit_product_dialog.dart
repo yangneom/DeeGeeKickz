@@ -1118,22 +1118,29 @@ class _EditProductDialogState extends ConsumerState<EditProductDialog> {
                 child: Row(
                   children: [
                     Expanded(
-                      child: TextFormField(
+                                            child: TextFormField(
                         controller: row.sizeController,
+                        maxLength: 10,
+                        keyboardType: const TextInputType.numberWithOptions(decimal: true),
+                        inputFormatters: [
+                          FilteringTextInputFormatter.allow(RegExp(r'[0-9.]')),
+                        ],
                         style: const TextStyle(fontSize: 12),
                         decoration: _inputDecoration(
                                 'Enter Size')
                             .copyWith(
                           fillColor: Colors.white,
+                          counterText: '',
                           contentPadding:
                               const EdgeInsets.symmetric(
                                   horizontal: 10,
                                   vertical: 10),
                         ),
-                        validator: (v) => (v == null ||
-                                v.isEmpty)
-                            ? 'Required'
-                            : null,
+                        validator: (v) {
+                          if (v == null || v.isEmpty) return 'Required';
+                          if (v.length > 10) return 'Max 10 characters';
+                          return null;
+                        },
                       ),
                     ),
                     const SizedBox(width: 8),
