@@ -552,59 +552,20 @@ class _AddressBottomSheetState extends State<AddressBottomSheet> {
         existing.province != finalProvince             ||
         existing.zipCode  != finalZip;
 
-    double? lat = existing?.lat;
+        double? lat = existing?.lat;
     double? lng = existing?.lng;
 
-        if (addressTextChanged) {
+    // Re-geocode ONLY if the address text actually changed — no
+    // point burning an API call re-verifying text that's identical
+    // to what's already saved.
+    if (addressTextChanged) {
       try {
         final coords = await _geocode();
-        // FIX #2: only overwrite lat/lng when _geocode() actually
-        // returned coordinates. A null result means a transient
-        // hiccup (network blip, OpenCage briefly down) — per
-        // _geocode()'s own contract that should NOT block saving,
-        // and it also should not silently discard coordinates this
-        // address already had from a previous successful geocode.
         if (coords != null) {
           lat = coords['lat'];
           lng = coords['lng'];
         }
-
-        // Only show the map-confirm step when we actually have a
-        // point to show. A null result here means a transient
-        // service hiccup (not blocked) — nothing to confirm, so
-        // we just proceed without coordinates, same as before.
-        if (lat != null && lng != null) {
-          if (!mounted) return;
-          setState(() => _isSaving = false); // hide spinner while map is up
-
-                    final LatLng? confirmed = await showAddressPinPicker(
-            context: context,
-            initialLat: lat,
-            initialLng: lng,
-            showMismatchWarning: _lastGeocodeWasMismatch,
-            isLocalityAnchorOnly: _lastGeocodeWasLocalityOnly,
-          );
-
-                    if (confirmed == null) {
-            // User cancelled at the map step — don't save yet. Show a
-            // brief note so the modal doesn't just silently sit there
-            // with no explanation of why nothing was saved.
-            if (mounted) {
-              setState(() {
-                _addressErrorMessage =
-                    'Location wasn\'t confirmed. Please try saving again.';
-              });
-            }
-            return;
-          }
-
-          lat = confirmed.latitude;
-          lng = confirmed.longitude;
-
-          if (!mounted) return;
-          setState(() => _isSaving = true); // resume spinner for actual save
-        }
-            } on _AddressQualityException catch (e) {
+      } on _AddressQualityException catch (e) {
         // BLOCKED — no match at all found for this address text.
         if (mounted) {
           setState(() {
@@ -615,9 +576,9 @@ class _AddressBottomSheetState extends State<AddressBottomSheet> {
         return;
       } catch (e) {
         // FIX #4: catch-all safety net — anything unexpected in the
-        // geocode/pin-picker flow resets the button instead of
-        // leaving it stuck spinning forever with no way to retry.
-        print('AddressBottomSheet._save unexpected error: $e');
+        // geocode flow resets the button instead of leaving it stuck
+        // spinning forever with no way to retry.
+        print('AddressBottomSheet._save geocode error: $e');
         if (mounted) {
           setState(() {
             _isSaving = false;
@@ -626,6 +587,52 @@ class _AddressBottomSheetState extends State<AddressBottomSheet> {
         }
         return;
       }
+    } else {
+      // Text unchanged — these flags only have meaning as the output
+      // of a fresh _geocode() call above, so reset them rather than
+      // let a stale value from a previous attempt in this same
+      // session leak into the picker below.
+      _lastGeocodeWasMismatch = false;
+      _lastGeocodeWasLocalityOnly = false;
+    }
+
+    // Show the pin picker whenever we have coordinates to confirm —
+    // whether they came from a fresh geocode above, OR from an
+    // existing saved address whose TEXT didn't change but whose PIN
+    // the customer still wants to manually reposition. This used to
+    // be nested inside `if (addressTextChanged)`, which meant
+    // dragging the pin on an address with otherwise-unchanged text
+    // had nowhere to save to and was silently discarded — this was
+    // the actual bug (confirmed: editing only the map pin never
+    // persisted, while editing the street/barangay/city text did).
+    if (lat != null && lng != null) {
+      if (!mounted) return;
+      setState(() => _isSaving = false); // hide spinner while map is up
+
+      final LatLng? confirmed = await showAddressPinPicker(
+        context: context,
+        initialLat: lat,
+        initialLng: lng,
+        showMismatchWarning: _lastGeocodeWasMismatch,
+        isLocalityAnchorOnly: _lastGeocodeWasLocalityOnly,
+      );
+
+      if (confirmed == null) {
+        // User cancelled at the map step — don't save yet.
+        if (mounted) {
+          setState(() {
+            _addressErrorMessage =
+                'Location wasn\'t confirmed. Please try saving again.';
+          });
+        }
+        return;
+      }
+
+      lat = confirmed.latitude;
+      lng = confirmed.longitude;
+
+      if (!mounted) return;
+      setState(() => _isSaving = true); // resume spinner for actual save
     }
 
     if (!mounted) return;

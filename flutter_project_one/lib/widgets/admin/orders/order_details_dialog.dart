@@ -300,8 +300,32 @@ class _OrderDetailsDialogState extends State<OrderDetailsDialog> {
                           ],
                         ),
                       ),
+                                        ],
+                    if (widget.order.isFlaggedRapid) ...[
+                      Container(
+                        width: double.infinity,
+                        padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 10),
+                        margin: const EdgeInsets.only(bottom: 12),
+                        decoration: BoxDecoration(
+                          color: const Color(0xFFFFF7ED),
+                          borderRadius: BorderRadius.circular(6),
+                          border: Border.all(color: const Color(0xFFFDBA74)),
+                        ),
+                        child: const Row(
+                          children: [
+                            Icon(Icons.bolt, size: 16, color: Color(0xFFC2410C)),
+                            SizedBox(width: 8),
+                            Expanded(
+                              child: Text(
+                                'This order was placed during a rapid-ordering burst that triggered a violation on this account.',
+                                style: TextStyle(fontSize: 12, fontWeight: FontWeight.w600, color: Color(0xFFC2410C)),
+                              ),
+                            ),
+                          ],
+                        ),
+                      ),
                     ],
-                    _infoRow('Name', widget.order.customerName),                    const SizedBox(height: 8),
+                    _infoRow('Name', widget.order.customerName),                  const SizedBox(height: 8),
                     _infoRow('Contact', widget.order.contact.isNotEmpty
                         ? widget.order.contact
                         : '—'),
@@ -905,12 +929,28 @@ class _OrderDetailsDialogState extends State<OrderDetailsDialog> {
             onPressed: _processingAction != null
                 ? null
                 : () async {
+                           // Extra confirmation specifically when the customer is
+              // currently suspended — approval itself is NOT blocked
+              // (a suspension can be unrelated to this specific
+              // order), but the admin must consciously acknowledge it.
+              final String approveMessage = widget.order.isCustomerSuspended
+                  ? 'This customer is currently suspended. Are you sure you '
+                    'want to approve this order anyway? This will mark the '
+                    'payment as Paid, confirm the order, and generate a PDF '
+                    'receipt for the customer.'
+                  : 'This will mark the payment as Paid, confirm the order, '
+                    'and generate a PDF receipt for the customer.';
+
               final bool? confirmed = await showConfirmDialog(
                 context:      context,
-                title:        'Approve this payment?',
-                message:      'This will mark the payment as Paid, confirm the order, and generate a PDF receipt for the customer.',
-                confirmLabel: 'Approve',
-                confirmColor: const Color(0xFF16A34A),
+                title:        widget.order.isCustomerSuspended
+                    ? 'Approve anyway?'
+                    : 'Approve this payment?',
+                message:      approveMessage,
+                confirmLabel: widget.order.isCustomerSuspended ? 'Approve Anyway' : 'Approve',
+                confirmColor: widget.order.isCustomerSuspended
+                    ? const Color(0xFFDC2626)
+                    : const Color(0xFF16A34A),
               );
               if (confirmed != true) return;
 

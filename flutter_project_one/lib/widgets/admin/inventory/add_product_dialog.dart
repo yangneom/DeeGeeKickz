@@ -58,6 +58,7 @@ class VariantData {
   final TextEditingController colorNameController;
   final TextEditingController costController;
   final TextEditingController retailController;
+  final TextEditingController arEffectUrlController;
   Color selectedColor;
   List<SizeStockRow> sizeRows;
 
@@ -69,6 +70,7 @@ class VariantData {
       : colorNameController = TextEditingController(),
         costController = TextEditingController(),
         retailController = TextEditingController(),
+        arEffectUrlController = TextEditingController(),
         selectedColor = Colors.black,
         sizeRows = [SizeStockRow()],
         pickedImageFiles = [];
@@ -77,12 +79,12 @@ class VariantData {
     colorNameController.dispose();
     costController.dispose();
     retailController.dispose();
+    arEffectUrlController.dispose();
     for (SizeStockRow row in sizeRows) {
       row.dispose();
     }
   }
 }
-
 // ================================================
 // ADD PRODUCT DIALOG
 // ================================================
@@ -552,6 +554,12 @@ class _AddProductDialogState extends ConsumerState<AddProductDialog> {
           'colorName': v.colorNameController.text.trim(),
           'costPrice': double.tryParse(v.costController.text.trim()) ?? 0,
           'retailPrice': double.tryParse(v.retailController.text.trim()) ?? 0,
+          'arEffectUrl': v.arEffectUrlController.text.trim().isEmpty
+              ? null
+              : v.arEffectUrlController.text.trim(),
+          'arEffectUrl': v.arEffectUrlController.text.trim().isEmpty
+              ? null
+              : v.arEffectUrlController.text.trim(),
           'sizeRows': sizeRows,
           // pass picked files so we can upload after product is saved
           'pickedFiles': v.pickedImageFiles,
@@ -1115,8 +1123,31 @@ class _AddProductDialogState extends ConsumerState<AddProductDialog> {
 
           const SizedBox(height: 14),
 
-          _buildLabel('Size (EU) & Stock'),
+          _buildLabel('3D Model / AR Link (optional)'),
+          TextFormField(
+            controller: variant.arEffectUrlController,
+            keyboardType: TextInputType.url,
+            style: const TextStyle(fontSize: 12),
+            decoration: _inputDecoration('https://...').copyWith(
+              fillColor: Colors.white,
+              contentPadding: const EdgeInsets.symmetric(
+                horizontal: 10,
+                vertical: 10,
+              ),
+            ),
+            validator: (v) {
+              if (v == null || v.trim().isEmpty) return null; // optional
+              final String trimmed = v.trim();
+              if (!trimmed.startsWith('http://') && !trimmed.startsWith('https://')) {
+                return 'Must be a valid URL (starting with http:// or https://)';
+              }
+              return null;
+            },
+          ),
 
+          const SizedBox(height: 14),
+
+          _buildLabel('Size (EU) & Stock'),
           Column(
             children: List.generate(variant.sizeRows.length, (int rowIndex) {
               SizeStockRow row = variant.sizeRows[rowIndex];

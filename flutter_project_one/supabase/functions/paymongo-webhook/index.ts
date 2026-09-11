@@ -93,7 +93,26 @@ serve(async (req) => {
     // delivery would silently deduct real stock_quantity a second
     // time for a single sale. Bail out here, before touching payment
     // or stock at all.
-    if (orderRow.order_status !== "Awaiting Payment") {
+        // AUDIT FIX: the read-then-act version of this check had a real
+    // race — two near-simultaneous duplicate deliveries could both
+    // pass this read before either updated anything, both proceeding
+    // to deduct stock. Making the transition itself the atomic gate
+    // (via .select() on the UPDATE) closes that window: only one
+    // concurrent call can ever see a returned row.
+    const { data: claimedOrder, error: claimError } = await supabase
+      .from("orders")
+      .update({ order_status: "__CLAIMED__" })
+      .eq("order_id", paymentRow.order_id)
+      .eq("order_status", "Awaiting Payment")
+      .select("order_id")
+      .maybeSingle();
+
+    if (claimError) {
+      console.error("Failed to claim order for processing:", claimError);
+      return new Response("DB error", { status: 500 });
+    }
+
+    if (!claimedOrder) {
       console.log(
         `Duplicate webhook delivery ignored — order ${paymentRow.order_id} ` +
         `already at status '${orderRow.order_status}'.`
@@ -159,11 +178,10 @@ serve(async (req) => {
           .eq("size_id", item.size_id);
       }
 
-      const { error: orderUpdateError } = await supabase
+            const { error: orderUpdateError } = await supabase
         .from("orders")
         .update({ order_status: "Completed" })
-        .eq("order_id", paymentRow.order_id)
-        .eq("order_status", "Awaiting Payment");
+        .eq("order_id", paymentRow.order_id);
 
       if (orderUpdateError) {
         console.error("Failed to update order status:", orderUpdateError);
@@ -189,11 +207,10 @@ serve(async (req) => {
         admin_note: "In-store QR payment confirmed — stock committed automatically.",
       });
     } else {
-      const { error: orderUpdateError } = await supabase
+        const { error: orderUpdateError } = await supabase
         .from("orders")
         .update({ order_status: "Pending" })
-        .eq("order_id", paymentRow.order_id)
-        .eq("order_status", "Awaiting Payment");
+        .eq("order_id", paymentRow.order_id);
 
       if (orderUpdateError) {
         console.error("Failed to update order status:", orderUpdateError);

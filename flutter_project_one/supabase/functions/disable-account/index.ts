@@ -17,6 +17,40 @@ serve(async (req) => {
   }
 
   try {
+        const authHeader = req.headers.get("Authorization");
+    if (!authHeader) {
+      return new Response(
+        JSON.stringify({ success: false, error: "Missing authorization" }),
+        { status: 401, headers: { ...corsHeaders, "Content-Type": "application/json" } },
+      );
+    }
+
+    const adminClient = createClient(SUPABASE_URL, SERVICE_ROLE_KEY);
+
+    const { data: { user: callingUser } } = await adminClient.auth.getUser(
+      authHeader.replace("Bearer ", "")
+    );
+    if (!callingUser) {
+      return new Response(
+        JSON.stringify({ success: false, error: "Invalid session" }),
+        { status: 401, headers: { ...corsHeaders, "Content-Type": "application/json" } },
+      );
+    }
+
+    const { data: profile } = await adminClient
+      .from("users")
+      .select("role")
+      .eq("id", callingUser.id)
+      .maybeSingle();
+
+    const allowedRoles = ["Admin", "Super Admin"];
+    if (!profile || !allowedRoles.includes(profile.role)) {
+      return new Response(
+        JSON.stringify({ success: false, error: "Forbidden" }),
+        { status: 403, headers: { ...corsHeaders, "Content-Type": "application/json" } },
+      );
+    }
+
     const { user_id, reason } = await req.json();
 
     if (!user_id) {

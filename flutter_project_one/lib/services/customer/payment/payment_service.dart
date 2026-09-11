@@ -141,7 +141,7 @@ class PaymentService {
   //   once the order is marked 'Completed'
   //   (see OrderManagementService.updateOrderStatus).
   // ================================================
-  Future<void> approvePayment({required int orderId}) async {
+    Future<void> approvePayment({required int orderId}) async {
     try {
       // Guard against double-tap/retry races — re-read the order's
       // current status before touching stock. Without this, two
@@ -159,21 +159,57 @@ class PaymentService {
         );
       }
 
-      // Commit stock FIRST — if this throws (insufficient
-      // stock), nothing below runs, so payment/order status
-      // stay untouched and the order remains at Pending.
-      await _commitStock(orderId: orderId);
-
       final String adminId = _supabase.auth.currentUser!.id;
 
       final Map<String, dynamic>? paymentRow = await _supabase
           .from('payment')
-          .select('payment_method')
+          .select('payment_method, payment_status')
           .eq('order_id', orderId)
           .maybeSingle();
 
       final String method = (paymentRow?['payment_method'] ?? '').toString();
       final bool isCod = method.toLowerCase() == 'cod';
+
+      // AUDIT FIX: previously nothing here checked that a non-COD
+      // payment was actually gateway-verified before approving —
+      // an admin could approve (committing real stock, marking
+      // 'Paid') even if the webhook never confirmed the charge at
+      // all. COD is exempt since it never goes through a gateway.
+            if (!isCod) {
+        final String currentStatus =
+            (paymentRow?['payment_status'] ?? '').toString();
+        if (currentStatus != 'Verified') {
+          throw Exception(
+            'Cannot approve — payment has not been verified by the '
+            'gateway yet (current status: ${currentStatus.isEmpty ? 'Pending' : currentStatus}).',
+          );
+        }
+      }
+
+      // AUDIT FIX: atomically claim the order before doing anything
+      // irreversible. A plain SELECT-then-UPDATE from Dart can't be
+      // atomic across two separate network calls — this is what
+      // actually stops two admins approving the same order at once,
+      // or an admin approving while a customer cancels concurrently.
+      final dynamic claimed = await _supabase.rpc('claim_order_status', params: {
+        'p_order_id': orderId,
+        'p_from_status': 'Pending',
+        'p_to_status': 'Confirmed',
+      });
+      if (claimed == null) {
+        throw Exception('This order is no longer Pending, refresh before retrying.');
+      }
+
+           try {
+        // Commit stock — if this throws (insufficient stock), we've
+        // already flipped the order to 'Confirmed' above, so revert
+        // that back to 'Pending' rather than leave it stuck
+        // "Confirmed" with nothing actually committed.
+        await _commitStock(orderId: orderId);
+      } catch (stockErr) {
+        await _supabase.from('orders').update({'order_status': 'Pending'}).eq('order_id', orderId);
+        rethrow;
+      }
 
       final Map<String, dynamic> paymentUpdate = {
         'verified_by': adminId,
@@ -188,10 +224,8 @@ class PaymentService {
           .update(paymentUpdate)
           .eq('order_id', orderId);
 
-      await _supabase
-          .from('orders')
-          .update({'order_status': 'Confirmed'})
-          .eq('order_id', orderId);
+      // NOTE: order_status is already 'Confirmed' — claim_order_status
+      // set it atomically above. No separate write needed here anymore.
 
       await _supabase.from('order_progress').insert({
         'order_id':   orderId,
@@ -204,7 +238,15 @@ class PaymentService {
       // — which is where every OTHER status transition's customer
       // notification lives. Without this call, approving an order
       // was the one action that silently never notified the customer.
-      await _notifyCustomerOrderConfirmed(orderId: orderId);
+      //
+      // AUDIT FIX: wrapped separately — a failure here must not make
+      // an already-successful approval (stock committed, order
+      // confirmed) look like it failed to the admin.
+      try {
+        await _notifyCustomerOrderConfirmed(orderId: orderId);
+      } catch (notifyErr) {
+        print('approvePayment notify error (non-critical): $notifyErr');
+      }
     } on InsufficientStockException {
       // Let this propagate as-is — the UI shows its message
       // directly and the order is left untouched at Pending.
@@ -232,20 +274,17 @@ class PaymentService {
     required int    orderId,
     required String reason,
   }) async {
-    try {
-      // Guard against rejecting an order that's already moved past
-      // Pending (e.g. a stale dialog, or a race with an admin who
-      // just approved it from another tab).
-      final Map<String, dynamic>? orderRow = await _supabase
-          .from('orders')
-          .select('order_status')
-          .eq('order_id', orderId)
-          .maybeSingle();
-
-      if (orderRow?['order_status'] != 'Pending') {
-        throw Exception(
-          'This order is no longer Pending — refresh before retrying.',
-        );
+       try {
+      // AUDIT FIX: atomically claim the order instead of a plain
+      // read-then-check — closes the same admin-vs-admin,
+      // admin-vs-customer race as approvePayment().
+      final dynamic claimed = await _supabase.rpc('claim_order_status', params: {
+        'p_order_id': orderId,
+        'p_from_status': 'Pending',
+        'p_to_status': 'Cancelled',
+      });
+      if (claimed == null) {
+        throw Exception('This order is no longer Pending — refresh before retrying.');
       }
 
       final String adminId = _supabase.auth.currentUser!.id;
@@ -262,11 +301,8 @@ class PaymentService {
         'verified_at':    DateTime.now().toIso8601String(),
       }).eq('order_id', orderId);
 
-      // 3. Cancel the order
-      // 3. Cancel the order
-      await _supabase.from('orders').update({
-        'order_status': 'Cancelled',
-      }).eq('order_id', orderId);
+      // NOTE: order_status is already 'Cancelled' — claim_order_status
+      // set it atomically above.
 
       // 4. Log to order_progress
       await _supabase.from('order_progress').insert({
@@ -275,9 +311,16 @@ class PaymentService {
         'admin_note': 'Payment rejected by admin: $reason',
       });
 
-      // 5. Notify the customer — this order previously had no
+       // 5. Notify the customer — this order previously had no
       // customer-facing notification at all when rejected.
-      await _notifyCustomerOrderRejected(orderId: orderId, reason: reason);
+      // AUDIT FIX: wrapped — this method's own doc comment already
+      // said a notification failure "must never block the actual
+      // rejection," but the code didn't actually honor that.
+      try {
+        await _notifyCustomerOrderRejected(orderId: orderId, reason: reason);
+      } catch (notifyErr) {
+        print('rejectPayment notify error (non-critical): $notifyErr');
+      }
 
       await _evaluateAbuseAfterCancellation(orderId);
 
@@ -382,15 +425,28 @@ Future<void> cancelOrder({
     required String reason,
     required String cancelledBy,
   }) async {
-    try {
+        try {
+      // AUDIT FIX: this method previously had NO atomic status guard
+      // at all — it would unconditionally cancel and release stock
+      // regardless of current status, so a customer cancelling while
+      // an admin approved the SAME order concurrently could both
+      // "succeed," leaving stock committed AND released.
+      final dynamic claimed = await _supabase.rpc('claim_order_status', params: {
+        'p_order_id': orderId,
+        'p_from_status': 'Pending',
+        'p_to_status': 'Cancelled',
+      });
+      if (claimed == null) {
+        throw Exception('This order is no longer Pending, it may have already been processed.');
+      }
+
       // Release the stock reservation regardless of who
       // cancelled — the order was never approved, so only
       // the reservation needs to be given back.
       await _releaseStock(orderId: orderId);
 
-      await _supabase.from('orders').update({
-        'order_status': 'Cancelled',
-      }).eq('order_id', orderId);
+      // NOTE: order_status is already 'Cancelled' — claim_order_status
+      // set it atomically above.
 
       await _supabase.from('order_progress').insert({
         'order_id':   orderId,
@@ -513,58 +569,17 @@ Future<void> cancelOrder({
   // longer has enough stock — approval should be
   // blocked and the order left at Pending in that case.
   // ================================================
-  Future<void> _commitStock({required int orderId}) async {
-    final List<dynamic> items = await _supabase
-        .from('order_item')
-        .select('size_id, quantity, product_name_snapshot')
-        .eq('order_id', orderId);
-
-    // Validate every item BEFORE committing any of them,
-    // so we never partially commit an order.
-    for (final dynamic item in items) {
-      final int? sizeId = item['size_id'] as int?;
-      final int quantity = (item['quantity'] as num).toInt();
-      if (sizeId == null) continue; // legacy rows with no size_id — skip
-
-      final row = await _supabase
-          .from('product_variant_size')
-          .select('stock_quantity')
-          .eq('size_id', sizeId)
-          .single();
-
-      final int stock = (row['stock_quantity'] as num?)?.toInt() ?? 0;
-
-      if (stock < quantity) {
-        final String name =
-            item['product_name_snapshot'] ?? 'An item';
-        throw InsufficientStockException(
-          '$name no longer has enough stock '
-          '(needs $quantity, only $stock available). '
-          'Approval was cancelled — no changes were made.',
-        );
+    Future<void> _commitStock({required int orderId}) async {
+    // AUDIT FIX: was a multi-step Dart-side read-then-write with no
+    // row locking — a real lost-update race when two orders share a
+    // size_id. Now a single atomic, row-locked Postgres call.
+    try {
+      await _supabase.rpc('commit_order_stock', params: {'p_order_id': orderId});
+    } on PostgrestException catch (e) {
+      if (e.code == 'P0001') {
+        throw InsufficientStockException(e.message);
       }
-    }
-
-    // All items validated — now actually commit each one.
-    for (final dynamic item in items) {
-      final int? sizeId = item['size_id'] as int?;
-      final int quantity = (item['quantity'] as num).toInt();
-      if (sizeId == null) continue;
-
-      final row = await _supabase
-          .from('product_variant_size')
-          .select('stock_quantity, reserved_quantity')
-          .eq('size_id', sizeId)
-          .single();
-
-      final int stock = (row['stock_quantity'] as num?)?.toInt() ?? 0;
-      final int reserved = (row['reserved_quantity'] as num?)?.toInt() ?? 0;
-
-     await _supabase.from('product_variant_size').update({
-        'stock_quantity': (stock - quantity) < 0 ? 0 : stock - quantity,
-        'reserved_quantity':
-            (reserved - quantity) < 0 ? 0 : reserved - quantity,
-      }).eq('size_id', sizeId);
+      rethrow;
     }
   }
 

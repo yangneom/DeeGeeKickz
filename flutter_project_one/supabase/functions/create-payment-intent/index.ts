@@ -13,13 +13,53 @@ serve(async (req) => {
   }
 
   try {
-    const {
-      orderId, amount, customerName, customerEmail,
-      cardNumber, expMonth, expYear, cvc, cardHolder,
-    } = await req.json();
+        const authHeader = req.headers.get("Authorization");
+    if (!authHeader) {
+      return new Response(JSON.stringify({ error: "Missing authorization" }),
+        { status: 401, headers: { ...corsHeaders, "Content-Type": "application/json" } });
+    }
 
-    const secretKey = Deno.env.get("PAYMONGO_SECRET_KEY") ?? "";
-    const authHeader = `Basic ${btoa(secretKey + ":")}`;
+    const { createClient } = await import("https://esm.sh/@supabase/supabase-js@2");
+    const supabase = createClient(
+      Deno.env.get("SUPABASE_URL")!,
+      Deno.env.get("SUPABASE_SERVICE_ROLE_KEY")!
+    );
+
+    const { data: { user } } = await supabase.auth.getUser(authHeader.replace("Bearer ", ""));
+    if (!user) {
+      return new Response(JSON.stringify({ error: "Invalid session" }),
+        { status: 401, headers: { ...corsHeaders, "Content-Type": "application/json" } });
+    }
+
+    const { orderId, customerName, customerEmail, cardNumber, expMonth, expYear, cvc, cardHolder } = await req.json();
+
+    // Fetch the REAL order — ownership check + true amount, both from
+    // the server's own data, never trusting whatever the client sends.
+    const { data: orderRow, error: orderError } = await supabase
+      .from("orders")
+      .select("user_id, total_amount, order_status")
+      .eq("order_id", orderId)
+      .single();
+
+    if (orderError || !orderRow) {
+      return new Response(JSON.stringify({ error: "Order not found" }),
+        { status: 404, headers: { ...corsHeaders, "Content-Type": "application/json" } });
+    }
+
+    if (orderRow.user_id !== user.id) {
+      return new Response(JSON.stringify({ error: "Forbidden" }),
+        { status: 403, headers: { ...corsHeaders, "Content-Type": "application/json" } });
+    }
+
+    if (orderRow.order_status !== "Awaiting Payment") {
+      return new Response(JSON.stringify({ error: "This order is not awaiting payment" }),
+        { status: 409, headers: { ...corsHeaders, "Content-Type": "application/json" } });
+    }
+
+    const amount = orderRow.total_amount; // server's number, not the client's
+
+        const secretKey = Deno.env.get("PAYMONGO_SECRET_KEY") ?? "";
+    const paymongoAuthHeader = `Basic ${btoa(secretKey + ":")}`;
     const amountInCentavos = Math.round(amount * 100);
 
     // Step 1: Create Payment Intent
@@ -27,7 +67,7 @@ serve(async (req) => {
       "https://api.paymongo.com/v1/payment_intents",
       {
         method: "POST",
-        headers: { "Content-Type": "application/json", "Authorization": authHeader },
+           headers: { "Content-Type": "application/json", "Authorization": paymongoAuthHeader },
         body: JSON.stringify({
           data: {
             attributes: {
@@ -125,12 +165,7 @@ serve(async (req) => {
     // 'Verified' here (gateway-confirmed, awaiting admin review), and
     // only becomes 'Paid' once admin clicks "Approve Payment" in the
     // admin dashboard (see PaymentService.approvePayment()).
-    if (status === "succeeded" || status === "paid") {
-      const { createClient } = await import("https://esm.sh/@supabase/supabase-js@2");
-      const supabase = createClient(
-        Deno.env.get("SUPABASE_URL")!,
-        Deno.env.get("SUPABASE_SERVICE_ROLE_KEY")!
-      );
+      if (status === "succeeded" || status === "paid") {
       await supabase.from("payment").update({
         payment_status:   "Verified",
         reference_number: paymentId ?? intentId,

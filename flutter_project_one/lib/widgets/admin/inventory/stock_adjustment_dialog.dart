@@ -239,11 +239,21 @@ class _StockAdjustmentDialogState extends State<StockAdjustmentDialog> {
   // ================================================
   // SAVE ADJUSTMENT
   // ================================================
-  Future<void> _saveAdjustment() async {
+    Future<void> _saveAdjustment() async {
     if (_selectedVariant == null || _selectedSize == null) return;
 
-    String action = _isAddStock ? 'Add' : 'Remove';
     int qty = _getAdjustmentQty();
+    if (qty <= 0) {
+      ScaffoldMessenger.of(context).showSnackBar(
+        const SnackBar(
+          content: Text('Please enter a quantity greater than 0.'),
+          backgroundColor: Color(0xFFDC2626),
+        ),
+      );
+      return;
+    }
+
+    String action = _isAddStock ? 'Add' : 'Remove';
     int newStock = _getNewStockPreview();
 
     final bool? confirmed = await showConfirmDialog(

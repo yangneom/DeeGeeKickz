@@ -84,6 +84,7 @@ class OrderManagementService {
           order_status,
           tracking_url,
           lalamove_order_id,
+          flagged_rapid_order,
           created_at,
           user_id,
           address_id,

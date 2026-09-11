@@ -90,14 +90,29 @@ class StockService {
               .eq('size_id', sizeId)
               .single();
           final int reserved = (row['reserved_quantity'] as num?)?.toInt() ?? 0;
-          return 'Can\'t reduce below $reserved units — that many are currently reserved in customer carts or pending orders.';
+          return 'Can\'t reduce below $reserved units, that many are currently reserved in customer carts or pending orders.';
         } catch (_) {
           return 'Can\'t reduce stock below the amount currently reserved in customer carts or pending orders.';
         }
       }
 
-      return 'Failed to adjust stock. Please try again.';
-    } catch (error) {
+      if (error.code == '23514' && error.message.contains('stock_quantity_non_negative')) {
+        // Tried to remove more units than physically exist at all
+        // (distinct from the reserved-stock case above).
+        try {
+          final row = await _supabase
+              .from('product_variant_size')
+              .select('stock_quantity')
+              .eq('size_id', sizeId)
+              .single();
+          final int current = (row['stock_quantity'] as num?)?.toInt() ?? 0;
+          return 'Can\'t remove more than the $current unit(s) currently in stock.';
+        } catch (_) {
+          return 'Can\'t remove more units than are currently in stock.';
+        }
+      }
+
+      return 'Failed to adjust stock. Please try again.';    } catch (error) {
       print('adjustStock error: $error');
       return 'Failed to adjust stock. Please try again.';
     }

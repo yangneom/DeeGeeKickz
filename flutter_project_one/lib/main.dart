@@ -294,9 +294,9 @@ class _MyAppState extends ConsumerState<MyApp> {
 
       if (event == AuthChangeEvent.signedIn) {
         try {
-          final profile = await Supabase.instance.client
+                    final profile = await Supabase.instance.client
               .from('users')
-              .select('password_set, role')
+              .select('password_set, role, is_disabled')
               .eq('id', user.id)
               .maybeSingle();
 
@@ -311,10 +311,23 @@ class _MyAppState extends ConsumerState<MyApp> {
           } else {
             final passwordSet = profile['password_set'] as bool? ?? true;
             final role = profile['role'] as String? ?? 'Customer';
+            final isDisabled = profile['is_disabled'] as bool? ?? false;
 
-            print('password_set=$passwordSet | role=$role');
+            print('password_set=$passwordSet | role=$role | is_disabled=$isDisabled');
 
-                     if (!passwordSet &&
+            if (isDisabled) {
+              // Suspended/banned account — login()'s own check runs
+              // in parallel and will sign this session back out with
+              // the real suspension reason shown on the login screen.
+              // Without this guard, this listener was racing that
+              // logout by navigating to Home/a role layout first,
+              // which is why a suspended login sometimes landed on
+              // the Guest/Home screen instead of showing the error —
+              // same race class as the existing mobile-staff-block
+              // case just below, just for a different condition.
+              print('→ Account is disabled, skipping redirect, '
+                  'login_form.dart will sign out.');
+            } else if (!passwordSet &&
                 (role == 'Admin' || role == 'Cashier' || role == 'Super Admin')) {
               print('→ Navigating to SetPasswordScreen');
               WidgetsBinding.instance.addPostFrameCallback((_) {

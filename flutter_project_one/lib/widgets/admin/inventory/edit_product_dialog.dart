@@ -81,6 +81,7 @@ class VariantData {
   final TextEditingController colorNameController;
   final TextEditingController costController;
   final TextEditingController retailController;
+  final TextEditingController arEffectUrlController;
   Color selectedColor;
   List<SizeStockRow> sizeRows;
 
@@ -94,6 +95,7 @@ class VariantData {
       : colorNameController = TextEditingController(),
         costController = TextEditingController(),
         retailController = TextEditingController(),
+        arEffectUrlController = TextEditingController(),
         selectedColor = Colors.black,
         sizeRows = [SizeStockRow()],
         existingImages = [],
@@ -107,6 +109,7 @@ class VariantData {
     colorNameController.dispose();
     costController.dispose();
     retailController.dispose();
+    arEffectUrlController.dispose();
     for (final row in sizeRows) {
       row.dispose();
     }
@@ -181,6 +184,7 @@ class _EditProductDialogState extends ConsumerState<EditProductDialog> {
           variant.costPrice.toStringAsFixed(2);
       variantData.retailController.text =
           variant.retailPrice.toStringAsFixed(2);
+      variantData.arEffectUrlController.text = variant.arEffectUrl ?? '';
 
       // ── Load existing images ──  (fix #2)
       // Real image_ids now available from ProductMapper — no more
@@ -522,9 +526,11 @@ class _EditProductDialogState extends ConsumerState<EditProductDialog> {
           'retailPrice':
               double.tryParse(v.retailController.text.trim()) ??
                   0,
+          'arEffectUrl': v.arEffectUrlController.text.trim().isEmpty
+              ? null
+              : v.arEffectUrlController.text.trim(),
           'sizeRows': sizeRows,
-        });
-      }
+        });      }
 
       final String? error = await _service.updateProduct(
         productId: widget.product.productId,
@@ -1103,6 +1109,28 @@ class _EditProductDialogState extends ConsumerState<EditProductDialog> {
               final double? parsed = double.tryParse(v);
               if (parsed == null) return 'Enter a valid number';
               if (parsed <= 0) return 'Retail price must be greater than ₱0';
+              return null;
+            },
+          ),
+                    const SizedBox(height: 14),
+          _buildLabel('3D Model / AR Link (optional)'),
+          TextFormField(
+            controller: variant.arEffectUrlController,
+            keyboardType: TextInputType.url,
+            style: const TextStyle(fontSize: 12),
+            decoration: _inputDecoration('https://...').copyWith(
+              fillColor: Colors.white,
+              contentPadding: const EdgeInsets.symmetric(
+                horizontal: 10,
+                vertical: 10,
+              ),
+            ),
+            validator: (v) {
+              if (v == null || v.trim().isEmpty) return null; // optional
+              final String trimmed = v.trim();
+              if (!trimmed.startsWith('http://') && !trimmed.startsWith('https://')) {
+                return 'Must be a valid URL (starting with http:// or https://)';
+              }
               return null;
             },
           ),

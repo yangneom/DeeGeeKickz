@@ -43,29 +43,37 @@ async function getOrCompute(
   computeFn: () => Promise<unknown>
 ) {
   if (!forceRefresh) {
-    const { data } = await supabase
-      .from("ai_dashboard_cache")
-      .select("result_json, generated_at")
-      .eq("cache_key", cacheKey)
-      .maybeSingle();
-
-    if (data) {
-      const age = Date.now() - new Date(data.generated_at).getTime();
-      if (age < CACHE_TTL_MS) {
-        return data.result_json;
-      }
-    }
+    const cached = await getCached(cacheKey);
+    if (cached) return cached;
   }
 
   const fresh = await computeFn();
+  await setCached(cacheKey, fresh);
+  return fresh;
+}
 
+// Used directly by handleRestock's per-item insight caching, and by
+// getOrCompute above for the whole-feature caches (trend/trending).
+async function getCached(cacheKey: string) {
+  const { data } = await supabase
+    .from("ai_dashboard_cache")
+    .select("result_json, generated_at")
+    .eq("cache_key", cacheKey)
+    .maybeSingle();
+
+  if (data) {
+    const age = Date.now() - new Date(data.generated_at).getTime();
+    if (age < CACHE_TTL_MS) return data.result_json;
+  }
+  return null;
+}
+
+async function setCached(cacheKey: string, value: unknown) {
   await supabase.from("ai_dashboard_cache").upsert({
     cache_key: cacheKey,
-    result_json: fresh,
+    result_json: value,
     generated_at: new Date().toISOString(),
   });
-
-  return fresh;
 }
 
 async function callOpenAI(systemPrompt: string, userPrompt: string) {
@@ -144,11 +152,17 @@ async function handleRestock(
   payload: { inventoryData: { productName: string; currentStock: number; dailySalesRate: number }[] },
   forceRefresh: boolean
 ) {
-  // Fixed key — same reasoning as "trend": strictly once per 24h,
-  // even if stock levels shift during that window.
-  return getOrCompute("restock", forceRefresh, async () => {
     const { inventoryData } = payload;
 
+    // AUDIT FIX: unlike Sales Trend/Trending Shoes, this feature is
+    // an actionable alert, not just an insight — a 24h-stale cache
+    // here means a real stockout (or a restock an admin already did)
+    // could go unreflected for up to a day. So the actual "is this
+    // low right now?" math ALWAYS runs fresh, every load, for free
+    // (plain arithmetic, no API cost). Only the AI-written insight
+    // SENTENCE for each flagged item gets cached — that's the only
+    // part that actually costs money, and its exact wording doesn't
+    // need to change just because a few minutes passed.
     const computed = inventoryData.map((item) => {
       const rate = item.dailySalesRate > 0 ? item.dailySalesRate : 0.1;
       const daysUntilStockout = Math.max(0, Math.round(item.currentStock / rate));
@@ -170,22 +184,49 @@ async function handleRestock(
       return { restockItems: [] };
     }
 
-    try {
-      return await callOpenAI(
-        `You are a retail inventory assistant for a sneaker store. You will be ` +
-        `given a list of products with precomputed stockout data (do not change ` +
-        `any numbers). For each item, add a short one-sentence "insight" — a ` +
-        `practical note about urgency or suggested action. Respond ONLY with JSON: ` +
-        `{"restockItems": [{"productName": "string", "currentStock": number, ` +
-        `"idealStock": number, "daysUntilStockout": number, "recommendedRestock": number, ` +
-        `"insight": "string"}]} preserving every item and every number exactly as given.`,
-        `Restock data: ${JSON.stringify(computed)}`
-      );
-    } catch (err) {
-      console.error("OpenAI insight generation failed, falling back to raw data:", err);
-      return { restockItems: computed };
+    // Cache key is keyed per-item (product name), NOT the whole
+    // restock list — so the AI sentence for one item is reused across
+    // loads even as OTHER items enter/leave the low-stock list.
+    const itemsNeedingInsight: typeof computed = [];
+    const cachedResults: Record<string, { insight: string }> = {};
+
+    for (const item of computed) {
+      const cacheKey = `restock_insight:${item.productName}`;
+      const cached = forceRefresh ? null : await getCached(cacheKey);
+      if (cached) {
+        cachedResults[item.productName] = cached as { insight: string };
+      } else {
+        itemsNeedingInsight.push(item);
+      }
     }
-  });
+
+    if (itemsNeedingInsight.length > 0) {
+      try {
+        const aiResult = await callOpenAI(
+          `You are a retail inventory assistant for a sneaker store. You will be ` +
+          `given a list of products with precomputed stockout data (do not change ` +
+          `any numbers). For each item, add a short one-sentence "insight" — a ` +
+          `practical note about urgency or suggested action. Respond ONLY with JSON: ` +
+          `{"restockItems": [{"productName": "string", "insight": "string"}]} — ` +
+          `just the productName and insight for each, no other fields needed.`,
+          `Restock data: ${JSON.stringify(itemsNeedingInsight)}`
+        );
+
+        for (const result of aiResult.restockItems ?? []) {
+          cachedResults[result.productName] = { insight: result.insight };
+          await setCached(`restock_insight:${result.productName}`, { insight: result.insight });
+        }
+      } catch (err) {
+        console.error("OpenAI insight generation failed, falling back to no insight:", err);
+      }
+    }
+
+    const restockItems = computed.map((item) => ({
+      ...item,
+      insight: cachedResults[item.productName]?.insight ?? '',
+    }));
+
+    return { restockItems };
 }
 
 serve(async (req) => {

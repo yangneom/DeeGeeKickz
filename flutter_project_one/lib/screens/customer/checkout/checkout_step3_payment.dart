@@ -11,6 +11,7 @@ import '../../../widgets/common/dialog/confirm_dialog.dart';
 import '../orders/order_history_screen.dart';
 import '../../auth/login_screen.dart';
 import '../../../main.dart';
+import 'package:supabase_flutter/supabase_flutter.dart';
 
 class CheckoutStep3Payment extends StatefulWidget {
   final String                 selectedMethod;
@@ -140,6 +141,22 @@ class _CheckoutStep3PaymentState
           ),
         );
       }
+            appNavigatorKey.currentState?.pushAndRemoveUntil(
+        MaterialPageRoute(builder: (_) => const LoginScreen()),
+        (route) => false,
+      );
+        } on AccountSuspendedException catch (e) {
+      print('CheckoutStep3._handlePlaceOrder account-suspended error: $e');
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(
+            content: Text(e.message),
+            backgroundColor: const Color(0xFFDC2626),
+            duration: const Duration(seconds: 6),
+          ),
+        );
+      }
+      await Supabase.instance.client.auth.signOut();
       appNavigatorKey.currentState?.pushAndRemoveUntil(
         MaterialPageRoute(builder: (_) => const LoginScreen()),
         (route) => false,

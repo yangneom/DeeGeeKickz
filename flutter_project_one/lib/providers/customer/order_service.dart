@@ -19,6 +19,14 @@ class SessionExpiredException implements Exception {
   String toString() => message;
 }
 
+class AccountSuspendedException implements Exception {
+  final String message;
+  AccountSuspendedException(this.message);
+
+  @override
+  String toString() => message;
+}
+
 class OrderService {
   final SupabaseClient _supabase = Supabase.instance.client;
 
@@ -110,7 +118,7 @@ class OrderService {
       );
 
       return orderId;
-    } on PostgrestException catch (e) {
+        } on PostgrestException catch (e) {
       print('OrderService.createOrder error: $e');
       if (e.code == 'P1001') {
         throw ArchivedProductException(e.message);
@@ -119,6 +127,15 @@ class OrderService {
         throw ArchivedProductException(e.message);
       }
       if (e.code == 'P0001') {
+        // P0001 is Postgres's generic user-raised-exception code —
+        // multiple DIFFERENT triggers share it (stock checks AND
+        // account suspension), so the message content, not the code
+        // alone, is what actually tells them apart. Checked first,
+        // since a suspension error was previously always
+        // misclassified as a stock issue.
+        if (e.message.contains('account is currently suspended')) {
+          throw AccountSuspendedException(e.message);
+        }
         throw InsufficientStockException(e.message);
       }
       rethrow;

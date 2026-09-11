@@ -32,14 +32,24 @@ class _ShopScreenState extends ConsumerState<ShopScreen> {
   // Fetched once, held across rebuilds.
   late final Future<ActiveDiscounts> _discountsFuture;
 
-  @override
+    @override
   void initState() {
     super.initState();
     _discountsFuture = DiscountService().fetchActiveDiscounts();
     // Same reasoning as ProductDetailScreen — stock may have changed
     // elsewhere (admin approval/rejection, cashier sale, another
     // customer's checkout) since productsProvider last fetched.
+    //
+    // CONFIRMED ROOT CAUSE (found via live bisection): this callback
+    // had no `mounted` guard. If ShopScreen gets disposed before this
+    // post-frame callback fires — exactly what happens when
+    // pushAndRemoveUntil navigates through/past Shop — this threw
+    // "Bad state: Using 'ref' when a widget is about to or has been
+    // unmounted is unsafe," which then corrupted productsProvider's
+    // state for every OTHER screen watching it, explaining why the
+    // crash appeared to follow into completely unrelated screens.
     WidgetsBinding.instance.addPostFrameCallback((_) {
+      if (!mounted) return;
       ref.invalidate(productsProvider);
     });
   }

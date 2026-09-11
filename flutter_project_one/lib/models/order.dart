@@ -106,7 +106,14 @@ class Order {
   // Optional with a default, so every existing Order(...) construction
   // site across the app (checkout, receipts, status updates) keeps
   // compiling untouched.
-  final bool isCustomerSuspended;
+    final bool isCustomerSuspended;
+
+  // NEW — this SPECIFIC order was one of the ones that triggered a
+  // rapid-ordering violation. Distinct from isCustomerSuspended:
+  // this is a permanent, historical fact about the order itself,
+  // and persists even if the account was only warned (Tier 1),
+  // which never disables the account at all.
+  final bool isFlaggedRapid;
 
   bool get hasCoordinates => lat != null && lng != null;
 
@@ -133,6 +140,7 @@ class Order {
     this.cancelReason,
     this.adminNote,
     this.isCustomerSuspended = false,
+    this.isFlaggedRapid = false,
   });
     factory Order.fromMap(
     Map<String, dynamic> map, {
@@ -153,7 +161,8 @@ class Order {
         ? 'Unknown'
         : '$firstName $lastName'.trim();
        final String contact = user['phone'] ?? '';
-    final bool isCustomerSuspended = user['is_disabled'] == true;
+        final bool isCustomerSuspended = user['is_disabled'] == true;
+       final bool isFlaggedRapid = map['flagged_rapid_order'] == true;
 
     // ── address info ──
     final dynamic rawAddr           = map['address'];
@@ -210,10 +219,11 @@ class Order {
       subtotal:        (map['subtotal'] as num?)?.toDouble() ?? 0,
       shipping:        (map['shipping'] as num?)?.toDouble() ?? 0,
       discountAmount:  (map['discount_amount'] as num?)?.toDouble() ?? 0,
-           receiptUrl:      receiptUrl,
+      receiptUrl:      receiptUrl,
       cancelReason:    cancelReason,
       adminNote:       adminNote,
-      isCustomerSuspended: isCustomerSuspended,
+           isCustomerSuspended: isCustomerSuspended,
+      isFlaggedRapid: isFlaggedRapid,
     );
   }
 }

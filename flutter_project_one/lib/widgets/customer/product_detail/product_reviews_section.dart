@@ -97,7 +97,17 @@ class _ProductReviewsSectionState
   // `false`). This is now `async` and awaits the provider's `.future`,
   // which returns the resolved value (or reuses it if already cached) —
   // no window where an unresolved future is silently treated as "false".
-  Future<void> _openWriteReview(BuildContext context) async {
+    Future<void> _openWriteReview(BuildContext context) async {
+    // Captured synchronously, BEFORE any await — this is what the
+    // debugger's confirmed root cause requires. context.mounted only
+    // proves THIS widget's element still exists; it does NOT
+    // guarantee ScaffoldMessenger.of(context)'s upward ancestor
+    // lookup will still succeed if navigation elsewhere tore down
+    // the Scaffold while this method's earlier await was in flight.
+    // Grabbing the state once, while the tree is still guaranteed
+    // stable, sidesteps that lookup entirely.
+    final ScaffoldMessengerState messenger = ScaffoldMessenger.of(context);
+
     final authState = ref.read(authStateProvider);
     final isLoggedIn = authState.value?.session != null;
 
@@ -196,17 +206,28 @@ class _ProductReviewsSectionState
       return;
     }
 
-    // BUG FIX: await the real resolved value instead of trusting a
+        // BUG FIX: await the real resolved value instead of trusting a
     // possibly-null cached `.value`. Also show a lightweight loading
     // state isn't strictly necessary here since this resolves fast
     // once cached, but the await guarantees correctness on first tap.
-    final bool hasReviewed =
-        await ref.read(hasUserReviewedProvider(widget.productId).future);
+    bool hasReviewed;
+    try {
+      if (!mounted) return;
+      hasReviewed =
+          await ref.read(hasUserReviewedProvider(widget.productId).future);
+    } catch (e) {
+      // If this widget got disposed WHILE ref.read()'s future was
+      // still resolving, the read itself can throw before ever
+      // reaching a mounted check placed only after it — this catch
+      // is what actually stops that specific case from crashing.
+      print('_openWriteReview hasUserReviewedProvider read error: $e');
+      return;
+    }
 
-    if (!context.mounted) return;
+       if (!mounted) return;
 
     if (hasReviewed) {
-      ScaffoldMessenger.of(context).showSnackBar(
+      messenger.showSnackBar(
         const SnackBar(
           content: Text('You have already reviewed this product.'),
           backgroundColor: Colors.black,
