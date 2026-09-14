@@ -6,8 +6,8 @@ import '../../../services/admin/inventory/archive_service.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import '../../../providers/product/product_provider.dart';
 
-void showArchivedItemsDialog(BuildContext context) {
-  showDialog(
+Future<void> showArchivedItemsDialog(BuildContext context) async {
+  await showDialog(
     context: context,
     barrierDismissible: false,
     builder: (BuildContext dialogContext) {

@@ -30,16 +30,17 @@ class _ProductReviewsSectionState
 
   RealtimeChannel? _repliesChannel;
   RealtimeChannel? _newFeedbackChannel;
+  late final dynamic _reviewService; // captured once — safe to reuse in dispose()
 
   @override
   void initState() {
     super.initState();
-    final service = ref.read(reviewServiceProvider);
-    _repliesChannel = service.subscribeToFeedbackReplies(() {
+    _reviewService = ref.read(reviewServiceProvider);
+    _repliesChannel = _reviewService.subscribeToFeedbackReplies(() {
       if (!mounted) return;
       ref.invalidate(productReviewsProvider(widget.productId));
     });
-    _newFeedbackChannel = service.subscribeToNewFeedback(widget.productId, () {
+    _newFeedbackChannel = _reviewService.subscribeToNewFeedback(widget.productId, () {
       if (!mounted) return;
       ref.invalidate(productReviewsProvider(widget.productId));
       ref.invalidate(productRatingStatsProvider(widget.productId));
@@ -48,9 +49,8 @@ class _ProductReviewsSectionState
 
   @override
   void dispose() {
-    final service = ref.read(reviewServiceProvider);
-    if (_repliesChannel != null) service.unsubscribe(_repliesChannel!);
-    if (_newFeedbackChannel != null) service.unsubscribe(_newFeedbackChannel!);
+    if (_repliesChannel != null) _reviewService.unsubscribe(_repliesChannel!);
+    if (_newFeedbackChannel != null) _reviewService.unsubscribe(_newFeedbackChannel!);
     super.dispose();
   }
 

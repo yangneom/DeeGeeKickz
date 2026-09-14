@@ -112,6 +112,7 @@ class _InventoryScreenState extends ConsumerState<InventoryScreen> {
   // called on startup and after add/archive/restore
   // ================================================
   Future<void> _loadProducts() async {
+    if (!mounted) return;
     setState(() {
       _isLoading = true;
       _errorMessage = null;
@@ -120,6 +121,7 @@ class _InventoryScreenState extends ConsumerState<InventoryScreen> {
     try {
       List<Product> products = await _service.fetchProducts();
 
+      if (!mounted) return;
       setState(() {
         _allProducts = products;
         _isLoading = false;
@@ -129,6 +131,7 @@ class _InventoryScreenState extends ConsumerState<InventoryScreen> {
       _applyFilters();
 
     } catch (error) {
+      if (!mounted) return;
       setState(() {
         _isLoading = false;
         _errorMessage = 'Failed to load products. Please try again.';
@@ -259,11 +262,11 @@ class _InventoryScreenState extends ConsumerState<InventoryScreen> {
 
     // Same reasoning as restore — archiving hides this product from
     // cashier/shop, but productsProvider doesn't know yet.
+    if (!mounted) return;
     ref.invalidate(productsProvider);
 
     // refresh the list
     await _loadProducts();
-
     if (mounted) {
       ScaffoldMessenger.of(context).showSnackBar(
         SnackBar(
@@ -421,11 +424,11 @@ class _InventoryScreenState extends ConsumerState<InventoryScreen> {
                   // archived button
                   ElevatedButton(
                     onPressed: () async {
-                      showArchivedItemsDialog(context);
+                      await showArchivedItemsDialog(context);
+                      if (!mounted) return;
                       // refresh in case something was restored
                       _loadProducts();
-                    },
-                    style: ElevatedButton.styleFrom(
+                    },                    style: ElevatedButton.styleFrom(
                       backgroundColor: const Color(0xFF9CA3AF),
                       foregroundColor: Colors.white,
                       padding: const EdgeInsets.symmetric(
@@ -575,10 +578,11 @@ class _InventoryScreenState extends ConsumerState<InventoryScreen> {
 
                   const SizedBox(width: 8),
 
-                  // stock adjustment button
+                                    // stock adjustment button
                   ElevatedButton(
                     onPressed: () async {
-                      showStockAdjustmentDialog(context);
+                      await showStockAdjustmentDialog(context);
+                      if (!mounted) return;
                       // refresh in case stock was changed
                       _loadProducts();
                     },

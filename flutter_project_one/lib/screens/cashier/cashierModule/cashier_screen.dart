@@ -548,66 +548,91 @@ void _addToCart({
 
         return Scaffold(
           backgroundColor: const Color(0xFFF3F4F6),
-          body: Row(
-            children: [
+          body: LayoutBuilder(
+            builder: (context, constraints) {
+              // Responsive column count — was hardcoded to 3
+              // regardless of screen width, wasting a lot of space
+              // on large desktop monitors and cramming cards together
+              // on narrower ones.
+              final double width = constraints.maxWidth;
+              int crossAxisCount;
+              if (width >= 1600) {
+                crossAxisCount = 6;
+              } else if (width >= 1300) {
+                crossAxisCount = 5;
+              } else if (width >= 1000) {
+                crossAxisCount = 4;
+              } else {
+                crossAxisCount = 3;
+              }
 
-              // ── LEFT: product grid ──
-              Expanded(
-                child: Padding(
-                  padding: const EdgeInsets.all(24),
-                  child: Column(
-                    crossAxisAlignment: CrossAxisAlignment.start,
-                    children: [
+              return Row(
+                children: [
 
-                      const Text(
-                        'Cashier',
-                        style: TextStyle(
-                          fontSize: 24,
-                          fontWeight: FontWeight.bold,
-                          color: Color(0xFF111827),
-                        ),
+                  // ── LEFT: product grid ──
+                  Expanded(
+                    child: Padding(
+                      padding: const EdgeInsets.all(24),
+                      child: Column(
+                        crossAxisAlignment: CrossAxisAlignment.start,
+                        children: [
+
+                          const Text(
+                            'Cashier',
+                            style: TextStyle(
+                              fontSize: 24,
+                              fontWeight: FontWeight.bold,
+                              color: Color(0xFF111827),
+                            ),
+                          ),
+
+                          const SizedBox(height: 16),
+
+                          CommonSearchBar(
+                            controller: _searchController,
+                            hintText: 'Search Product',
+                            onChanged: (value) {
+                              setState(() {
+                                _searchQuery =
+                                    value.trim().toLowerCase();
+                              });
+                            },
+                          ),
+
+                          const SizedBox(height: 16),
+
+                          Expanded(
+                            child: filteredProducts.isEmpty
+                                ? _buildEmptyState()
+                                : GridView.builder(
+                                    gridDelegate:
+                                        SliverGridDelegateWithFixedCrossAxisCount(
+                  crossAxisCount: crossAxisCount,
+                  crossAxisSpacing: 12,
+                  mainAxisSpacing: 12,
+                  // Was 0.8 — mathematically too tight: the square
+                  // image (AspectRatio 1.0) leaves only ~25% of cell
+                  // width for text below, but the text needs a fixed
+                  // ~48px regardless of cell width. 0.72 gives real
+                  // margin at every column count our responsive grid
+                  // can produce, not just a band-aid clip/scroll.
+                  childAspectRatio: 0.72,
+                ),                                    itemCount: filteredProducts.length,
+                                    itemBuilder: (context, index) =>
+                                        _buildProductCard(
+                                            filteredProducts[index]),
+                                  ),
+                          ),
+                        ],
                       ),
-
-                      const SizedBox(height: 16),
-
-                      CommonSearchBar(
-                        controller: _searchController,
-                        hintText: 'Search Product',
-                        onChanged: (value) {
-                          setState(() {
-                            _searchQuery =
-                                value.trim().toLowerCase();
-                          });
-                        },
-                      ),
-
-                      const SizedBox(height: 16),
-
-                      Expanded(
-                        child: filteredProducts.isEmpty
-                            ? _buildEmptyState()
-                            : GridView.builder(
-                                gridDelegate:
-                                    const SliverGridDelegateWithFixedCrossAxisCount(
-                                  crossAxisCount: 3,
-                                  crossAxisSpacing: 12,
-                                  mainAxisSpacing: 12,
-                                  childAspectRatio: 0.8,
-                                ),
-                                itemCount: filteredProducts.length,
-                                itemBuilder: (context, index) =>
-                                    _buildProductCard(
-                                        filteredProducts[index]),
-                              ),
-                      ),
-                    ],
+                    ),
                   ),
-                ),
-              ),
 
-              // ── RIGHT: cart panel ──
-              _buildCartPanel(),
-            ],
+                  // ── RIGHT: cart panel ──
+                  _buildCartPanel(width: width),
+                ],
+              );
+            },
           ),
         );
       },
@@ -621,8 +646,15 @@ void _addToCart({
   // which checks sizes.every((s) => s.availableQty == 0)
   // so a partially reserved product still shows as tappable.
   // ================================================
-  Widget _buildProductCard(Product product) {
+   Widget _buildProductCard(Product product) {
     final bool isFullyReserved = product.isFullyReserved;
+
+    // Sum quantity across every variant/size of THIS product already
+    // in the cart — the card is per-product, so a cashier scanning
+    // the grid can see "already added 2" without opening the cart panel.
+    final int cartQtyForThisProduct = _cartItems
+        .where((item) => item.productId == product.productId)
+        .fold(0, (int sum, CartItem item) => sum + item.quantity);
 
     return GestureDetector(
       onTap: () {
@@ -783,11 +815,34 @@ void _addToCart({
                             topLeft: Radius.circular(8),
                             topRight: Radius.circular(8),
                           ),
-                          child: Image.network(
+                                                    child: Image.network(
                             imageUrl,
                             fit: BoxFit.cover,
                             width: double.infinity,
                             height: double.infinity,
+                            errorBuilder: (context, error, stackTrace) {
+                              // Logs the REAL url + error so you can
+                              // check it directly — this only makes
+                              // the failure display gracefully, it
+                              // doesn't fix whatever is actually
+                              // wrong with the stored file/URL.
+                              print('Product image failed: $imageUrl — $error');
+                              return Container(
+                                width: double.infinity,
+                                decoration: const BoxDecoration(
+                                  color: Color(0xFFF3F4F6),
+                                  borderRadius: BorderRadius.only(
+                                    topLeft: Radius.circular(8),
+                                    topRight: Radius.circular(8),
+                                  ),
+                                ),
+                                child: const Icon(
+                                  Icons.broken_image_outlined,
+                                  size: 32,
+                                  color: Color(0xFFD1D5DB),
+                                ),
+                              );
+                            },
                           ),
                         );
                       }
@@ -809,40 +864,61 @@ void _addToCart({
                       );
                     }),
 
+                    // Diagonal ribbon — much faster to spot at a
+                    // glance during a busy checkout line than the
+                    // previous small pill badge + 0.5 opacity alone.
                     if (isFullyReserved)
                       Positioned(
+                        top: 14,
+                        right: -34,
+                        child: Transform.rotate(
+                          angle: 0.785398, // 45 degrees
+                          child: Container(
+                            width: 130,
+                            padding: const EdgeInsets.symmetric(vertical: 4),
+                            color: const Color(0xFFDC2626),
+                            alignment: Alignment.center,
+                            child: const Text(
+                              'SOLD OUT',
+                              textAlign: TextAlign.center,
+                              style: TextStyle(
+                                fontSize: 10,
+                                fontWeight: FontWeight.w700,
+                                color: Colors.white,
+                                letterSpacing: 0.5,
+                              ),
+                            ),
+                          ),
+                        ),
+                      ),
+
+                    // Cart quantity badge — only when NOT fully
+                    // reserved, so it never visually competes with
+                    // the ribbon above.
+                    if (!isFullyReserved && cartQtyForThisProduct > 0)
+                      Positioned(
                         top: 8,
-                        left: 8,
+                        right: 8,
                         child: Container(
                           padding: const EdgeInsets.symmetric(
-                              horizontal: 8, vertical: 3),
+                              horizontal: 7, vertical: 3),
                           decoration: BoxDecoration(
-                            color: const Color(0xFFDC2626),
-                            borderRadius:
-                                BorderRadius.circular(4),
+                            color: const Color(0xFF111827),
+                            borderRadius: BorderRadius.circular(20),
                           ),
-                          child: const Row(
-                            mainAxisSize: MainAxisSize.min,
-                            children: [
-                              Icon(Icons.lock,
-                                  size: 10, color: Colors.white),
-                              SizedBox(width: 4),
-                              Text(
-                                'Reserved',
-                                style: TextStyle(
-                                  fontSize: 10,
-                                  fontWeight: FontWeight.w600,
-                                  color: Colors.white,
-                                ),
-                              ),
-                            ],
+                          child: Text(
+                            '×$cartQtyForThisProduct',
+                            style: const TextStyle(
+                              fontSize: 11,
+                              fontWeight: FontWeight.w700,
+                              color: Colors.white,
+                            ),
                           ),
                         ),
                       ),
                   ],
                 ),
               ),
-
               Padding(
                 padding:
                     const EdgeInsets.fromLTRB(10, 8, 10, 8),
@@ -887,9 +963,15 @@ void _addToCart({
   // ================================================
   // CART PANEL (right side)
   // ================================================
-  Widget _buildCartPanel() {
+    Widget _buildCartPanel({double width = 1200}) {
+    // Slightly wider on very large screens so it doesn't look
+    // disproportionately narrow next to a much bigger product grid —
+    // capped, since a cart panel wider than ~360 stops being more
+    // readable and just wastes horizontal space that the grid could
+    // use for more columns instead.
+    final double panelWidth = width >= 1600 ? 360 : (width >= 1300 ? 330 : 300);
     return Container(
-      width: 300,
+      width: panelWidth,
       margin: const EdgeInsets.all(12),
       decoration: BoxDecoration(
         color: Colors.white,
