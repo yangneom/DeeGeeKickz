@@ -19,6 +19,8 @@ import 'screens/admin/admin_layout.dart';
 import 'screens/super/super_layout.dart';
 import 'screens/cashier/cashier_layout.dart';
 import 'providers/customer/chat_provider.dart';
+import 'screens/auth/mfa_enroll_screen.dart';
+import 'screens/auth/mfa_challenge_screen.dart';
 
 
 // Global navigator key — lets any file navigate without needing a
@@ -93,12 +95,24 @@ void main() async {
             (role == 'Admin' || role == 'Cashier' || role == 'Super Admin')) {
           print('→ Routing to SetPasswordScreen');
           startScreen = const SetPasswordScreen();
-        } else if (passwordSet && role == 'Admin') {
-          print('→ Routing to AdminLayout');
-          startScreen = const AdminLayout();
-        } else if (passwordSet && role == 'Super Admin') {
-          print('→ Routing to SuperLayout');
-          startScreen = const SuperLayout();
+               } else if (passwordSet && (role == 'Admin' || role == 'Super Admin')) {
+          final factors = await Supabase.instance.client.auth.mfa.listFactors();
+          if (factors.totp.isEmpty) {
+            print('→ Routing to MfaEnrollScreen (not yet enrolled)');
+            startScreen = const MfaEnrollScreen();
+          } else {
+            final aal = await Supabase.instance.client.auth.mfa.getAuthenticatorAssuranceLevel();
+            if (aal.currentLevel != AuthenticatorAssuranceLevels.aal2) {
+              print('→ Routing to MfaChallengeScreen (aal1 only, on app reload)');
+              startScreen = MfaChallengeScreen(
+                role: role,
+                onVerified: () {}, // cold-start path doesn't need a callback here
+              );;
+            } else {
+              print('→ Routing to ${role} layout (aal2 confirmed)');
+              startScreen = role == 'Admin' ? const AdminLayout() : const SuperLayout();
+            }
+          }
         } else if (passwordSet && role == 'Cashier') {
           print('→ Routing to CashierLayout');
           startScreen = const CashierLayout();
@@ -350,16 +364,39 @@ class _MyAppState extends ConsumerState<MyApp> {
               // logs in elsewhere and swaps the shared session out from
               // under an already-open window.
               Widget destination;
-              if (role == 'Admin') {
-                destination = const AdminLayout();
-              } else if (role == 'Super Admin') {
-                destination = const SuperLayout();
+              if (role == 'Admin' || role == 'Super Admin') {
+                // AUDIT FIX: this listener was racing login_form.dart's
+                // own MFA check and winning — navigating straight to a
+                // staff layout before enrollment/challenge ever got a
+                // chance to show. Checking the real session-level
+                // assurance state here, not just role/password_set.
+                final factors = await Supabase.instance.client.auth.mfa.listFactors();
+                final bool hasMfaEnrolled = factors.totp.isNotEmpty;
+
+                if (!hasMfaEnrolled) {
+                  destination = const MfaEnrollScreen();
+                } else {
+                  final aal = await Supabase.instance.client.auth.mfa.getAuthenticatorAssuranceLevel();
+                  if (aal.currentLevel != AuthenticatorAssuranceLevels.aal2) {
+                    destination = MfaChallengeScreen(
+                      role: role,
+                      onVerified: () {
+                        _navigatorKey.currentState?.pushAndRemoveUntil(
+                          MaterialPageRoute(
+                            builder: (_) => role == 'Admin' ? const AdminLayout() : const SuperLayout(),
+                          ),
+                          (route) => false,
+                        );
+                      },
+                    );                  } else {
+                    destination = role == 'Admin' ? const AdminLayout() : const SuperLayout();
+                  }
+                }
               } else if (role == 'Cashier') {
                 destination = const CashierLayout();
               } else {
                 destination = const HomeScreen();
               }
-
               print('→ Redirecting session to $role layout');
               WidgetsBinding.instance.addPostFrameCallback((_) {
                 _navigatorKey.currentState?.pushAndRemoveUntil(

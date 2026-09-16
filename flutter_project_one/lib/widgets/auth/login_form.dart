@@ -28,6 +28,9 @@ import '../../screens/super/super_layout.dart'; // ← ADD THIS
 import '../../screens/customer/homescreen/home_screen.dart';
 
 import 'package:flutter/foundation.dart' show kIsWeb;
+import '../../screens/auth/mfa_enroll_screen.dart';
+import 'package:supabase_flutter/supabase_flutter.dart';
+import '../../screens/auth/mfa_challenge_screen.dart';
 
 // ================================================
 // LOGIN FORM WIDGET
@@ -148,17 +151,46 @@ final String? role = await authService.getUserRole();
         return;
       }
 
-      if (role == 'Admin') {
-        Navigator.pushReplacement(
-          context,
-          MaterialPageRoute(builder: (context) => const AdminLayout()),
-        );
+      if (role == 'Admin' || role == 'Super Admin') {
+        final factors = await Supabase.instance.client.auth.mfa.listFactors();
+        final bool hasMfaEnrolled = factors.totp.isNotEmpty;
 
-      } else if (role == 'Super Admin') {
-        Navigator.pushReplacement(
-          context,
-          MaterialPageRoute(builder: (context) => const SuperLayout()),
-        );
+        if (!hasMfaEnrolled) {
+          // AUDIT FIX: this previously let a not-yet-enrolled staff
+          // account straight through with no MFA prompt at all —
+          // meaning "mandatory" only ever applied to brand-new
+          // invites, never to any account that already existed
+          // before this feature was built. Every Admin/Super Admin
+          // is now forced through enrollment on their very next
+          // login if they haven't set it up yet, not just at
+          // initial password creation.
+          if (mounted) {
+            Navigator.pushReplacement(
+              context,
+              MaterialPageRoute(builder: (_) => const MfaEnrollScreen()),
+            );
+          }
+          return;
+        }
+
+        if (mounted) {
+          Navigator.pushReplacement(
+            context,
+            MaterialPageRoute(
+              builder: (_) => MfaChallengeScreen(
+                role: role,
+                onVerified: () {
+                  Navigator.pushReplacement(
+                    context,
+                    MaterialPageRoute(
+                      builder: (_) => role == 'Admin' ? const AdminLayout() : const SuperLayout(),
+                    ),
+                  );
+                },
+              ),
+            ),
+          );
+        }
 
       } else if (role == 'Cashier') {
         Navigator.pushReplacement(

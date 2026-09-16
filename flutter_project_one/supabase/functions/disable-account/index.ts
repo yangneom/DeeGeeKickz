@@ -11,6 +11,18 @@ const corsHeaders = {
     "authorization, x-client-info, apikey, content-type",
 };
 
+function decodeJwtPayload(token: string): Record<string, unknown> | null {
+  try {
+    const parts = token.split(".");
+    if (parts.length !== 3) return null;
+    const base64 = parts[1].replace(/-/g, "+").replace(/_/g, "/");
+    const padded = base64.padEnd(base64.length + (4 - (base64.length % 4)) % 4, "=");
+    return JSON.parse(atob(padded));
+  } catch {
+    return null;
+  }
+}
+
 serve(async (req) => {
   if (req.method === "OPTIONS") {
     return new Response("ok", { headers: corsHeaders });
@@ -51,6 +63,17 @@ serve(async (req) => {
       );
     }
 
+    // AUDIT FIX: disabling an account is a high-trust action, same
+    // tier as creating a staff account — requires the CALLER's
+    // session to have actually completed MFA, not just password auth.
+    const jwtPayload = decodeJwtPayload(authHeader.replace("Bearer ", ""));
+    if (jwtPayload?.aal !== "aal2") {
+      return new Response(
+        JSON.stringify({ success: false, error: "This action requires completed two-factor authentication." }),
+        { status: 403, headers: { ...corsHeaders, "Content-Type": "application/json" } },
+      );
+    }
+
     const { user_id, reason } = await req.json();
 
     if (!user_id) {
@@ -59,8 +82,6 @@ serve(async (req) => {
         { status: 400, headers: { ...corsHeaders, "Content-Type": "application/json" } },
       );
     }
-
-    const adminClient = createClient(SUPABASE_URL, SERVICE_ROLE_KEY);
 
     // 1. Flip the disabled flag (same as before)
     const { error: updateError } = await adminClient

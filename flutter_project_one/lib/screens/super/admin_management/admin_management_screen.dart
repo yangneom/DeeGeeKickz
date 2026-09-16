@@ -189,8 +189,49 @@ class _AdminManagementScreenState
     }
   }
 
-  Future<void> _handleEnable(AdminAccount account) async {
-    await ref.read(adminAccountsProvider.notifier).enableAccount(account.id);
+  // ================================================
+  // HANDLE RESET MFA — Super Admin only (enforced server-side by
+  // the reset-mfa Edge Function itself), confirm-gated since this
+  // is a high-trust action that immediately locks the target out of
+  // whatever device they were using until they re-enroll.
+  // ================================================
+  Future<void> _handleResetMfa(AdminAccount account) async {
+    final bool? confirmed = await showConfirmDialog(
+      context:      context,
+      title:        'Reset 2FA for this account?',
+      message:      '${account.firstName} ${account.lastName} will need to set up '
+          'two-factor authentication again on their next login. Only do this if '
+          'they\'ve genuinely lost access to their authenticator device.',
+      confirmLabel: 'Reset 2FA',
+      confirmColor: const Color(0xFFDC2626),
+    );
+    if (confirmed != true) return;
+
+    try {
+      await ref.read(adminAccountsProvider.notifier).resetMfa(account.id);
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(
+            content: Text('2FA reset for ${account.firstName} ${account.lastName}.'),
+            backgroundColor: const Color(0xFF16A34A),
+            behavior: SnackBarBehavior.floating,
+          ),
+        );
+      }
+    } catch (e) {
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(
+            content: Text(e.toString().replaceFirst('Exception: ', '')),
+            backgroundColor: const Color(0xFFEF4444),
+            behavior: SnackBarBehavior.floating,
+          ),
+        );
+      }
+    }
+  }
+
+  Future<void> _handleEnable(AdminAccount account) async {    await ref.read(adminAccountsProvider.notifier).enableAccount(account.id);
     if (mounted) {
       ref.read(adminAccountsProvider.notifier).loadAccounts();
     }
@@ -223,46 +264,43 @@ class _AdminManagementScreenState
           _formatDateTime(account.registeredOn),
           style: const TextStyle(fontSize: 13, color: Color(0xFF111827)),
         ),
-        Row(
-          mainAxisSize: MainAxisSize.min,
-          children: [
-            Align(
-              alignment: Alignment.centerLeft,
-              child: OutlinedButton(
-                onPressed: () {
-                  showAdminEditDialog(
-                    context,
-                    account,
-                    (AdminAccount updatedAccount) async {
-                      await ref.read(adminAccountsProvider.notifier).updateAccount(updatedAccount);
-                    },
-                  );
-                },
-                style: OutlinedButton.styleFrom(
-                  foregroundColor: const Color(0xFF374151),
-                  side: const BorderSide(color: Color(0xFFD1D5DB)),
-                  padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 8),
-                  shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(6)),
-                ),
-                child: const Text('Edit & View', style: TextStyle(fontSize: 12)),
+        Align(
+          alignment: Alignment.centerLeft,
+          child: PopupMenuButton<String>(
+            icon: const Icon(Icons.more_vert, color: Color(0xFF6B7280), size: 20),
+            tooltip: 'Actions',
+            shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(8)),
+            onSelected: (String value) {
+              if (value == 'edit') {
+                showAdminEditDialog(
+                  context,
+                  account,
+                  (AdminAccount updatedAccount) async {
+                    await ref.read(adminAccountsProvider.notifier).updateAccount(updatedAccount);
+                  },
+                );
+              } else if (value == 'reset_mfa') {
+                _handleResetMfa(account);
+              } else if (value == 'disable') {
+                _handleDisable(account);
+              }
+            },
+            itemBuilder: (BuildContext context) => [
+              const PopupMenuItem(
+                value: 'edit',
+                child: Text('Edit & View', style: TextStyle(fontSize: 13)),
               ),
-            ),
-            const SizedBox(width: 8),
-            Align(
-              alignment: Alignment.centerLeft,
-              child: ElevatedButton(
-                onPressed: () => _handleDisable(account),
-                style: ElevatedButton.styleFrom(
-                  backgroundColor: const Color(0xFFEF4444),
-                  foregroundColor: Colors.white,
-                  elevation: 0,
-                  padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 8),
-                  shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(6)),
+              if (account.role == 'Admin' || account.role == 'Super Admin')
+                const PopupMenuItem(
+                  value: 'reset_mfa',
+                  child: Text('Reset 2FA', style: TextStyle(fontSize: 13, color: Color(0xFFDC2626))),
                 ),
-                child: const Text('Disable', style: TextStyle(fontSize: 12)),
+              const PopupMenuItem(
+                value: 'disable',
+                child: Text('Disable', style: TextStyle(fontSize: 13, color: Color(0xFFDC2626))),
               ),
-            ),
-          ],
+            ],
+          ),
         ),
       ];
 
@@ -462,7 +500,7 @@ class _AdminManagementScreenState
                             'Registered On',
                             'Action',
                           ],
-                          columnFlex: const [2, 3, 1, 1, 2, 2, 2],
+                          columnFlex: const [2, 3, 1, 1, 2, 2, 1],
                           rows: _buildRows(
                             _filteredAccounts(
                               visibleAccounts.where((a) => !a.isDisabled).toList(),

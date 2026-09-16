@@ -2,6 +2,7 @@ import 'package:flutter_riverpod/flutter_riverpod.dart';
 
 import '../../models/admin_account.dart';
 import '../../services/super/admin_management/admin_account_service.dart';
+import 'package:supabase_flutter/supabase_flutter.dart';
 
 final adminAccountServiceProvider =
     Provider<AdminAccountService>((ref) {
@@ -73,5 +74,16 @@ Future<void> updateAccount(
   await loadAccounts();
 }
 
-    
+Future<void> resetMfa(String userId) async {
+  final response = await Supabase.instance.client.functions.invoke(
+    'reset-mfa',
+    body: {'target_user_id': userId},
+  );
+
+  final data = response.data;
+  if (data == null || data['success'] != true) {
+    throw Exception(data?['error'] ?? 'Failed to reset 2FA.');
+  }
+}
+
 }

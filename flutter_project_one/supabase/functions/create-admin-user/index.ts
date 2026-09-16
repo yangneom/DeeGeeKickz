@@ -15,13 +15,81 @@ const corsHeaders = {
     "authorization, x-client-info, apikey, content-type",
 };
 
+function decodeJwtPayload(token: string): Record<string, unknown> | null {
+  try {
+    const parts = token.split(".");
+    if (parts.length !== 3) return null;
+    const base64 = parts[1].replace(/-/g, "+").replace(/_/g, "/");
+    const padded = base64.padEnd(base64.length + (4 - (base64.length % 4)) % 4, "=");
+    return JSON.parse(atob(padded));
+  } catch {
+    return null;
+  }
+}
+
 serve(async (req) => {
   if (req.method === "OPTIONS") {
     return new Response("ok", { headers: corsHeaders });
   }
 
   try {
+    const authHeader = req.headers.get("Authorization");
+    if (!authHeader) {
+      return new Response(
+        JSON.stringify({ success: false, error: "Missing authorization" }),
+        { status: 401, headers: { ...corsHeaders, "Content-Type": "application/json" } },
+      );
+    }
+
+    const adminClient = createClient(SUPABASE_URL, SERVICE_ROLE_KEY);
+
+    const { data: { user: callingUser } } = await adminClient.auth.getUser(
+      authHeader.replace("Bearer ", "")
+    );
+    if (!callingUser) {
+      return new Response(
+        JSON.stringify({ success: false, error: "Invalid session" }),
+        { status: 401, headers: { ...corsHeaders, "Content-Type": "application/json" } },
+      );
+    }
+
+    const { data: callerProfile } = await adminClient
+      .from("users")
+      .select("role")
+      .eq("id", callingUser.id)
+      .maybeSingle();
+
+    if (!callerProfile || callerProfile.role !== "Super Admin") {
+      return new Response(
+        JSON.stringify({ success: false, error: "Forbidden — Super Admin only" }),
+        { status: 403, headers: { ...corsHeaders, "Content-Type": "application/json" } },
+      );
+    }
+
+    // AUDIT FIX: the Flutter MFA challenge screen only decided which
+    // screen to show — it never actually gated anything server-side.
+    // A valid aal1 (password-only) token could call this endpoint
+    // directly, bypassing MFA entirely. This checks the real
+    // assurance level embedded in the token itself.
+    const jwtPayload = decodeJwtPayload(authHeader.replace("Bearer ", ""));
+    if (jwtPayload?.aal !== "aal2") {
+      return new Response(
+        JSON.stringify({ success: false, error: "This action requires completed two-factor authentication." }),
+        { status: 403, headers: { ...corsHeaders, "Content-Type": "application/json" } },
+      );
+    }
+
     const { first_name, last_name, email, role } = await req.json();
+
+    // Lock down exactly which roles can be created here — no arbitrary
+    // string is accepted, closing the self-escalation path entirely.
+    const allowedRoles = ["Admin", "Cashier", "Super Admin"];
+    if (!allowedRoles.includes(role)) {
+      return new Response(
+        JSON.stringify({ success: false, error: "Invalid role" }),
+        { status: 400, headers: { ...corsHeaders, "Content-Type": "application/json" } },
+      );
+    }
 
     // ── Validate input ──────────────────────────
     if (!first_name || !last_name || !email || !role) {
@@ -36,8 +104,6 @@ serve(async (req) => {
 
     console.log(`Creating admin user: ${email} | role: ${role}`);
     console.log(`Redirect URL: ${INVITE_REDIRECT_URL}`);
-
-    const adminClient = createClient(SUPABASE_URL, SERVICE_ROLE_KEY);
 
     // ── Send invite email ───────────────────────
     // This creates the auth.users row AND sends

@@ -593,31 +593,17 @@ Future<void> cancelOrder({
   // so there's nothing to give back there.
   // ================================================
   Future<void> _releaseStock({required int orderId}) async {
-    final List<dynamic> items = await _supabase
-        .from('order_item')
-        .select('size_id, quantity')
-        .eq('order_id', orderId);
-
-    for (final dynamic item in items) {
-      final int? sizeId = item['size_id'] as int?;
-      final int quantity = (item['quantity'] as num).toInt();
-      if (sizeId == null) continue;
-
-      final row = await _supabase
-          .from('product_variant_size')
-          .select('reserved_quantity')
-          .eq('size_id', sizeId)
-          .single();
-
-      final int reserved = (row['reserved_quantity'] as num?)?.toInt() ?? 0;
-
-      await _supabase.from('product_variant_size').update({
-        'reserved_quantity':
-            (reserved - quantity) < 0 ? 0 : reserved - quantity,
-      }).eq('size_id', sizeId);
-    }
+    // AUDIT FIX: this was a plain client-side update, subject to
+    // RLS — product_variant_size has no UPDATE policy for Customer
+    // at all, only Admin/Super Admin/Cashier. When an Admin called
+    // rejectPayment(), this worked fine. When a CUSTOMER called
+    // cancelOrder(), RLS silently blocked the update — zero rows
+    // affected, no error thrown — meaning the order correctly
+    // showed Cancelled while reserved_quantity stayed stuck forever.
+    // release_order_stock is SECURITY DEFINER, correctly bypassing
+    // RLS the same way commit_order_stock already does.
+    await _supabase.rpc('release_order_stock', params: {'p_order_id': orderId});
   }
-
   // ================================================
   // SET COD PENDING
   // COD orders skip payment entirely.

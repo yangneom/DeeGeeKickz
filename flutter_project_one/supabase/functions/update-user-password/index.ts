@@ -10,6 +10,18 @@ const corsHeaders = {
     "authorization, x-client-info, apikey, content-type",
 };
 
+function decodeJwtPayload(token: string): Record<string, unknown> | null {
+  try {
+    const parts = token.split(".");
+    if (parts.length !== 3) return null;
+    const base64 = parts[1].replace(/-/g, "+").replace(/_/g, "/");
+    const padded = base64.padEnd(base64.length + (4 - (base64.length % 4)) % 4, "=");
+    return JSON.parse(atob(padded));
+  } catch {
+    return null;
+  }
+}
+
 serve(async (req) => {
   if (req.method === "OPTIONS") {
     return new Response("ok", { headers: corsHeaders });
@@ -52,6 +64,22 @@ serve(async (req) => {
         JSON.stringify({ success: false, error: "Forbidden" }),
         { status: 403, headers: { ...corsHeaders, "Content-Type": "application/json" } },
       );
+    }
+
+    // AUDIT FIX: only require aal2 when a Super Admin is overriding
+    // SOMEONE ELSE'S password — a genuine high-trust action. A person
+    // resetting their OWN forgotten password must NOT be blocked by
+    // this, since a real "I forgot my password" flow may not have a
+    // session with completed MFA at all — that's the whole point of
+    // password recovery.
+    if (!isSelf) {
+      const jwtPayload = decodeJwtPayload(authHeader.replace("Bearer ", ""));
+      if (jwtPayload?.aal !== "aal2") {
+        return new Response(
+          JSON.stringify({ success: false, error: "This action requires completed two-factor authentication." }),
+          { status: 403, headers: { ...corsHeaders, "Content-Type": "application/json" } },
+        );
+      }
     }
 
     if (!user_id || !new_password) {

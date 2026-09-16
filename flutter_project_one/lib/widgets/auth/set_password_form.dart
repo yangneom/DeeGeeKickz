@@ -1,5 +1,6 @@
 import 'package:flutter/material.dart';
 import 'package:supabase_flutter/supabase_flutter.dart';
+import '../../screens/auth/mfa_enroll_screen.dart';
 
 // ================================================
 // SET PASSWORD FORM
@@ -57,6 +58,8 @@ class _SetPasswordFormState extends State<SetPasswordForm> {
       );
 
       final userId = supabase.auth.currentUser?.id;
+      final String? role = supabase.auth.currentUser?.userMetadata?['role'] as String?;
+
       if (userId != null) {
         await supabase
             .from('users')
@@ -68,6 +71,18 @@ class _SetPasswordFormState extends State<SetPasswordForm> {
       }
 
       if (!mounted) return;
+
+      // Admin/Super Admin: mandatory MFA enrollment, right here,
+      // before they ever reach a real screen — this is the one
+      // moment they're guaranteed to have full attention on it.
+      // Cashier stays on the original flow (MFA optional, enabled
+      // later from Profile if they choose to).
+      if (role == 'Admin' || role == 'Super Admin') {
+        Navigator.of(context).pushReplacement(
+          MaterialPageRoute(builder: (_) => const MfaEnrollScreen()),
+        );
+        return;
+      }
 
       ScaffoldMessenger.of(context).showSnackBar(
         const SnackBar(
@@ -157,15 +172,7 @@ class _SetPasswordFormState extends State<SetPasswordForm> {
                     setState(() => _obscurePassword = !_obscurePassword),
               ),
             ),
-            validator: (v) {
-              if (v == null || v.trim().isEmpty) {
-                return 'Please enter a password';
-              }
-              if (v.trim().length < 8) {
-                return 'Password must be at least 8 characters';
-              }
-              return null;
-            },
+                        validator: _validatePasswordStrength,
           ),
 
           const SizedBox(height: 20),
@@ -263,6 +270,62 @@ class _SetPasswordFormState extends State<SetPasswordForm> {
         ],
       ),
     );
+  }
+
+  // A small blocklist of the most common/obvious weak passwords —
+  // not exhaustive, just catches the laziest choices someone might
+  // type for a staff account they didn't personally pick.
+  static const List<String> _commonPasswords = [
+    'password', 'password123', 'admin123', 'admin1234',
+    '12345678', '123456789', 'qwerty123', 'letmein123',
+    'welcome123', 'changeme', 'password1', 'admin@123',
+  ];
+
+  String? _validatePasswordStrength(String? v) {
+    if (v == null || v.trim().isEmpty) {
+      return 'Please enter a password';
+    }
+    final String password = v.trim();
+
+    if (password.length < 8) {
+      return 'Password must be at least 8 characters';
+    }
+
+    if (_commonPasswords.contains(password.toLowerCase())) {
+      return 'This password is too common — please choose something more unique';
+    }
+
+    // Reject a password built around the person's own name/email —
+    // invite_user's user_metadata carries first_name/last_name from
+    // create-admin-user, and the email is on the authenticated
+    // invite session itself, both available here pre-login.
+    final user = Supabase.instance.client.auth.currentUser;
+    final String lowerPassword = password.toLowerCase();
+
+    final String? firstName =
+        user?.userMetadata?['first_name'] as String?;
+    final String? lastName =
+        user?.userMetadata?['last_name'] as String?;
+    final String? email = user?.email;
+
+    if (firstName != null &&
+        firstName.trim().length >= 3 &&
+        lowerPassword.contains(firstName.trim().toLowerCase())) {
+      return 'Password should not contain your first name';
+    }
+    if (lastName != null &&
+        lastName.trim().length >= 3 &&
+        lowerPassword.contains(lastName.trim().toLowerCase())) {
+      return 'Password should not contain your last name';
+    }
+    if (email != null && email.contains('@')) {
+      final String localPart = email.split('@').first.toLowerCase();
+      if (localPart.length >= 3 && lowerPassword.contains(localPart)) {
+        return 'Password should not be based on your email';
+      }
+    }
+
+    return null;
   }
 
   Widget _fieldLabel(String text) {

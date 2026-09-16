@@ -60,6 +60,33 @@ class _AdminAddDialogState extends State<AdminAddDialog> {
     super.dispose();
   }
 
+  // Pulls the real error text out of a raw FunctionException dump
+  // (e.g. "FunctionException(status: 400, details: {..., error: '...'}, ...)")
+  // and translates known backend phrasing into plain, admin-facing wording.
+  String _extractFriendlyError(Object e) {
+    final String raw = e.toString();
+
+    final RegExp pattern = RegExp(r'error:\s*(.+?)(?:,\s*reasonPhrase|\}$|\)$)');
+    final Match? match = pattern.firstMatch(raw);
+    String message = match != null ? match.group(1)!.trim() : raw;
+    message = message.replaceAll(RegExp(r'[\{\}]+$'), '').trim();
+
+    final String lower = message.toLowerCase();
+    if (lower.contains('already been registered') || lower.contains('already exists')) {
+      return 'An account with this email already exists.';
+    }
+    if (lower.contains('invalid role')) {
+      return 'That role is not valid. Please pick a different role.';
+    }
+    if (lower.contains('forbidden')) {
+      return 'You don\'t have permission to create this type of account.';
+    }
+    if (lower.contains('missing required fields')) {
+      return 'Please fill in all required fields.';
+    }
+
+    return message;
+  }
 
   // ================================================
   // HANDLE ADD
@@ -71,6 +98,18 @@ Future<void> _handleAdd() async {
         _emailController.text.trim().isEmpty) {
       setState(() {
         _errorMessage = 'Please fill in all required fields.';
+      });
+      return;
+    }
+
+    // Real format check — previously only checked for empty, so
+    // something like "asdf" with no @ would pass here and only fail
+    // later, confusingly, once it actually hit Supabase Auth.
+    final String trimmedEmail = _emailController.text.trim();
+    final RegExp emailRegex = RegExp(r'^[^\s@]+@[^\s@]+\.[^\s@]+$');
+    if (!emailRegex.hasMatch(trimmedEmail)) {
+      setState(() {
+        _errorMessage = 'Please enter a valid email address.';
       });
       return;
     }
@@ -119,7 +158,7 @@ Future<void> _handleAdd() async {
     } catch (e) {
       if (mounted) {
         setState(() {
-          _errorMessage = 'Could not create account: ${e.toString().replaceFirst('Exception: ', '')}';
+          _errorMessage = _extractFriendlyError(e);
         });
       }
     } finally {
