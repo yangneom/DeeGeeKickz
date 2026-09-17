@@ -1,6 +1,7 @@
 import 'package:flutter/material.dart';
 import 'package:supabase_flutter/supabase_flutter.dart';
 import '../../screens/auth/login_screen.dart';
+import 'package:flutter/services.dart';
 
 class MfaEnrollScreen extends StatefulWidget {
   const MfaEnrollScreen({super.key});
@@ -32,9 +33,14 @@ class _MfaEnrollScreenState extends State<MfaEnrollScreen> {
   Future<void> _startEnrollment() async {
     try {
       final supabase = Supabase.instance.client;
-      final response = await supabase.auth.mfa.enroll(
+            final response = await supabase.auth.mfa.enroll(
         factorType: FactorType.totp,
         issuer: 'DeeGeeKickz',
+        // Prevents "friendly name already exists" collisions from
+        // abandoned/unverified enrollment attempts (browser refresh,
+        // hot restart, cancelled test) — each attempt now gets a
+        // genuinely unique name instead of colliding on the default "".
+        friendlyName: 'totp_${DateTime.now().millisecondsSinceEpoch}',
       );
            if (response.totp == null) {
         throw Exception('Enrollment response did not include TOTP setup data.');
@@ -268,7 +274,7 @@ class _RecoveryCodesDialog extends StatelessWidget {
               style: TextStyle(fontSize: 13, color: Color(0xFF6B7280), height: 1.5),
             ),
             const SizedBox(height: 16),
-            Container(
+                       Container(
               width: double.infinity,
               padding: const EdgeInsets.all(16),
               decoration: BoxDecoration(
@@ -279,6 +285,24 @@ class _RecoveryCodesDialog extends StatelessWidget {
               child: SelectableText(
                 codes.join('\n'),
                 style: const TextStyle(fontFamily: 'monospace', fontSize: 14, fontWeight: FontWeight.w600),
+              ),
+            ),
+            const SizedBox(height: 12),
+            SizedBox(
+              width: double.infinity,
+              child: OutlinedButton.icon(
+                onPressed: () {
+                  Clipboard.setData(ClipboardData(text: codes.join('\n')));
+                  ScaffoldMessenger.of(context).showSnackBar(
+                    const SnackBar(content: Text('Recovery codes copied to clipboard.')),
+                  );
+                },
+                icon: const Icon(Icons.copy, size: 16),
+                label: const Text('Copy All Codes'),
+                style: OutlinedButton.styleFrom(
+                  padding: const EdgeInsets.symmetric(vertical: 12),
+                  shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(8)),
+                ),
               ),
             ),
             const SizedBox(height: 20),

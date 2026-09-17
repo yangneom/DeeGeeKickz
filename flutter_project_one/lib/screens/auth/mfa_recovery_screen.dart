@@ -94,12 +94,18 @@ class _MfaRecoveryScreenState extends State<MfaRecoveryScreen> {
                     style: TextStyle(fontSize: 13, height: 1.6, color: Color(0xFF6B7280)),
                   ),
                   const SizedBox(height: 24),
-                  TextField(
+                                    TextField(
                     controller: _codeController,
                     autofocus: true,
+                    keyboardType: TextInputType.text,
+                    textCapitalization: TextCapitalization.characters,
+                    autofillHints: const [],
+                    autocorrect: false,
+                    enableSuggestions: false,
+                    enableIMEPersonalizedLearning: false,
                     style: const TextStyle(fontSize: 16, fontFamily: 'monospace', letterSpacing: 1),
                     decoration: InputDecoration(
-                      hintText: 'XXXX-XXXX',
+                      hintText: 'XXXXX-XXXXX',
                       border: OutlineInputBorder(borderRadius: BorderRadius.circular(8)),
                     ),
                   ),
