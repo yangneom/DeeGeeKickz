@@ -39,8 +39,8 @@ serve(async (req) => {
     }
 
     const { code } = await req.json();
-    if (!code) {
-      return new Response(
+    console.log(`RECOVERY_DEBUG: received code length=${code?.length}, value=[${code}]`);
+    if (!code) {      return new Response(
         JSON.stringify({ success: false, error: "Missing code" }),
         { status: 400, headers: { ...corsHeaders, "Content-Type": "application/json" } },
       );
@@ -88,8 +88,15 @@ serve(async (req) => {
       await adminClient.auth.admin.mfa.deleteFactor({ id: factor.id, userId: user.id });
     }
 
-    return new Response(
-      JSON.stringify({ success: true }),
+    // SECURITY FIX: deleting the factor alone doesn't invalidate an
+    // already-issued aal2 token — that claim lives in the JWT itself
+    // and survives until the token naturally expires/refreshes. A
+    // stale, still-valid aal2 token from BEFORE this reset could
+    // otherwise keep working on every aal2-gated action. Force a
+    // global sign-out so any such token stops working immediately.
+    await adminClient.auth.admin.signOut(user.id, "global");
+
+    return new Response(      JSON.stringify({ success: true }),
       { headers: { ...corsHeaders, "Content-Type": "application/json" } },
     );
   } catch (err) {

@@ -2,6 +2,7 @@ import 'package:flutter/material.dart';
 import 'package:supabase_flutter/supabase_flutter.dart';
 import '../../../services/auth/auth_service.dart';
 import 'confirm_dialog.dart';
+import '../../../screens/auth/mfa_enroll_screen.dart' show RecoveryCodesDialog;
 
 const _kBlue = Color(0xFF2563EB);
 const _kBlueBg = Color(0xFFEFF6FF);
@@ -59,9 +60,14 @@ class _ProfileDialogState extends State<ProfileDialog> {
   bool _changingPassword = false;
   String? _passwordError;
   String? _passwordSuccess;
-  final _currentPasswordController = TextEditingController();
+    final _currentPasswordController = TextEditingController();
   final _newPasswordController = TextEditingController();
   final _confirmPasswordController = TextEditingController();
+
+  // ── Recovery codes (Super Admin only) ──
+  bool _showRecoverySection = false;
+  int? _recoveryCodesRemaining;
+  bool _regeneratingCodes = false;
 
   @override
   void initState() {
@@ -335,6 +341,103 @@ class _ProfileDialogState extends State<ProfileDialog> {
     );
   }
 
+    Widget _buildRecoverySection() {
+    return Column(
+      crossAxisAlignment: CrossAxisAlignment.start,
+      children: [
+        const SizedBox(height: 16),
+        Container(height: 1, color: _kBorder),
+        const SizedBox(height: 16),
+        InkWell(
+          onTap: () => setState(() => _showRecoverySection = !_showRecoverySection),
+          child: Row(
+            mainAxisAlignment: MainAxisAlignment.spaceBetween,
+            children: [
+              const Text(
+                'Account Recovery',
+                style: TextStyle(fontSize: 13, fontWeight: FontWeight.w600, color: _kMidText),
+              ),
+              Icon(
+                _showRecoverySection ? Icons.expand_less : Icons.expand_more,
+                size: 20,
+                color: _kMutedText,
+              ),
+            ],
+          ),
+        ),
+        if (_showRecoverySection) ...[
+          const SizedBox(height: 12),
+          Text(
+            _recoveryCodesRemaining == null
+                ? 'Loading recovery codes…'
+                : 'Recovery codes remaining: $_recoveryCodesRemaining of 10',
+            style: const TextStyle(fontSize: 12, color: _kMutedText),
+          ),
+          const SizedBox(height: 12),
+          SizedBox(
+            width: double.infinity,
+            child: OutlinedButton.icon(
+              onPressed: _regeneratingCodes ? null : _handleRegenerateCodes,
+              icon: _regeneratingCodes
+                  ? const SizedBox(width: 14, height: 14, child: CircularProgressIndicator(strokeWidth: 2))
+                  : const Icon(Icons.refresh, size: 16),
+              label: const Text('Regenerate Recovery Codes', style: TextStyle(fontSize: 13)),
+              style: OutlinedButton.styleFrom(
+                foregroundColor: _kMidText,
+                side: BorderSide(color: Colors.grey.shade300),
+                padding: const EdgeInsets.symmetric(vertical: 12),
+                shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(8)),
+              ),
+            ),
+          ),
+        ],
+      ],
+    );
+  }
+
+    Future<void> _handleRegenerateCodes() async {
+    final confirmed = await showConfirmDialog(
+      context: context,
+      title: 'Regenerate Recovery Codes?',
+      message: 'This will invalidate all of your current recovery codes '
+          'and create 10 new ones. Your current authenticator will not '
+          'be changed.',
+      confirmLabel: 'Generate New Codes',
+    );
+    if (confirmed != true) return;
+
+    setState(() => _regeneratingCodes = true);
+
+    try {
+      final List<dynamic> codes = await Supabase.instance.client.rpc(
+        'generate_mfa_recovery_codes',
+        params: {'p_user_id': widget.userId},
+      );
+
+      if (!mounted) return;
+      setState(() {
+        _regeneratingCodes = false;
+        _recoveryCodesRemaining = 10;
+      });
+
+      await showDialog<void>(
+        context: context,
+        barrierDismissible: false,
+        builder: (_) => RecoveryCodesDialog(codes: codes.cast<String>()),
+      );
+    } catch (e) {
+      if (!mounted) return;
+      setState(() => _regeneratingCodes = false);
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(
+          content: Text(e.toString().replaceFirst('Exception: ', '')),
+          backgroundColor: _kRed,
+          behavior: SnackBarBehavior.floating,
+        ),
+      );
+    }
+  }
+
   @override
   Widget build(BuildContext context) {
     return Dialog(
@@ -439,8 +542,10 @@ class _ProfileDialogState extends State<ProfileDialog> {
                 const SizedBox(height: 20),
               ],
 
-              // ── Security / change-password section (always available) ──
+                           // ── Security / change-password section (always available) ──
               _buildPasswordSection(),
+
+              if (widget.role == 'Super Admin') _buildRecoverySection(),
 
               const SizedBox(height: 24),
 
@@ -511,6 +616,8 @@ class _ProfileDialogState extends State<ProfileDialog> {
     );
   }
 }
+
+
 
 class _ProfileRow extends StatelessWidget {
   final IconData icon;

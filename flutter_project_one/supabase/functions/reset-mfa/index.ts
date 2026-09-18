@@ -97,12 +97,21 @@ serve(async (req) => {
       );
     }
 
-    for (const factor of factorsData?.factors ?? []) {
+        for (const factor of factorsData?.factors ?? []) {
       await adminClient.auth.admin.mfa.deleteFactor({
         id: factor.id,
         userId: target_user_id,
       });
     }
+
+    // SECURITY FIX: deleting the factor alone doesn't invalidate an
+    // already-issued aal2 token — that claim lives in the JWT itself
+    // and survives until the token naturally expires. A stale,
+    // still-valid aal2 token from BEFORE this reset (e.g. from
+    // earlier testing) could otherwise keep bypassing every
+    // aal2-gated check, exactly as just observed with the Admin
+    // account landing straight on the dashboard after a refresh.
+    await adminClient.auth.admin.signOut(target_user_id, "global");
 
     return new Response(
       JSON.stringify({ success: true }),

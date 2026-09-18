@@ -82,53 +82,6 @@ class _MfaEnrollScreenState extends State<MfaEnrollScreen> {
         code: _codeController.text.trim(),
       );
 
-      if (!mounted) return;
-
-            // Was reading userMetadata['role'] — only ever populated by
-      // create-admin-user's invite flow. This account (and any
-      // other set up via direct SQL/manual means) has no role in
-      // its JWT metadata at all, so that check silently always
-      // failed. The users TABLE is the one reliable source of
-      // truth for role, regardless of how the account was created.
-      final String userId = supabase.auth.currentUser!.id;
-      final profileRow = await supabase
-          .from('users')
-          .select('role')
-          .eq('id', userId)
-          .maybeSingle();
-      final String? role = profileRow?['role'] as String?;
-
-            if (role == 'Super Admin') {
-        // Every successful enrollment for a Super Admin — first-time
-        // AND post-recovery — generates a fresh recovery-code batch.
-        // The RPC itself deletes any prior batch first, so this
-        // naturally satisfies "a new set invalidates the old one."
-        try {
-          // Force a genuinely fresh session/token BEFORE calling the
-          // aal2-gated RPC — mfa.verify() updates the session object,
-          // but the client's cached auth header for the VERY NEXT
-          // request isn't guaranteed to reflect that yet. This closes
-          // that timing gap explicitly rather than hoping it's synced.
-          await supabase.auth.refreshSession();
-
-          final userId = supabase.auth.currentUser!.id;
-          final List<dynamic> codes = await supabase.rpc(
-            'generate_mfa_recovery_codes',
-            params: {'p_user_id': userId},
-          );
-
-          if (!mounted) return;
-          await showDialog<void>(
-            context: context,
-            barrierDismissible: false,
-            builder: (_) => _RecoveryCodesDialog(codes: codes.cast<String>()),
-          );
-        } catch (e) {
-          print('generate_mfa_recovery_codes error: $e');
-          // Don't block the whole enrollment over this — MFA itself
-          // is already successfully enabled at this point.
-        }
-      }
 
       if (!mounted) return;
 
@@ -250,73 +203,130 @@ class _MfaEnrollScreenState extends State<MfaEnrollScreen> {
   }
 }
 
-class _RecoveryCodesDialog extends StatelessWidget {
+class RecoveryCodesDialog extends StatelessWidget {
   final List<String> codes;
-  const _RecoveryCodesDialog({required this.codes});
+  const RecoveryCodesDialog({super.key, required this.codes});
 
   @override
   Widget build(BuildContext context) {
     return Dialog(
       backgroundColor: Colors.white,
-      shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(8)),
-      child: Padding(
-        padding: const EdgeInsets.all(24),
+      shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
+      insetPadding: const EdgeInsets.symmetric(horizontal: 40, vertical: 24),
+      child: ConstrainedBox(
+        constraints: const BoxConstraints(maxWidth: 480),
         child: Column(
           mainAxisSize: MainAxisSize.min,
-          crossAxisAlignment: CrossAxisAlignment.start,
           children: [
-            const Text('Save Your Recovery Codes', style: TextStyle(fontSize: 18, fontWeight: FontWeight.bold)),
-            const SizedBox(height: 8),
-            const Text(
-              'If you lose access to your authenticator, you can use one of these '
-              'codes to regain access. Each code works only once. Store them '
-              'somewhere safe — they will not be shown again.',
-              style: TextStyle(fontSize: 13, color: Color(0xFF6B7280), height: 1.5),
-            ),
-            const SizedBox(height: 16),
-                       Container(
+            // ── Header — matches Add Account dialog exactly ──
+            Container(
               width: double.infinity,
-              padding: const EdgeInsets.all(16),
-              decoration: BoxDecoration(
-                color: const Color(0xFFF9FAFB),
-                borderRadius: BorderRadius.circular(8),
-                border: Border.all(color: const Color(0xFFE5E7EB)),
-              ),
-              child: SelectableText(
-                codes.join('\n'),
-                style: const TextStyle(fontFamily: 'monospace', fontSize: 14, fontWeight: FontWeight.w600),
-              ),
-            ),
-            const SizedBox(height: 12),
-            SizedBox(
-              width: double.infinity,
-              child: OutlinedButton.icon(
-                onPressed: () {
-                  Clipboard.setData(ClipboardData(text: codes.join('\n')));
-                  ScaffoldMessenger.of(context).showSnackBar(
-                    const SnackBar(content: Text('Recovery codes copied to clipboard.')),
-                  );
-                },
-                icon: const Icon(Icons.copy, size: 16),
-                label: const Text('Copy All Codes'),
-                style: OutlinedButton.styleFrom(
-                  padding: const EdgeInsets.symmetric(vertical: 12),
-                  shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(8)),
+              padding: const EdgeInsets.fromLTRB(24, 20, 16, 16),
+              decoration: const BoxDecoration(
+                color: Colors.white,
+                border: Border(bottom: BorderSide(color: Color(0xFFE5E7EB))),
+                borderRadius: BorderRadius.only(
+                  topLeft: Radius.circular(12),
+                  topRight: Radius.circular(12),
                 ),
               ),
+              child: const Column(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  Text(
+                    'Save Your Recovery Codes',
+                    style: TextStyle(fontSize: 18, fontWeight: FontWeight.bold, color: Color(0xFF111827)),
+                  ),
+                  SizedBox(height: 2),
+                  Text(
+                    'If you lose access to your authenticator, you can use one of these codes to regain access.',
+                    style: TextStyle(fontSize: 12, color: Color(0xFF9CA3AF)),
+                  ),
+                ],
+              ),
             ),
-            const SizedBox(height: 20),
-            SizedBox(
-              width: double.infinity,
-              child: ElevatedButton(
-                onPressed: () => Navigator.of(context).pop(),
-                style: ElevatedButton.styleFrom(
-                  backgroundColor: Colors.black,
-                  foregroundColor: Colors.white,
-                  padding: const EdgeInsets.symmetric(vertical: 14),
-                  shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(8)),
-                ),
-                child: const Text('I\'ve Saved These Codes'),
+
+            // ── Body ──
+            Padding(
+              padding: const EdgeInsets.all(24),
+              child: Column(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                mainAxisSize: MainAxisSize.min,
+                children: [
+                  Container(
+                    width: double.infinity,
+                    padding: const EdgeInsets.all(12),
+                    decoration: BoxDecoration(
+                      color: const Color(0xFFFEF3C7),
+                      borderRadius: BorderRadius.circular(8),
+                      border: Border.all(color: const Color(0xFFFDE68A)),
+                    ),
+                    child: const Row(
+                      crossAxisAlignment: CrossAxisAlignment.start,
+                      children: [
+                        Icon(Icons.info_outline, size: 16, color: Color(0xFF92400E)),
+                        SizedBox(width: 8),
+                        Expanded(
+                          child: Text(
+                            'Each code can only be used once. Store them somewhere safe — they will not be shown again.',
+                            style: TextStyle(fontSize: 12, color: Color(0xFF92400E), height: 1.4),
+                          ),
+                        ),
+                      ],
+                    ),
+                  ),
+                  const SizedBox(height: 16),
+                  Container(
+                    width: double.infinity,
+                    padding: const EdgeInsets.all(16),
+                    decoration: BoxDecoration(
+                      color: const Color(0xFFF9FAFB),
+                      borderRadius: BorderRadius.circular(8),
+                      border: Border.all(color: const Color(0xFFE5E7EB)),
+                    ),
+                    child: SelectableText(
+                      codes.join('\n'),
+                      style: const TextStyle(fontFamily: 'monospace', fontSize: 14, fontWeight: FontWeight.w600, color: Color(0xFF111827)),
+                    ),
+                  ),
+                  const SizedBox(height: 20),
+                  Row(
+                    children: [
+                      Expanded(
+                        child: OutlinedButton.icon(
+                          onPressed: () {
+                            Clipboard.setData(ClipboardData(text: codes.join('\n')));
+                            ScaffoldMessenger.of(context).showSnackBar(
+                              const SnackBar(content: Text('Recovery codes copied to clipboard.')),
+                            );
+                          },
+                          icon: const Icon(Icons.copy, size: 16),
+                          label: const Text('Copy All Codes', style: TextStyle(fontSize: 13)),
+                          style: OutlinedButton.styleFrom(
+                            foregroundColor: const Color(0xFF374151),
+                            side: const BorderSide(color: Color(0xFFD1D5DB)),
+                            padding: const EdgeInsets.symmetric(vertical: 12),
+                            shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(8)),
+                          ),
+                        ),
+                      ),
+                      const SizedBox(width: 10),
+                      Expanded(
+                        child: ElevatedButton(
+                          onPressed: () => Navigator.of(context).pop(),
+                          style: ElevatedButton.styleFrom(
+                            backgroundColor: const Color(0xFF2563EB),
+                            foregroundColor: Colors.white,
+                            elevation: 0,
+                            padding: const EdgeInsets.symmetric(vertical: 12),
+                            shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(8)),
+                          ),
+                          child: const Text('I\'ve Saved These Codes', style: TextStyle(fontSize: 13)),
+                        ),
+                      ),
+                    ],
+                  ),
+                ],
               ),
             ),
           ],
