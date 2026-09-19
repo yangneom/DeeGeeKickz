@@ -290,10 +290,9 @@ class _AdminManagementScreenState
                 value: 'edit',
                 child: Text('Edit & View', style: TextStyle(fontSize: 13)),
               ),
-              if (account.role == 'Admin' || account.role == 'Super Admin')
+            if (account.role == 'Admin' || account.role == 'Super Admin' || account.role == 'Cashier')
                 const PopupMenuItem(
-                  value: 'reset_mfa',
-                  child: Text('Reset 2FA', style: TextStyle(fontSize: 13, color: Color(0xFFDC2626))),
+                  value: 'reset_mfa',                  child: Text('Reset 2FA', style: TextStyle(fontSize: 13, color: Color(0xFFDC2626))),
                 ),
               const PopupMenuItem(
                 value: 'disable',

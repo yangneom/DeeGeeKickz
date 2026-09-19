@@ -95,7 +95,7 @@ void main() async {
             (role == 'Admin' || role == 'Cashier' || role == 'Super Admin')) {
           print('→ Routing to SetPasswordScreen');
           startScreen = const SetPasswordScreen();
-               } else if (passwordSet && (role == 'Admin' || role == 'Super Admin')) {
+               } else if (passwordSet && (role == 'Admin' || role == 'Super Admin' || role == 'Cashier')) {
           final factors = await Supabase.instance.client.auth.mfa.listFactors();
           if (factors.totp.isEmpty) {
             print('→ Routing to MfaEnrollScreen (not yet enrolled)');
@@ -106,16 +106,17 @@ void main() async {
               print('→ Routing to MfaChallengeScreen (aal1 only, on app reload)');
               startScreen = MfaChallengeScreen(
                 role: role,
-                onVerified: () {}, // cold-start path doesn't need a callback here
-              );;
+                onVerified: () {},
+              );
             } else {
               print('→ Routing to ${role} layout (aal2 confirmed)');
-              startScreen = role == 'Admin' ? const AdminLayout() : const SuperLayout();
+              startScreen = role == 'Admin'
+                  ? const AdminLayout()
+                  : role == 'Cashier'
+                      ? const CashierLayout()
+                      : const SuperLayout();
             }
           }
-        } else if (passwordSet && role == 'Cashier') {
-          print('→ Routing to CashierLayout');
-          startScreen = const CashierLayout();
         }
         // role == 'Customer' → startScreen stays HomeScreen (correct)
       }
@@ -363,13 +364,8 @@ class _MyAppState extends ConsumerState<MyApp> {
               // is what fixes stale screens after a different account
               // logs in elsewhere and swaps the shared session out from
               // under an already-open window.
-              Widget destination;
-              if (role == 'Admin' || role == 'Super Admin') {
-                // AUDIT FIX: this listener was racing login_form.dart's
-                // own MFA check and winning — navigating straight to a
-                // staff layout before enrollment/challenge ever got a
-                // chance to show. Checking the real session-level
-                // assurance state here, not just role/password_set.
+                           Widget destination;
+              if (role == 'Admin' || role == 'Super Admin' || role == 'Cashier') {
                 final factors = await Supabase.instance.client.auth.mfa.listFactors();
                 final bool hasMfaEnrolled = factors.totp.isNotEmpty;
 
@@ -383,17 +379,24 @@ class _MyAppState extends ConsumerState<MyApp> {
                       onVerified: () {
                         _navigatorKey.currentState?.pushAndRemoveUntil(
                           MaterialPageRoute(
-                            builder: (_) => role == 'Admin' ? const AdminLayout() : const SuperLayout(),
+                            builder: (_) => role == 'Admin'
+                                ? const AdminLayout()
+                                : role == 'Cashier'
+                                    ? const CashierLayout()
+                                    : const SuperLayout(),
                           ),
                           (route) => false,
                         );
                       },
-                    );                  } else {
-                    destination = role == 'Admin' ? const AdminLayout() : const SuperLayout();
+                    );
+                  } else {
+                    destination = role == 'Admin'
+                        ? const AdminLayout()
+                        : role == 'Cashier'
+                            ? const CashierLayout()
+                            : const SuperLayout();
                   }
                 }
-              } else if (role == 'Cashier') {
-                destination = const CashierLayout();
               } else {
                 destination = const HomeScreen();
               }

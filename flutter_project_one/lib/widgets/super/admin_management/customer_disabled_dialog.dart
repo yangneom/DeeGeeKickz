@@ -28,7 +28,7 @@ import '../../common/dialog/confirm_dialog.dart';
 void showCustomerDisabledDialog({
   required BuildContext context,
   required List<CustomerAccount> disabledAccounts,
-  required Function(CustomerAccount account) onActivate,
+  required Future<void> Function(CustomerAccount account) onActivate,
 }) {
   showDialog(
     context: context,
@@ -44,7 +44,7 @@ void showCustomerDisabledDialog({
 
 class CustomerDisabledDialog extends StatefulWidget {
   final List<CustomerAccount> disabledAccounts;
-  final Function(CustomerAccount account) onActivate;
+  final Future<void> Function(CustomerAccount account) onActivate;
 
   const CustomerDisabledDialog({
     super.key,
@@ -98,6 +98,8 @@ class _CustomerDisabledDialogState extends State<CustomerDisabledDialog> {
   // Confirms, fires the callback, then removes just this row —
   // the dialog itself stays open.
   // ================================================
+  final Set<String> _enablingIds = {};
+
   Future<void> _handleActivate(CustomerAccount account) async {
     final bool? confirmed = await showConfirmDialog(
       context: context,
@@ -111,12 +113,38 @@ class _CustomerDisabledDialogState extends State<CustomerDisabledDialog> {
 
     if (confirmed != true) return;
 
-    widget.onActivate(account);
-
     if (!mounted) return;
-    setState(() {
-      _accounts.removeWhere((a) => a.id == account.id);
-    });
+    setState(() => _enablingIds.add(account.id));
+
+    try {
+      // AUDIT FIX: previously fired without await and removed the
+      // row from the list IMMEDIATELY, regardless of whether the
+      // backend call had even finished — a failure would still show
+      // as an optimistic "success" with no error surfaced at all.
+      await widget.onActivate(account);
+
+      if (!mounted) return;
+      setState(() {
+        _accounts.removeWhere((a) => a.id == account.id);
+        _enablingIds.remove(account.id);
+      });
+
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(
+          content: Text('${account.fullName} enabled successfully.'),
+          backgroundColor: const Color(0xFF16A34A),
+        ),
+      );
+    } catch (e) {
+      if (!mounted) return;
+      setState(() => _enablingIds.remove(account.id));
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(
+          content: Text('Failed to enable ${account.fullName}. Please try again.'),
+          backgroundColor: const Color(0xFFEF4444),
+        ),
+      );
+    }
   }
 
   // ================================================
@@ -147,17 +175,23 @@ class _CustomerDisabledDialogState extends State<CustomerDisabledDialog> {
         Align(
           alignment: Alignment.centerLeft,
           child: ElevatedButton(
-            onPressed: () => _handleActivate(account),
+            onPressed: _enablingIds.contains(account.id) ? null : () => _handleActivate(account),
             style: ElevatedButton.styleFrom(
               backgroundColor: const Color(0xFF16A34A),
               foregroundColor: Colors.white,
+              disabledBackgroundColor: const Color(0xFF9CA3AF),
               elevation: 0,
               padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 8),
               shape: RoundedRectangleBorder(
                 borderRadius: BorderRadius.circular(6),
               ),
             ),
-            child: const Text('Enable', style: TextStyle(fontSize: 12)),
+            child: _enablingIds.contains(account.id)
+                ? const SizedBox(
+                    width: 12, height: 12,
+                    child: CircularProgressIndicator(strokeWidth: 2, color: Colors.white),
+                  )
+                : const Text('Enable', style: TextStyle(fontSize: 12)),
           ),
         ),
       ];

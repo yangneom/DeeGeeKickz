@@ -119,17 +119,24 @@ class _ReceiptDialogState extends State<ReceiptDialog> {
   // GENERATE PDF
   // builds the PDF document using the pdf package
   // ================================================
+    static pw.Font? _cachedRegular;
+  static pw.Font? _cachedBold;
+
   Future<pw.Document> _generatePdf() async {
 
-    // Same Noto Sans fonts used by ReceiptPdfService (the online-order
-    // receipt) — the default Helvetica has no Unicode support, so ₱
-    // silently fails to render without this.
-    final ByteData regularData =
-        await rootBundle.load('assets/fonts/NotoSans-Regular.ttf');
-    final ByteData boldData =
-        await rootBundle.load('assets/fonts/NotoSans-Bold.ttf');
-    final pw.Font notoRegular = pw.Font.ttf(regularData);
-    final pw.Font notoBold    = pw.Font.ttf(boldData);
+    // Cached after the first load — re-loading and re-embedding two
+    // full TTF files on EVERY print/save was unnecessary repeated
+    // work, and a meaningful chunk of the CPU time causing the freeze.
+    if (_cachedRegular == null || _cachedBold == null) {
+      final ByteData regularData =
+          await rootBundle.load('assets/fonts/NotoSans-Regular.ttf');
+      final ByteData boldData =
+          await rootBundle.load('assets/fonts/NotoSans-Bold.ttf');
+      _cachedRegular = pw.Font.ttf(regularData);
+      _cachedBold = pw.Font.ttf(boldData);
+    }
+    final pw.Font notoRegular = _cachedRegular!;
+    final pw.Font notoBold    = _cachedBold!;
 
     final pw.Document pdf = pw.Document(
       theme: pw.ThemeData.withFont(
@@ -436,10 +443,16 @@ class _ReceiptDialogState extends State<ReceiptDialog> {
   // opens system print dialog
   // ================================================
   Future<void> _handlePrint() async {
-    setState(() => _isGenerating = true);
+       setState(() => _isGenerating = true);
+    // Forces Flutter to actually paint the "Generating..." state
+    // before the CPU-heavy PDF work begins — without this explicit
+    // yield, the setState and the heavy synchronous work can get
+    // batched into the same frame, meaning the loading text never
+    // visibly renders before the freeze starts.
+    await Future.delayed(Duration.zero);
 
     try {
-      final pw.Document pdf = await _generatePdf();
+      final pw.Document pdf = await _generatePdf();();
       await Printing.layoutPdf(
         onLayout: (PdfPageFormat format) async => pdf.save(),
         name: 'Receipt_${widget.sale.orderNumber}',

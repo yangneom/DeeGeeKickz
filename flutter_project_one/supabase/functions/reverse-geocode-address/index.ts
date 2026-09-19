@@ -77,10 +77,21 @@ Deno.serve(async (req: Request) => {
       components.suburb || components.village,
     );
 
+       // Returned so the Flutter side can detect a MISMATCH between the
+    // pin's real location and whatever City/Barangay the customer
+    // currently has selected — used to force re-confirmation rather
+    // than silently saving stale text next to new coordinates.
+    const detectedCity =
+      components.city || components.town || components.municipality || null;
+    const detectedBarangay =
+      components.suburb || components.village || components.neighbourhood || null;
+
     return new Response(
       JSON.stringify({
         hasAddress: hasLocality,
         formattedAddress: result?.formatted ?? null,
+        detectedCity,
+        detectedBarangay,
       }),
       { status: 200, headers: { ...corsHeaders, "Content-Type": "application/json" } },
     );

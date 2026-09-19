@@ -36,47 +36,114 @@ class _AdminTopBarState extends ConsumerState<AdminTopBar> {
     showDialog(
       context: context,
       barrierDismissible: true,
-      builder: (dialogContext) => AlertDialog(
-        title: const Text('Time to update your password'),
-        content: const Text(
-          'For account security, please update your password. '
-          'It\'s been 30 days or more since your last change.',
-        ),
-        actions: [
-          TextButton(
-            onPressed: () => Navigator.pop(dialogContext),
-            child: const Text('Later'),
-          ),
-          ElevatedButton(
-            onPressed: () async {
-              Navigator.pop(dialogContext);
-              final user = Supabase.instance.client.auth.currentUser;
-              if (user == null) return;
-
-              final data = await Supabase.instance.client
-                  .from('users')
-                  .select('first_name, last_name, email, phone, role')
-                  .eq('id', user.id)
-                  .single();
-
-              if (!mounted) return;
-              showDialog(
-                context: context,
-                builder: (_) => ProfileDialog(
-                  userId: user.id,
-                  firstName: data['first_name'] ?? '',
-                  lastName: data['last_name'] ?? '',
-                  email: data['email'] ?? user.email ?? '',
-                  phone: data['phone'] ?? '',
-                  role: data['role'] ?? '',
-                  canEdit: false,
-                  autoOpenPasswordSection: true,
+      builder: (dialogContext) => Dialog(
+        backgroundColor: Colors.white,
+        shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
+        insetPadding: const EdgeInsets.symmetric(horizontal: 40, vertical: 24),
+        child: ConstrainedBox(
+          constraints: const BoxConstraints(maxWidth: 420),
+          child: Column(
+            mainAxisSize: MainAxisSize.min,
+            children: [
+              Container(
+                width: double.infinity,
+                padding: const EdgeInsets.fromLTRB(24, 20, 16, 16),
+                decoration: const BoxDecoration(
+                  color: Colors.white,
+                  border: Border(bottom: BorderSide(color: Color(0xFFE5E7EB))),
+                  borderRadius: BorderRadius.only(
+                    topLeft: Radius.circular(12),
+                    topRight: Radius.circular(12),
+                  ),
                 ),
-              );
-            },
-            child: const Text('Change Now'),
+                child: const Column(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    Text(
+                      'Time to update your password',
+                      style: TextStyle(fontSize: 18, fontWeight: FontWeight.bold, color: Color(0xFF111827)),
+                    ),
+                    SizedBox(height: 2),
+                    Text(
+                      'For account security',
+                      style: TextStyle(fontSize: 12, color: Color(0xFF9CA3AF)),
+                    ),
+                  ],
+                ),
+              ),
+              Padding(
+                padding: const EdgeInsets.all(24),
+                child: Column(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  mainAxisSize: MainAxisSize.min,
+                  children: [
+                    const Text(
+                      'It\'s been 30 days or more since your last password change. '
+                      'Please update it to keep your account secure.',
+                      style: TextStyle(fontSize: 13, color: Color(0xFF374151), height: 1.5),
+                    ),
+                    const SizedBox(height: 24),
+                    Row(
+                      children: [
+                        Expanded(
+                          child: OutlinedButton(
+                            onPressed: () => Navigator.pop(dialogContext),
+                            style: OutlinedButton.styleFrom(
+                              foregroundColor: const Color(0xFF374151),
+                              side: const BorderSide(color: Color(0xFFD1D5DB)),
+                              padding: const EdgeInsets.symmetric(vertical: 12),
+                              shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(8)),
+                            ),
+                            child: const Text('Later', style: TextStyle(fontSize: 13)),
+                          ),
+                        ),
+                        const SizedBox(width: 10),
+                        Expanded(
+                          child: ElevatedButton(
+                            onPressed: () async {
+                              Navigator.pop(dialogContext);
+                              final user = Supabase.instance.client.auth.currentUser;
+                              if (user == null) return;
+
+                              final data = await Supabase.instance.client
+                                  .from('users')
+                                  .select('first_name, last_name, email, phone, role')
+                                  .eq('id', user.id)
+                                  .single();
+
+                              if (!mounted) return;
+                              showDialog(
+                                context: context,
+                                builder: (_) => ProfileDialog(
+                                  userId: user.id,
+                                  firstName: data['first_name'] ?? '',
+                                  lastName: data['last_name'] ?? '',
+                                  email: data['email'] ?? user.email ?? '',
+                                  phone: data['phone'] ?? '',
+                                  role: data['role'] ?? '',
+                                  canEdit: false,
+                                  autoOpenPasswordSection: true,
+                                ),
+                              );
+                            },
+                            style: ElevatedButton.styleFrom(
+                              backgroundColor: const Color(0xFF2563EB),
+                              foregroundColor: Colors.white,
+                              elevation: 0,
+                              padding: const EdgeInsets.symmetric(vertical: 12),
+                              shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(8)),
+                            ),
+                            child: const Text('Change Now', style: TextStyle(fontSize: 13)),
+                          ),
+                        ),
+                      ],
+                    ),
+                  ],
+                ),
+              ),
+            ],
           ),
-        ],
+        ),
       ),
     );
   }

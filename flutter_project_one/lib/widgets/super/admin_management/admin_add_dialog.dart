@@ -18,6 +18,7 @@ void showAdminAddDialog(
 ) {
   showDialog(
     context: context,
+    barrierDismissible: false, // can't tap outside to dismiss mid-request
     builder: (BuildContext dialogContext) {
       return AdminAddDialog(onAdd: onAdd);
     },  
@@ -225,15 +226,22 @@ Future<void> _handleAdd() async {
   // ================================================
   @override
   Widget build(BuildContext context) {
-    return Dialog(
-      backgroundColor: Colors.white,
-      shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
-      insetPadding: const EdgeInsets.symmetric(horizontal: 40, vertical: 24),
-      child: ConstrainedBox(
-        constraints: BoxConstraints(
-          maxWidth: 520,
-          maxHeight: MediaQuery.of(context).size.height * 0.85,
-        ),
+        return PopScope(
+      // Blocks the hardware/OS back gesture while a request is
+      // genuinely in flight — same reasoning as barrierDismissible
+      // and the disabled Cancel button: once onAdd() has been
+      // called, there's no backend cancellation support, so nothing
+      // should be able to make the dialog disappear mid-request.
+      canPop: !_isLoading,
+      child: Dialog(
+        backgroundColor: Colors.white,
+        shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
+        insetPadding: const EdgeInsets.symmetric(horizontal: 40, vertical: 24),
+        child: ConstrainedBox(
+          constraints: BoxConstraints(
+            maxWidth: 520,
+            maxHeight: MediaQuery.of(context).size.height * 0.85,
+          ),
         child: Column(
           mainAxisSize: MainAxisSize.min,
           children: [
@@ -398,8 +406,16 @@ Future<void> _handleAdd() async {
                     Row(
                       mainAxisAlignment: MainAxisAlignment.end,
                       children: [
-                        OutlinedButton(
-                          onPressed: () => Navigator.pop(context),
+                                               OutlinedButton(
+                          // Once the backend request is actually in
+                          // flight, Cancel closing the dialog would
+                          // falsely suggest creation stopped — it
+                          // hasn't, and this backend has no
+                          // cancellation/rollback support. Disabling
+                          // it here, same as the Add Account button,
+                          // is the honest behavior rather than a
+                          // Cancel that lies about what it does.
+                          onPressed: _isLoading ? null : () => Navigator.pop(context),
                           style: OutlinedButton.styleFrom(
                             foregroundColor: const Color(0xFF374151),
                             side: const BorderSide(
@@ -452,6 +468,7 @@ Future<void> _handleAdd() async {
             ),
           ],
         ),
+      ),
       ),
     );
   }

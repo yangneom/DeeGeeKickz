@@ -618,7 +618,6 @@ class _AddressBottomSheetState extends State<AddressBottomSheet> {
       );
 
       if (confirmed == null) {
-        // User cancelled at the map step — don't save yet.
         if (mounted) {
           setState(() {
             _addressErrorMessage =
@@ -628,11 +627,51 @@ class _AddressBottomSheetState extends State<AddressBottomSheet> {
         return;
       }
 
+      // AUDIT FIX: previously, only lat/lng were updated here — the
+      // street/barangay/city/province text stayed whatever it was
+      // BEFORE the pin moved, meaning coordinates and the displayed
+      // address could silently point to two different physical
+      // places (exactly what the Lalamove-mismatch report surfaced).
+      // This checks the NEW pin's real location against what's
+      // currently selected, and blocks saving on a genuine mismatch
+      // rather than either keeping stale text or auto-guessing a
+      // replacement (auto-fill risks a WRONG match, since OpenCage's
+      // naming won't always exactly equal your PSGC list's naming).
+      try {
+        final response = await Supabase.instance.client.functions.invoke(
+          'reverse-geocode-address',
+          body: {'lat': confirmed.latitude, 'lng': confirmed.longitude},
+        );
+        final data = response.data;
+        final String? detectedCity = data is Map ? data['detectedCity'] as String? : null;
+
+        if (detectedCity != null &&
+            _selectedCity != null &&
+            !detectedCity.toLowerCase().contains(_selectedCity!.name.toLowerCase()) &&
+            !_selectedCity!.name.toLowerCase().contains(detectedCity.toLowerCase())) {
+          if (mounted) {
+            setState(() {
+              _isSaving = false;
+              _addressErrorMessage =
+                  'The pin you confirmed appears to be in $detectedCity, but '
+                  'your selected city is ${_selectedCity!.name}. Please update '
+                  'your City/Barangay selection to match the pin, then save again.';
+            });
+          }
+          return;
+        }
+      } catch (e) {
+        // Network hiccup on this verification step — don't block the
+        // save over it, same fail-open philosophy the pin picker's
+        // own check already uses.
+        print('Address mismatch check error: $e');
+      }
+
       lat = confirmed.latitude;
       lng = confirmed.longitude;
 
       if (!mounted) return;
-      setState(() => _isSaving = true); // resume spinner for actual save
+      setState(() => _isSaving = true);
     }
 
     if (!mounted) return;

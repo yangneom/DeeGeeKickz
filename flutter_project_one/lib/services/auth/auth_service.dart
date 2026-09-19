@@ -58,12 +58,20 @@ class AuthService {
       // yet at this point in registration, so a plain .select() here
       // would silently return nothing every time instead of catching
       // real duplicates.
-      final bool phoneTaken = await _supabase.rpc(
+            final bool phoneTaken = await _supabase.rpc(
         'is_phone_taken',
         params: {'p_phone': phone.trim()},
       );
       if (phoneTaken) {
         return 'An account already exists with this phone number.';
+      }
+
+      final bool emailTaken = await _supabase.rpc(
+        'is_email_taken',
+        params: {'p_email': email.trim()},
+      );
+      if (emailTaken) {
+        return 'An account already exists with this email.';
       }
 
       final response = await _supabase.auth.signUp(

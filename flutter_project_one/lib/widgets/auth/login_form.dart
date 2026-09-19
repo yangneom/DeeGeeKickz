@@ -151,19 +151,15 @@ final String? role = await authService.getUserRole();
         return;
       }
 
-      if (role == 'Admin' || role == 'Super Admin') {
+      if (role == 'Admin' || role == 'Super Admin' || role == 'Cashier') {
+        // Cashier now mandatory too — permissions-based reasoning:
+        // Cashier accounts can process sales and perform
+        // inventory-affecting operations, so they're treated as
+        // privileged staff accounts, same tier as Admin/Super Admin.
         final factors = await Supabase.instance.client.auth.mfa.listFactors();
         final bool hasMfaEnrolled = factors.totp.isNotEmpty;
 
         if (!hasMfaEnrolled) {
-          // AUDIT FIX: this previously let a not-yet-enrolled staff
-          // account straight through with no MFA prompt at all —
-          // meaning "mandatory" only ever applied to brand-new
-          // invites, never to any account that already existed
-          // before this feature was built. Every Admin/Super Admin
-          // is now forced through enrollment on their very next
-          // login if they haven't set it up yet, not just at
-          // initial password creation.
           if (mounted) {
             Navigator.pushReplacement(
               context,
@@ -180,10 +176,21 @@ final String? role = await authService.getUserRole();
               builder: (_) => MfaChallengeScreen(
                 role: role,
                 onVerified: () {
+                  // Checked fresh at the moment this callback actually
+                  // fires (after TOTP verification completes), not
+                  // just when it was defined — main.dart's global
+                  // listener can race ahead and dispose this screen
+                  // first, especially now that three roles' worth of
+                  // MFA checks can run near-simultaneously.
+                  if (!mounted) return;
                   Navigator.pushReplacement(
                     context,
                     MaterialPageRoute(
-                      builder: (_) => role == 'Admin' ? const AdminLayout() : const SuperLayout(),
+                      builder: (_) => role == 'Admin'
+                          ? const AdminLayout()
+                          : role == 'Cashier'
+                              ? const CashierLayout()
+                              : const SuperLayout(),
                     ),
                   );
                 },
@@ -191,12 +198,6 @@ final String? role = await authService.getUserRole();
             ),
           );
         }
-
-      } else if (role == 'Cashier') {
-        Navigator.pushReplacement(
-          context,
-          MaterialPageRoute(builder: (context) => const CashierLayout()),
-        );
 
      } else if (role == 'Customer') {
        await ref.read(customerCartProvider.notifier).mergeGuestCartIntoAccount(); // ← add this line

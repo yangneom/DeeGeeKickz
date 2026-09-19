@@ -1049,9 +1049,9 @@ void _addToCart({
       child: Column(
         mainAxisAlignment: MainAxisAlignment.center,
         children: [
-          Container(
-            width: 56,
-            height: 56,
+                   Container(
+            width: 44,
+            height: 44,
             decoration: BoxDecoration(
               color: const Color(0xFFF3F4F6),
               shape: BoxShape.circle,
@@ -1060,11 +1060,11 @@ void _addToCart({
             ),
             child: const Icon(
               Icons.shopping_cart_outlined,
-              size: 24,
+              size: 20,
               color: Color(0xFF9CA3AF),
             ),
           ),
-          const SizedBox(height: 12),
+          const SizedBox(height: 10),
           const Text(
             'No items yet',
             style: TextStyle(
@@ -1206,29 +1206,32 @@ void _addToCart({
         crossAxisAlignment: CrossAxisAlignment.start,
         children: [
 
-          _buildSummaryRow(
+                   _buildSummaryRow(
               'Subtotal', '₱${_subtotal.toStringAsFixed(0)}'),
 
           const SizedBox(height: 8),
           const Divider(height: 1, color: Color(0xFFE5E7EB)),
-          const SizedBox(height: 8),
+          const SizedBox(height: 10),
 
-          // ── Total ──
+          // ── Total — deliberately larger than every other number on
+          // this panel, since it's the single most important figure
+          // for the cashier to see at a glance ──
           Row(
             mainAxisAlignment: MainAxisAlignment.spaceBetween,
             children: [
               const Text(
                 'TOTAL',
                 style: TextStyle(
-                  fontSize: 14,
-                  fontWeight: FontWeight.bold,
-                  color: Color(0xFF111827),
+                  fontSize: 13,
+                  fontWeight: FontWeight.w600,
+                  color: Color(0xFF6B7280),
+                  letterSpacing: 0.5,
                 ),
               ),
               Text(
                 '₱${_total.toStringAsFixed(0)}',
                 style: const TextStyle(
-                  fontSize: 14,
+                  fontSize: 22,
                   fontWeight: FontWeight.bold,
                   color: Color(0xFF111827),
                 ),
@@ -1251,9 +1254,9 @@ void _addToCart({
 
           Row(
             children: [
-              Expanded(
+                  Expanded(
                 child: _buildPaymentMethodChip(
-                  label: 'GCash / Maya / Card',
+                  label: 'Online Payment',
                   value: PaymentMethod.online,
                 ),
               ),
@@ -1280,8 +1283,8 @@ void _addToCart({
                       fontSize: 12, color: Color(0xFF6B7280)),
                 ),
                 SizedBox(
-                  width: 100,
-                  height: 30,
+                  width: 120,
+                  height: 34,
                   child: TextField(
                     controller: _cashPaidController,
                     keyboardType: TextInputType.number,
@@ -1291,12 +1294,20 @@ void _addToCart({
                     ],
                     textAlign: TextAlign.right,
                     style: const TextStyle(
-                        fontSize: 12, color: Color(0xFF111827)),
+                        fontSize: 14, fontWeight: FontWeight.w600, color: Color(0xFF111827)),
                     onChanged: (_) => setState(() {}),
                     decoration: InputDecoration(
-                      hintText: '0',
+                      prefixText: '₱ ',
+                      prefixStyle: TextStyle(
+                        fontSize: 14,
+                        fontWeight: FontWeight.w600,
+                        color: _isInsufficientAmount
+                            ? const Color(0xFFEF4444)
+                            : const Color(0xFF6B7280),
+                      ),
+                      hintText: '0.00',
                       hintStyle: TextStyle(
-                        fontSize: 12,
+                        fontSize: 14,
                         color: _isInsufficientAmount
                             ? const Color(0xFFEF4444)
                             : const Color(0xFF9CA3AF),
@@ -1304,8 +1315,7 @@ void _addToCart({
                       isDense: true,
                       contentPadding:
                           const EdgeInsets.symmetric(
-                              horizontal: 8, vertical: 6),
-                      filled: true,
+                              horizontal: 8, vertical: 6),                      filled: true,
                       fillColor: _isInsufficientAmount
                           ? const Color(0xFFFEF2F2)
                           : const Color(0xFFF9FAFB),
@@ -1345,66 +1355,112 @@ void _addToCart({
 
             const SizedBox(height: 8),
 
-            _buildSummaryRow(
-                'Change', '₱${_change.toStringAsFixed(0)}'),
+            Container(
+              width: double.infinity,
+              padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 8),
+              decoration: BoxDecoration(
+                color: const Color(0xFFEFF6FF),
+                borderRadius: BorderRadius.circular(6),
+              ),
+              child: Row(
+                mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                children: [
+                  const Text(
+                    'Change',
+                    style: TextStyle(fontSize: 12, fontWeight: FontWeight.w600, color: Color(0xFF374151)),
+                  ),
+                  Text(
+                    '₱${_change.toStringAsFixed(0)}',
+                    style: const TextStyle(fontSize: 16, fontWeight: FontWeight.bold, color: Color(0xFF2563EB)),
+                  ),
+                ],
+              ),
+            ),
 
             const SizedBox(height: 12),
           ],
-
-          // ── Action buttons ──
-          Row(
-            children: [
-              Expanded(
-                child: OutlinedButton(
-                  onPressed: _newTransaction,
-                  style: OutlinedButton.styleFrom(
-                    foregroundColor: const Color(0xFF374151),
-                    side: const BorderSide(
-                        color: Color(0xFFD1D5DB)),
-                    padding: const EdgeInsets.symmetric(
-                        vertical: 12),
-                    shape: RoundedRectangleBorder(
-                        borderRadius: BorderRadius.circular(8)),
-                  ),
-                  child: const Text(
-                    'New Transaction',
-                    style: TextStyle(
-                        fontSize: 11,
-                        fontWeight: FontWeight.w500),
-                  ),
+                    // ── Action buttons — collapses to a single full-width
+          // "Processing..." state while a transaction is in flight,
+          // instead of just disabling the two buttons in place, so
+          // it's unmistakable that something is actively happening ──
+          if (_isCheckingOut)
+            SizedBox(
+              width: double.infinity,
+              child: ElevatedButton(
+                onPressed: null,
+                style: ElevatedButton.styleFrom(
+                  backgroundColor: const Color(0xFF9CA3AF),
+                  foregroundColor: Colors.white,
+                  disabledBackgroundColor: const Color(0xFF9CA3AF),
+                  padding: const EdgeInsets.symmetric(vertical: 12),
+                  shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(8)),
+                ),
+                child: const Row(
+                  mainAxisAlignment: MainAxisAlignment.center,
+                  children: [
+                    SizedBox(
+                      width: 14, height: 14,
+                      child: CircularProgressIndicator(strokeWidth: 2, color: Colors.white),
+                    ),
+                    SizedBox(width: 8),
+                    Text('Processing...', style: TextStyle(fontSize: 12, fontWeight: FontWeight.w500)),
+                  ],
                 ),
               ),
-              const SizedBox(width: 8),
-              Expanded(
-                child: ElevatedButton(
-                  onPressed:
-                      (_canCheckout && !_isCheckingOut) ? _handleCheckout : null,
-                  style: ElevatedButton.styleFrom(
-                    backgroundColor:
-                        _paymentMethod == PaymentMethod.online
-                            ? const Color(0xFF2563EB)
-                            : const Color(0xFF111827),
-                    foregroundColor: Colors.white,
-                    disabledBackgroundColor:
-                        const Color(0xFF9CA3AF),
-                    padding: const EdgeInsets.symmetric(
-                        vertical: 12),
-                    shape: RoundedRectangleBorder(
-                        borderRadius: BorderRadius.circular(8)),
-                    elevation: 0,
-                  ),
-                  child: Text(
-                    _paymentMethod == PaymentMethod.online
-                        ? 'Checkout'
-                        : 'Print Receipt',
-                    style: const TextStyle(
-                        fontSize: 11,
-                        fontWeight: FontWeight.w500),
+            )
+          else
+            Row(
+              children: [
+                Expanded(
+                  child: OutlinedButton(
+                    onPressed: _newTransaction,
+                    style: OutlinedButton.styleFrom(
+                      foregroundColor: const Color(0xFF374151),
+                      side: const BorderSide(
+                          color: Color(0xFFD1D5DB)),
+                      padding: const EdgeInsets.symmetric(
+                          vertical: 12),
+                      shape: RoundedRectangleBorder(
+                          borderRadius: BorderRadius.circular(8)),
+                    ),
+                    child: const Text(
+                      'New Transaction',
+                      style: TextStyle(
+                          fontSize: 11,
+                          fontWeight: FontWeight.w500),
+                    ),
                   ),
                 ),
-              ),
-            ],
-          ),
+                const SizedBox(width: 8),
+                Expanded(
+                  child: ElevatedButton(
+                    onPressed: _canCheckout ? _handleCheckout : null,
+                    style: ElevatedButton.styleFrom(
+                      backgroundColor:
+                          _paymentMethod == PaymentMethod.online
+                              ? const Color(0xFF2563EB)
+                              : const Color(0xFF111827),
+                      foregroundColor: Colors.white,
+                      disabledBackgroundColor:
+                          const Color(0xFF9CA3AF),
+                      padding: const EdgeInsets.symmetric(
+                          vertical: 12),
+                      shape: RoundedRectangleBorder(
+                          borderRadius: BorderRadius.circular(8)),
+                      elevation: 0,
+                    ),
+                    child: Text(
+                      _paymentMethod == PaymentMethod.online
+                          ? 'Checkout'
+                          : 'Print Receipt',
+                      style: const TextStyle(
+                          fontSize: 11,
+                          fontWeight: FontWeight.w500),
+                    ),
+                  ),
+                ),
+              ],
+            ),
         ],
       ),
     );
