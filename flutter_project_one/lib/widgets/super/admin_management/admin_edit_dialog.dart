@@ -38,8 +38,10 @@ class _AdminEditDialogState extends State<AdminEditDialog> {
   late TextEditingController _newPasswordController;
   late TextEditingController _confirmPasswordController;
 
-  bool _showPasswordFields = false;
+    bool _showPasswordFields = false;
   bool _saving = false;
+  bool _obscureNewPassword = true;
+  bool _obscureConfirmPassword = true;
   String? _formError;
   String? _formSuccess;
 
@@ -179,6 +181,8 @@ class _AdminEditDialogState extends State<AdminEditDialog> {
     required TextEditingController controller,
     bool readOnly = false,
     bool obscureText = false,
+    bool obscureValue = false,
+    VoidCallback? onToggleObscure,
   }) {
     return Column(
       crossAxisAlignment: CrossAxisAlignment.start,
@@ -195,7 +199,7 @@ class _AdminEditDialogState extends State<AdminEditDialog> {
         TextField(
           controller: controller,
           readOnly: readOnly,
-          obscureText: obscureText,
+          obscureText: obscureText ? obscureValue : false,
           style: TextStyle(
             fontSize: 13,
             color: readOnly ? const Color(0xFF9CA3AF) : const Color(0xFF111827),
@@ -219,6 +223,16 @@ class _AdminEditDialogState extends State<AdminEditDialog> {
               horizontal: 12,
               vertical: 10,
             ),
+            suffixIcon: obscureText
+                ? IconButton(
+                    icon: Icon(
+                      obscureValue ? Icons.visibility_off : Icons.visibility,
+                      size: 18,
+                      color: const Color(0xFF6B7280),
+                    ),
+                    onPressed: onToggleObscure,
+                  )
+                : null,
           ),
         ),
       ],
@@ -326,10 +340,13 @@ class _AdminEditDialogState extends State<AdminEditDialog> {
 
                     const SizedBox(height: 12),
 
-                    _buildTextField(
+                                        _buildTextField(
                       label: 'New Password',
                       controller: _newPasswordController,
                       obscureText: true,
+                      obscureValue: _obscureNewPassword,
+                      onToggleObscure: () =>
+                          setState(() => _obscureNewPassword = !_obscureNewPassword),
                     ),
 
                     if (_showPasswordFields) ...[
@@ -338,6 +355,9 @@ class _AdminEditDialogState extends State<AdminEditDialog> {
                         label: 'Re-enter Password',
                         controller: _confirmPasswordController,
                         obscureText: true,
+                        obscureValue: _obscureConfirmPassword,
+                        onToggleObscure: () => setState(
+                            () => _obscureConfirmPassword = !_obscureConfirmPassword),
                       ),
                     ],
 

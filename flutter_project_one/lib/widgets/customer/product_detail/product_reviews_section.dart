@@ -117,15 +117,16 @@ class _ProductReviewsSectionState
         builder: (ctx) => Dialog(
           shape: const RoundedRectangleBorder(
               borderRadius: BorderRadius.zero),
-          child: Container(
+                    child: Container(
             width: 400,
             padding: const EdgeInsets.all(32),
+            color: Colors.white,
             child: Column(
               mainAxisSize: MainAxisSize.min,
               crossAxisAlignment: CrossAxisAlignment.start,
               children: [
-                const Text(
-                  'SIGN IN TO REVIEW',
+                  const Text(
+                  'SIGN IN TO LEAVE A REVIEW',
                   style: TextStyle(
                     fontFamily: 'Archivo Narrow',
                     fontSize: 24,
