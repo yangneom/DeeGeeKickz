@@ -127,3 +127,6 @@ flutter_project_one/.env
 
 # Local Supabase CLI files
 supabase/.temp/
+
+# Node.js dependencies
+**/node_modules/
