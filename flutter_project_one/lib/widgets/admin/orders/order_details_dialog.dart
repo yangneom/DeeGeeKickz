@@ -251,9 +251,9 @@ class _OrderDetailsDialogState extends State<OrderDetailsDialog> {
   // ================================================
   // CUSTOMER INFO
   // ================================================
-  Widget _buildCustomerInfo() {
+   Widget _buildCustomerInfo() {
     return Container(
-      padding: const EdgeInsets.all(16),
+      padding: const EdgeInsets.all(14),
       decoration: BoxDecoration(
         color:        const Color(0xFFF9FAFB),
         borderRadius: BorderRadius.circular(8),
@@ -270,83 +270,93 @@ class _OrderDetailsDialogState extends State<OrderDetailsDialog> {
               color:      Color(0xFF374151),
             ),
           ),
-          const SizedBox(height: 12),
+          const SizedBox(height: 10),
+
+          // Name + Contact side by side — the two shortest, most
+          // frequently-scanned fields, given equal visual weight.
           Row(
             children: [
+              Expanded(child: _infoRow('Name', widget.order.customerName)),
+              const SizedBox(width: 16),
               Expanded(
-                child: Column(
-                  crossAxisAlignment: CrossAxisAlignment.start,
-                  children: [
-                    if (widget.order.isCustomerSuspended) ...[
-                      Container(
-                        width: double.infinity,
-                        padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 10),
-                        margin: const EdgeInsets.only(bottom: 12),
-                        decoration: BoxDecoration(
-                          color: const Color(0xFFFEE2E2),
-                          borderRadius: BorderRadius.circular(6),
-                          border: Border.all(color: const Color(0xFFFCA5A5)),
-                        ),
-                        child: const Row(
-                          children: [
-                            Icon(Icons.warning_amber_rounded, size: 16, color: Color(0xFFDC2626)),
-                            SizedBox(width: 8),
-                            Expanded(
-                              child: Text(
-                                'This customer\'s account is currently suspended or banned.',
-                                style: TextStyle(fontSize: 12, fontWeight: FontWeight.w600, color: Color(0xFFDC2626)),
-                              ),
-                            ),
-                          ],
-                        ),
-                      ),
-                                        ],
-                    if (widget.order.isFlaggedRapid) ...[
-                      Container(
-                        width: double.infinity,
-                        padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 10),
-                        margin: const EdgeInsets.only(bottom: 12),
-                        decoration: BoxDecoration(
-                          color: const Color(0xFFFFF7ED),
-                          borderRadius: BorderRadius.circular(6),
-                          border: Border.all(color: const Color(0xFFFDBA74)),
-                        ),
-                        child: const Row(
-                          children: [
-                            Icon(Icons.bolt, size: 16, color: Color(0xFFC2410C)),
-                            SizedBox(width: 8),
-                            Expanded(
-                              child: Text(
-                                'This order was placed during a rapid-ordering burst that triggered a violation on this account.',
-                                style: TextStyle(fontSize: 12, fontWeight: FontWeight.w600, color: Color(0xFFC2410C)),
-                              ),
-                            ),
-                          ],
-                        ),
-                      ),
-                    ],
-                    _infoRow('Name', widget.order.customerName),                  const SizedBox(height: 8),
-                    _infoRow('Contact', widget.order.contact.isNotEmpty
-                        ? widget.order.contact
-                        : '—'),
-                  ],
-                ),
-              ),
-              Expanded(
-                child: Column(
-                  crossAxisAlignment: CrossAxisAlignment.start,
-                  children: [
-                    _infoRow('Landmark', widget.order.landmark.isNotEmpty
-                        ? widget.order.landmark
-                        : '—'),
-                    const SizedBox(height: 8),
-                    _infoRow('Address', widget.order.address.isNotEmpty
-                        ? widget.order.address
-                        : '—'),
-                  ],
+                child: _infoRow(
+                  'Contact',
+                  widget.order.contact.isNotEmpty ? widget.order.contact : '—',
                 ),
               ),
             ],
+          ),
+          const SizedBox(height: 10),
+
+          // Address gets full width — it's usually the longest value
+          // here and was previously competing for space in a half
+          // column, which is exactly what caused it to look cramped.
+          _infoRow(
+            'Address',
+            widget.order.address.isNotEmpty ? widget.order.address : '—',
+          ),
+          const SizedBox(height: 10),
+
+          _infoRow(
+            'Landmark',
+            widget.order.landmark.isNotEmpty ? widget.order.landmark : '—',
+          ),
+
+          // Risk/account warnings — deliberately separated from the
+          // customer's own information above, and shown as compact
+          // single-line alerts rather than large cards. These are
+          // context for the admin's decision, not the decision itself.
+          if (widget.order.isCustomerSuspended) ...[
+            const SizedBox(height: 12),
+            _compactAlert(
+              icon: Icons.warning_amber_rounded,
+              text: 'Customer account is currently suspended or banned.',
+              color: const Color(0xFFDC2626),
+              background: const Color(0xFFFEE2E2),
+              border: const Color(0xFFFCA5A5),
+            ),
+          ],
+          if (widget.order.isFlaggedRapid) ...[
+            const SizedBox(height: 8),
+            _compactAlert(
+              icon: Icons.bolt,
+              text: 'Order placed during a rapid-ordering burst that triggered a violation on this account.',
+              color: const Color(0xFFC2410C),
+              background: const Color(0xFFFFF7ED),
+              border: const Color(0xFFFDBA74),
+            ),
+          ],
+        ],
+      ),
+    );
+  }
+
+  // Single-line compact alert row — replaces the previous large,
+  // padded warning cards. Same information, far less vertical space.
+  Widget _compactAlert({
+    required IconData icon,
+    required String text,
+    required Color color,
+    required Color background,
+    required Color border,
+  }) {
+    return Container(
+      width: double.infinity,
+      padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 6),
+      decoration: BoxDecoration(
+        color: background,
+        borderRadius: BorderRadius.circular(6),
+        border: Border.all(color: border),
+      ),
+      child: Row(
+        children: [
+          Icon(icon, size: 14, color: color),
+          const SizedBox(width: 6),
+          Expanded(
+            child: Text(
+              text,
+              style: TextStyle(fontSize: 11, fontWeight: FontWeight.w600, color: color),
+            ),
           ),
         ],
       ),

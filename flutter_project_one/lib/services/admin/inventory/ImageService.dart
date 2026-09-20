@@ -68,7 +68,6 @@ class ImageService {
           .map((e) => e['image_url'] as String)
           .toList();
     } catch (error) {
-      print('fetchVariantImages error: $error');
       return [];
     }
   }
@@ -89,7 +88,6 @@ class ImageService {
 
       return response?['image_url'];
     } catch (error) {
-      print('fetchPrimaryImage error: $error');
       return null;
     }
   }
@@ -123,7 +121,6 @@ class ImageService {
 
       return null;
     } catch (error) {
-      print('deleteImage error: $error');
       return error.toString();
     }
   }

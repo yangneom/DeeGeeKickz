@@ -116,7 +116,6 @@ class ProductMapper {
         archivedDate: archivedDate,
       );
     } catch (error) {
-      print('ProductMapper.parseProduct error: $error');
       return null;
     }
   }

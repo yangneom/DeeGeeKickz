@@ -138,7 +138,6 @@ class DiscountService {
 
       return results;
     } catch (error) {
-      print('searchProducts error: $error');
       return [];
     }
   }
@@ -172,7 +171,6 @@ class DiscountService {
       }
       return false;
     } catch (error) {
-      print('productHasStock error: $error');
       return true; // fail open — don't block on a check-itself failure
     }
   }

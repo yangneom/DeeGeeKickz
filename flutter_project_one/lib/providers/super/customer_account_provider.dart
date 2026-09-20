@@ -28,17 +28,14 @@ class CustomerAccountNotifier extends Notifier<List<CustomerAccount>> {
   }
 
   Future<void> disableAccount(String userId, {required String reason}) async {
-    print('NOTIFIER DISABLE CUSTOMER = $userId');
 
     await _service.disableAccount(userId, reason: reason);
 
-    print('NOTIFIER DISABLE CUSTOMER DONE');
 
     await loadAccounts();
   }
 
   Future<void> enableAccount(String userId) async {
-    print('NOTIFIER ENABLE CUSTOMER = $userId');
 
     await _service.enableAccount(userId);
 

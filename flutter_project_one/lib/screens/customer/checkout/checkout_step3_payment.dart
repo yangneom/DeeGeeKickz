@@ -102,7 +102,6 @@ class _CheckoutStep3PaymentState
       }
 
     } on ArchivedProductException catch (e) {
-      print('CheckoutStep3._handlePlaceOrder archived-product error: $e');
       if (mounted) {
         ScaffoldMessenger.of(context).showSnackBar(
           SnackBar(
@@ -112,7 +111,6 @@ class _CheckoutStep3PaymentState
         );
       }
     } on PaymentGatewayException catch (e) {
-      print('CheckoutStep3._handlePlaceOrder payment-gateway error: $e');
       if (mounted) {
         ScaffoldMessenger.of(context).showSnackBar(
           SnackBar(
@@ -122,7 +120,6 @@ class _CheckoutStep3PaymentState
         );
       }
     } on InsufficientStockException catch (e) {
-      print('CheckoutStep3._handlePlaceOrder insufficient-stock error: $e');
       if (mounted) {
         ScaffoldMessenger.of(context).showSnackBar(
           SnackBar(
@@ -132,7 +129,6 @@ class _CheckoutStep3PaymentState
         );
       }
     } on SessionExpiredException catch (e) {
-      print('CheckoutStep3._handlePlaceOrder session-expired error: $e');
       if (mounted) {
         ScaffoldMessenger.of(context).showSnackBar(
           SnackBar(
@@ -146,7 +142,6 @@ class _CheckoutStep3PaymentState
         (route) => false,
       );
         } on AccountSuspendedException catch (e) {
-      print('CheckoutStep3._handlePlaceOrder account-suspended error: $e');
       if (mounted) {
         ScaffoldMessenger.of(context).showSnackBar(
           SnackBar(
@@ -162,7 +157,6 @@ class _CheckoutStep3PaymentState
         (route) => false,
       );
     } catch (e) {
-      print('CheckoutStep3._handlePlaceOrder error: $e');
       if (mounted) {
         ScaffoldMessenger.of(context).showSnackBar(
           const SnackBar(
@@ -196,7 +190,6 @@ class _CheckoutStep3PaymentState
         ),
       );
     } catch (e) {
-      print('_showSafeSnackBar error (non-critical): $e');
     }
   }
 

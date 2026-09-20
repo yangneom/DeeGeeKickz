@@ -67,7 +67,6 @@ class _SalesScreenState extends ConsumerState<SalesScreen> {
         _errorMessage = 'Failed to load sales. Please try again.';
         _isLoading = false;
       });
-      print('Error loading sales: $e');
     }
   }
 

@@ -74,12 +74,10 @@ RealtimeChannel subscribeToFeedbackReplies(void Function() onInsert) {
         schema: 'public',
         table: 'feedback_replies',
         callback: (payload) {
-          print('🟢 feedback_replies INSERT received: ${payload.newRecord}');
           onInsert();
         },
       )
       .subscribe((status, error) {
-        print('🔵 feedback_replies channel status: $status, error: $error');
       });
 }
 
@@ -94,7 +92,6 @@ RealtimeChannel subscribeToFeedbackReplies(void Function() onInsert) {
         .onBroadcast(
           event: 'status_changed',
           callback: (payload) {
-            print('🟣 status_changed broadcast received: $payload');
             onStatusChanged();
           },
         )

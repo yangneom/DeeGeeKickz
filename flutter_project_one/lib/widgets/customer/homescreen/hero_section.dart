@@ -172,22 +172,29 @@ if (_banners.length > 1) {
 
   @override
   Widget build(BuildContext context) {
-    final screenHeight = MediaQuery.of(context).size.height;
+    final double screenWidth = MediaQuery.of(context).size.width;
+    final bool isDesktop = screenWidth >= _mdBreakpoint;
 
-    return Container(
-      width: double.infinity,
-      height: screenHeight * 0.85, // h-[85vh]
-      color: Colors.black, // bg-primary
-      child: Stack(
-        fit: StackFit.expand,
-        children: [
-          // Background image(s) — grayscale + 80% opacity to mimic
-          // `opacity-80 grayscale mix-blend-luminosity`, now rotating
-          // through Active promotion banners when more than one exists.
-          _buildBackground(),
+    // Aspect-ratio based instead of a raw viewport-height percentage —
+    // scales with the banner's own visual proportions instead of an
+    // arbitrary number that produced the same oversized 85vh banner
+    // on every mobile device regardless of orientation. Desktop gets
+    // a wide, prominent presentation; mobile gets a much shorter,
+    // still-visible one, matching how promotional banners are
+    // typically composed for each format.
+    final double aspectRatio = isDesktop ? 21 / 9 : 4 / 3;
 
-          // Foreground text content
-        ],
+    return AspectRatio(
+      aspectRatio: aspectRatio,
+      child: Container(
+        width: double.infinity,
+        color: Colors.black,
+        child: Stack(
+          fit: StackFit.expand,
+          children: [
+            _buildBackground(),
+          ],
+        ),
       ),
     );
   }

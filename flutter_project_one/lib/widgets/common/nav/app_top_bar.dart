@@ -4,6 +4,7 @@ import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:supabase_flutter/supabase_flutter.dart';
 
 import '../../../screens/auth/login_screen.dart';
+import '../../../screens/auth/register_screen.dart';
 import '../../../core/utils/auth_gate.dart';
 import '../../../providers/auth/auth_provider.dart';
 import '../../../screens/customer/shop_screen.dart/shop_screen.dart';
@@ -227,33 +228,85 @@ class AppTopBar extends ConsumerWidget implements PreferredSizeWidget {
                           ),
                           const SizedBox(width: 24),
 
-                          // Guest → clear "Log in / Sign up" link.
-                          // Logged in → the usual profile icon.
+                          // Guest → two independent "Log in" / "Sign up"
+                          // links. Logged in → the usual profile icon.
+                          //
+                          // AUDIT FIX: this used to be ONE combined link
+                          // for the whole "Log in / Sign up" text, always
+                          // navigating to LoginScreen regardless of which
+                          // word was actually tapped — meaning "Sign up"
+                          // incorrectly took a new visitor to Login
+                          // instead of Register. Now each word is its
+                          // own tappable target going to its own screen.
                           Consumer(
                             builder: (context, ref, _) {
                               final authState = ref.watch(authStateProvider);
                               final isLoggedIn = authState.value?.session?.user != null;
 
                               if (!isLoggedIn) {
-                                return InkWell(
-                                  onTap: onPersonTap ??
-                                      () => Navigator.of(context).push(
-                                            MaterialPageRoute(
-                                              builder: (_) => const LoginScreen(),
-                                            ),
+                                return Row(
+                                  mainAxisSize: MainAxisSize.min,
+                                  children: [
+                                    InkWell(
+                                      onTap: onPersonTap ??
+                                          () => Navigator.of(context).push(
+                                                MaterialPageRoute(
+                                                  builder: (_) => const LoginScreen(),
+                                                ),
+                                              ),
+                                      borderRadius: BorderRadius.circular(4),
+                                      child: const Padding(
+                                        padding: EdgeInsets.symmetric(
+                                          horizontal: 4,
+                                          vertical: 8,
+                                        ),
+                                        child: Text(
+                                          'Log in',
+                                          style: TextStyle(
+                                            fontFamily: 'Inter',
+                                            fontSize: 13,
+                                            fontWeight: FontWeight.w500,
+                                            color: Color(0xFF656464),
                                           ),
-                                  child: const Padding(
-                                    padding: EdgeInsets.symmetric(horizontal: 4),
-                                    child: Text(
-                                      'Log in / Sign up',
-                                      style: TextStyle(
-                                        fontFamily: 'Inter',
-                                        fontSize: 13,
-                                        fontWeight: FontWeight.w600,
-                                        color: Colors.black,
+                                        ),
                                       ),
                                     ),
-                                  ),
+                                    const Padding(
+                                      padding: EdgeInsets.symmetric(vertical: 8),
+                                      child: Text(
+                                        ' | ',
+                                        style: TextStyle(
+                                          fontFamily: 'Inter',
+                                          fontSize: 13,
+                                          fontWeight: FontWeight.w500,
+                                          color: Color(0xFF656464),
+                                        ),
+                                      ),
+                                    ),
+                                    InkWell(
+                                      onTap: () => Navigator.of(context).push(
+                                        MaterialPageRoute(
+                                          builder: (_) => const RegisterScreen(),
+                                        ),
+                                      ),
+                                      borderRadius: BorderRadius.circular(4),
+                                      child: const Padding(
+                                        padding: EdgeInsets.symmetric(
+                                          horizontal: 4,
+                                          vertical: 8,
+                                        ),
+                                        child: Text(
+                                          'Sign up',
+                                          style: TextStyle(
+                                            fontFamily: 'Inter',
+                                            fontSize: 13,
+                                            fontWeight: FontWeight.w700,
+                                            color: Colors.black,
+                                          ),
+                                        ),
+                                      ),
+                                    ),
+                                  ],
                                 );
                               }
 

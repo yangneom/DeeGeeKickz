@@ -68,7 +68,8 @@ class _OrdersScreenState extends ConsumerState<OrdersScreen> {
   // ================================================
   // LOAD ORDERS FROM SUPABASE
   // ================================================
-  Future<void> _loadOrders() async {
+   Future<void> _loadOrders() async {
+    if (!mounted) return;
     setState(() {
       _isLoading = true;
       _errorMessage = null;
@@ -76,12 +77,20 @@ class _OrdersScreenState extends ConsumerState<OrdersScreen> {
 
     try {
       final List<Order> orders = await _orderService.loadOrders();
+      // AUDIT FIX: previously had NO mounted check at all — if the
+      // admin navigated away from Orders while a refresh triggered
+      // by marking an order Shipped (a real network operation) was
+      // still in flight, this setState() would fire on an already-
+      // disposed screen, exactly matching the "setState() called
+      // after dispose()" crash.
+      if (!mounted) return;
       setState(() {
         _allOrders = orders;
         _filteredOrders = orders;
         _isLoading = false;
       });
     } catch (e) {
+      if (!mounted) return;
       setState(() {
         _errorMessage = 'Failed to load orders. Please try again.';
         _isLoading = false;

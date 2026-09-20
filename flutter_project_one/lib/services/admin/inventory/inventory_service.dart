@@ -62,7 +62,6 @@ class InventoryService {
       }
       return products;
     } catch (error) {
-      print('fetchProducts error: $error');
       return [];
     }
   }
@@ -80,7 +79,6 @@ class InventoryService {
           .map<String>((e) => e['brand_name'] as String)
           .toList();
     } catch (error) {
-      print('fetchBrands error: $error');
       return [];
     }
   }
@@ -98,7 +96,6 @@ class InventoryService {
           .map<String>((e) => e['category_name'] as String)
           .toList();
     } catch (error) {
-      print('fetchCategories error: $error');
       return [];
     }
   }
@@ -133,12 +130,10 @@ class InventoryService {
           'p_product_id': productId,
         });
       } catch (notifyError) {
-        print('notify_customers_new_product error: $notifyError');
       }
 
       return null;
     } on PostgrestException catch (error) {
-      print('addProduct error: $error');
 
       if (error.code == '23505' &&
           error.message.contains('product_active_name_unique')) {
@@ -153,7 +148,6 @@ class InventoryService {
 
       return 'Failed to add product. Please try again.';
     } catch (error) {
-      print('addProduct error: $error');
       return 'Failed to add product. Please try again.';
     }
   }
@@ -207,7 +201,6 @@ class InventoryService {
 
       return null;
     } on PostgrestException catch (error) {
-      print('updateProduct error: $error');
 
       if (error.code == '23505' &&
           error.message.contains('product_active_name_unique')) {
@@ -222,7 +215,6 @@ class InventoryService {
 
       return 'Failed to update product. Please try again.';
     } catch (error) {
-      print('updateProduct error: $error');
       return 'Failed to update product. Please try again.';
     }
   }
@@ -255,7 +247,6 @@ class InventoryService {
 
       return null;
     } catch (error) {
-      print('archiveProduct error: $error');
       return error.toString();
     }
   }

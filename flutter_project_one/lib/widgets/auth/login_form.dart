@@ -30,6 +30,7 @@ import '../../screens/customer/homescreen/home_screen.dart';
 import 'package:flutter/foundation.dart' show kIsWeb;
 import '../../screens/auth/mfa_enroll_screen.dart';
 import 'package:supabase_flutter/supabase_flutter.dart';
+import 'package:connectivity_plus/connectivity_plus.dart';
 import '../../screens/auth/mfa_challenge_screen.dart';
 
 // ================================================
@@ -76,10 +77,22 @@ class _LoginFormState extends ConsumerState<LoginForm> {
     final loadingNotifier = ref.read(isLoadingProvider.notifier);
     final errorNotifier = ref.read(errorMessageProvider.notifier);
 
-    loadingNotifier.setLoading(true);
+       loadingNotifier.setLoading(true);
     errorNotifier.setError(null);
 
     try {
+      // Check BEFORE attempting the request at all — faster,
+      // clearer feedback than waiting for the request to time out,
+      // and avoids sending a login attempt the device can't
+      // possibly deliver anyway.
+      final List<ConnectivityResult> connectivity =
+          await Connectivity().checkConnectivity();
+      if (connectivity.contains(ConnectivityResult.none) || connectivity.isEmpty) {
+        errorNotifier.setError(
+          'No internet connection. Please check your connection and try again.',
+        );
+        return;
+      }
 
       final authService = ref.read(authServiceProvider);
 
@@ -213,7 +226,11 @@ final String? role = await authService.getUserRole();
           'Unknown role: $role. Please contact support.',
         );
 }
-    } catch (error) {
+        } catch (error) {
+      // Network-specific failures are now caught inside
+      // authService.login() itself and returned as a real error
+      // message above — this remains a genuine last-resort catch
+      // for anything else unexpected.
       ref.read(errorMessageProvider.notifier).setError(
         'Something went wrong. Please try again.',
       );

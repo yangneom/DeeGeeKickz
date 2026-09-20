@@ -23,10 +23,13 @@ class _FeedbackScreenState extends ConsumerState<FeedbackScreen> {
   bool _showFilterPanel = false;
   RealtimeChannel? _feedbackChannel;
 
+  late final dynamic _feedbackService;
+
   @override
   void initState() {
     super.initState();
-    _feedbackChannel = ref.read(feedbackServiceProvider).subscribeToFeedbackChanges(() {
+    _feedbackService = ref.read(feedbackServiceProvider);
+    _feedbackChannel = _feedbackService.subscribeToFeedbackChanges(() {
       if (!mounted) return;
       ref.invalidate(feedbackProvider);
       ref.invalidate(recentFeedbackProvider);
@@ -40,9 +43,9 @@ class _FeedbackScreenState extends ConsumerState<FeedbackScreen> {
   // otherwise the list refiltered the instant a chip was tapped,
   // with no Apply needed, unlike every other screen.
       @override
-  void dispose() {
+    void dispose() {
     if (_feedbackChannel != null) {
-      ref.read(feedbackServiceProvider).unsubscribe(_feedbackChannel!);
+      _feedbackService.unsubscribe(_feedbackChannel!);
     }
     _searchController.dispose();
     super.dispose();

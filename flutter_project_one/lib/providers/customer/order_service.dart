@@ -80,7 +80,13 @@ class OrderService {
             })
         .toList();
 
-    try {
+        try {
+      // Separate, independent call — commits in its own transaction
+      // regardless of whether create_order_full succeeds or fails
+      // afterward, which is what makes the rate limit actually
+      // count failed attempts correctly.
+      await _supabase.rpc('record_order_attempt', params: {'p_user_id': userId});
+
       final dynamic result = await _supabase.rpc('create_order_full', params: {
         'p_user_id': userId,
         'p_address_id': addressId != null ? int.parse(addressId) : null,
@@ -106,7 +112,6 @@ class OrderService {
           'p_user_id': userId,
         });
       } catch (e) {
-        print('evaluate_customer_abuse error: $e');
       }
 
       // Non-critical — must never fail the order itself, which has
@@ -119,12 +124,14 @@ class OrderService {
 
       return orderId;
         } on PostgrestException catch (e) {
-      print('OrderService.createOrder error: $e');
       if (e.code == 'P1001') {
         throw ArchivedProductException(e.message);
       }
       if (e.code == 'P1002' || e.code == 'P1003') {
         throw ArchivedProductException(e.message);
+      }
+         if (e.code == 'P1006') {
+        throw Exception('Too many order attempts. Please wait a moment and try again.');
       }
       if (e.code == 'P0001') {
         // P0001 is Postgres's generic user-raised-exception code —
@@ -154,16 +161,13 @@ class OrderService {
     required double total,
     required String paymentMethod,
   }) async {
-    print('🔔🔔🔔 _notifyStaffNewOrder CALLED for order #$orderId 🔔🔔🔔');
     try {
       await _supabase.rpc('notify_staff_new_order', params: {
         'p_order_id': orderId,
         'p_total': total,
         'p_payment_method': paymentMethod,
       });
-      print('🔔 Order RPC completed successfully');
     } catch (error) {
-      print('_notifyStaffNewOrder error: $error');
     }
   }
 }

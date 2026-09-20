@@ -114,7 +114,6 @@ class BannerService {
 
       return null;
     } catch (error) {
-      print('addBanner error: $error');
       return error.toString();
     }
   }
@@ -183,7 +182,6 @@ class BannerService {
             await _supabase.storage.from(_bucket).remove([objectPath]);
           }
         } catch (storageError) {
-          print('updateBanner old image cleanup error: $storageError');
         }
       }
 
@@ -200,7 +198,6 @@ class BannerService {
 
       return null;
     } catch (error) {
-      print('updateBanner error: $error');
       return error.toString();
     }
   }
@@ -229,7 +226,6 @@ class BannerService {
           await _supabase.storage.from(_bucket).remove([objectPath]);
         }
       } catch (storageError) {
-        print('deleteBanner storage cleanup error: $storageError');
       }
 
       await _activityLog.log(
@@ -240,7 +236,6 @@ class BannerService {
 
       return null;
     } catch (error) {
-      print('deleteBanner error: $error');
       return error.toString();
     }
   }
@@ -276,7 +271,6 @@ class BannerService {
 
       await _supabase.from('notifications').insert(rows); // NO .select() !
     } catch (error) {
-      print('_notifyCustomersBannerActive error: $error');
     }
   }
 }

@@ -1,5 +1,6 @@
 import 'package:flutter/material.dart';
 import 'package:supabase_flutter/supabase_flutter.dart';
+import '../../screens/auth/mfa_challenge_screen.dart';
 
 /// Customer-facing "set a new password" form, used only at the end of
 /// the Forgot Password flow — after the recovery OTP has been verified
@@ -50,15 +51,73 @@ class _ResetPasswordFormState extends State<ResetPasswordForm> {
     });
 
     try {
+      // AUDIT FIX: a recovery session only ever reaches aal1 — proving
+      // email ownership isn't proof of the second factor. Supabase
+      // itself blocks updateUser() on an MFA-enabled account unless
+      // the CURRENT session has actually reached aal2, regardless of
+      // how that session was established. This checks the real,
+      // authoritative answer (not just "does a factor exist") before
+      // deciding whether a challenge step is needed at all.
+      final aal = await _supabase.auth.mfa.getAuthenticatorAssuranceLevel();
+      final bool needsMfaStep =
+          aal.currentLevel != AuthenticatorAssuranceLevels.aal2 &&
+          aal.nextLevel == AuthenticatorAssuranceLevels.aal2;
+
+      if (needsMfaStep) {
+        final userId = _supabase.auth.currentUser!.id;
+        final profileRow = await _supabase
+            .from('users')
+            .select('role')
+            .eq('id', userId)
+            .maybeSingle();
+        final String? role = profileRow?['role'] as String?;
+
+        if (!mounted) return;
+        setState(() => _isSubmitting = false);
+
+        await Navigator.of(context).push(
+          MaterialPageRoute(
+            builder: (_) => MfaChallengeScreen(
+              role: role,
+              onVerified: () async {
+                // Session is now genuinely aal2 — safe to proceed.
+                Navigator.of(context).pop();
+                await _completePasswordUpdate();
+              },
+            ),
+          ),
+        );
+        return;
+      }
+
+      // No MFA required for this account/session — proceed directly.
+      await _completePasswordUpdate();
+    } on AuthException catch (error) {
+      if (mounted) setState(() => _errorMessage = error.message);
+      if (mounted) setState(() => _isSubmitting = false);
+    } catch (error) {
+      if (mounted) setState(() => _errorMessage = 'Something went wrong. Please try again.');
+      if (mounted) setState(() => _isSubmitting = false);
+    }
+  }
+
+  Future<void> _completePasswordUpdate() async {
+    if (!mounted) return;
+    setState(() {
+      _isSubmitting = true;
+      _errorMessage = null;
+    });
+
+    try {
       await _supabase.auth.updateUser(
         UserAttributes(password: _passwordController.text.trim()),
       );
 
       if (mounted) widget.onSuccess();
     } on AuthException catch (error) {
-      setState(() => _errorMessage = error.message);
+      if (mounted) setState(() => _errorMessage = error.message);
     } catch (error) {
-      setState(() => _errorMessage = 'Something went wrong. Please try again.');
+      if (mounted) setState(() => _errorMessage = 'Something went wrong. Please try again.');
     } finally {
       if (mounted) setState(() => _isSubmitting = false);
     }

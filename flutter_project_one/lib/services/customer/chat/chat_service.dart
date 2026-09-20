@@ -25,14 +25,12 @@ class ChatService {
         bytes = await File(file.path!).readAsBytes();
       }
       if (bytes == null) {
-        print('uploadChatImage: no bytes and no path for ${file.name} — cannot upload');
         return null;
       }
 
       await _client.storage.from('product-images').uploadBinary(filePath, bytes);
       return _client.storage.from('product-images').getPublicUrl(filePath);
     } catch (error) {
-      print('uploadChatImage error: $error');
       return null;
     }
   }
@@ -92,7 +90,6 @@ Future<void> sendMessage({
     String? imageUrl,
     String? productId,
   }) async {
-    print('📨 sendMessage called with senderRole="$senderRole"');
     await _client.from('messages').insert({
       'conversation_id': int.parse(conversationId),
       'sender_id':       senderId,
@@ -133,7 +130,6 @@ Future<void> _notifyCustomerAdminReply({
     String? imageUrl,
     String? productId,
   }) async {
-    print('🔔🔔🔔 _notifyCustomerAdminReply CALLED 🔔🔔🔔');
     try {
       await _client.rpc('notify_customer_admin_reply', params: {
         'p_conversation_id': int.parse(conversationId),
@@ -141,9 +137,7 @@ Future<void> _notifyCustomerAdminReply({
         'p_image_url': imageUrl,
         'p_product_id': productId == null ? null : int.parse(productId),
       });
-      print('🔔 RPC completed successfully');
     } catch (error) {
-      print('_notifyCustomerAdminReply error: $error');
     }
   }
 
@@ -170,7 +164,6 @@ Future<void> _notifyStaffNewMessage({
     String? imageUrl,
     String? productId,
   }) async {
-    print(' _notifyStaffNewMessage CALLED ');
     try {
       await _client.rpc('notify_staff_new_message', params: {
         'p_customer_id': customerId,
@@ -179,9 +172,7 @@ Future<void> _notifyStaffNewMessage({
         'p_image_url': imageUrl,
         'p_product_id': productId == null ? null : int.parse(productId),
       });
-      print(' RPC completed successfully');
     } catch (error) {
-      print('_notifyStaffNewMessage error: $error');
     }
   }
 

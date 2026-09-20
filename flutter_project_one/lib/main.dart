@@ -52,19 +52,16 @@ void main() async {
     ),
   );
 
-  print('Supabase initialized');
 
   Widget startScreen = const HomeScreen();
 
   final user = Supabase.instance.client.auth.currentUser;
-  print('POST-INIT USER: ${user?.email}');
 
   // On the actual app (not web), no Guest browsing — force Login/Sign Up
   // as the very first screen if nobody's logged in. Web keeps Guest
   // browsing, matching standard e-commerce behavior (browse freely,
   // login only required at checkout).
   if (!kIsWeb && user == null) {
-    print('→ Non-web platform, no session — routing to LoginScreen');
     startScreen = const LoginScreen();
   }
 
@@ -76,7 +73,6 @@ void main() async {
           .eq('id', user.id)
           .maybeSingle();
 
-      print('POST-INIT PROFILE: $profile');
 
       if (profile == null) {
         // Session exists but no public.users row — signup never
@@ -84,32 +80,26 @@ void main() async {
         // startScreen stays HomeScreen here; MyApp's initState checks
         // for this again once the ProviderScope is ready, and redirects
         // to resume registration at the phone step.
-        print('→ Orphaned signup detected at startup, will resume in MyApp');
       } else {
         final passwordSet = profile['password_set'] as bool? ?? true;
         final role = profile['role'] as String? ?? 'Customer';
 
-        print('password_set=$passwordSet | role=$role');
 
         if (!passwordSet &&
             (role == 'Admin' || role == 'Cashier' || role == 'Super Admin')) {
-          print('→ Routing to SetPasswordScreen');
           startScreen = const SetPasswordScreen();
                } else if (passwordSet && (role == 'Admin' || role == 'Super Admin' || role == 'Cashier')) {
           final factors = await Supabase.instance.client.auth.mfa.listFactors();
           if (factors.totp.isEmpty) {
-            print('→ Routing to MfaEnrollScreen (not yet enrolled)');
             startScreen = const MfaEnrollScreen();
           } else {
             final aal = await Supabase.instance.client.auth.mfa.getAuthenticatorAssuranceLevel();
             if (aal.currentLevel != AuthenticatorAssuranceLevels.aal2) {
-              print('→ Routing to MfaChallengeScreen (aal1 only, on app reload)');
               startScreen = MfaChallengeScreen(
                 role: role,
                 onVerified: () {},
               );
             } else {
-              print('→ Routing to ${role} layout (aal2 confirmed)');
               startScreen = role == 'Admin'
                   ? const AdminLayout()
                   : role == 'Cashier'
@@ -121,7 +111,6 @@ void main() async {
         // role == 'Customer' → startScreen stays HomeScreen (correct)
       }
     } catch (e) {
-      print('Profile check error: $e');
     }
   }
 
@@ -190,7 +179,6 @@ class _MyAppState extends ConsumerState<MyApp> {
           .update({'last_active_at': DateTime.now().toIso8601String()})
           .eq('id', user.id);
     } catch (e) {
-      print('presence heartbeat error: $e');
     }
   }
 
@@ -232,11 +220,9 @@ class _MyAppState extends ConsumerState<MyApp> {
         // Can't resume without a phone number to verify — this shouldn't
         // happen for anyone who signed up after this fix, but guards
         // against pre-fix orphaned accounts with no metadata to recover.
-        print('Orphaned signup found but no phone metadata to resume with.');
         return;
       }
 
-      print('Resuming orphaned signup for ${user.email}');
 
       ref.read(pendingRegistrationProvider.notifier).set(
         PendingRegistration(
@@ -255,7 +241,6 @@ class _MyAppState extends ConsumerState<MyApp> {
         (route) => false,
       );
     } catch (e) {
-      print('Orphaned signup check error: $e');
     }
   }
 
@@ -265,13 +250,11 @@ class _MyAppState extends ConsumerState<MyApp> {
       if (uri.scheme == 'dgeekickz') {
         if (uri.host == 'payment-success') {
           final orderId = uri.queryParameters['order'];
-          print('Payment success for order: $orderId');
           _navigatorKey.currentState?.pushAndRemoveUntil(
             MaterialPageRoute(builder: (_) => const OrderHistoryScreen()),
             (route) => route.isFirst,
           );
         } else if (uri.host == 'payment-cancel') {
-          print('Payment cancelled');
           _navigatorKey.currentState?.popUntil((route) => route.isFirst);
         }
       }
@@ -283,19 +266,15 @@ class _MyAppState extends ConsumerState<MyApp> {
       final event = data.event;
       final session = data.session;
 
-      print('AUTH EVENT: $event');
 
       if (session == null) {
-        print('NO SESSION');
         return;
       }
 
       final user = session.user;
-      print('USER: ${user.email}');
 
       if (event == AuthChangeEvent.passwordRecovery) {
         if (isCustomerPasswordResetFlow) {
-          print('Skipping auto-navigation — customer reset flow handles its own screen.');
           return;
         }
         WidgetsBinding.instance.addPostFrameCallback((_) {
@@ -315,20 +294,17 @@ class _MyAppState extends ConsumerState<MyApp> {
               .eq('id', user.id)
               .maybeSingle();
 
-          print('PROFILE: $profile');
 
           if (profile == null) {
             // Mid-signup — email verified but phone step / profile
             // creation isn't done yet. Don't merge the cart here; the
             // real merge happens once registration actually completes
             // (see otp_screen.dart) or on a normal future login.
-            print('signedIn event fired mid-signup — skipping cart merge for now.');
           } else {
             final passwordSet = profile['password_set'] as bool? ?? true;
             final role = profile['role'] as String? ?? 'Customer';
             final isDisabled = profile['is_disabled'] as bool? ?? false;
 
-            print('password_set=$passwordSet | role=$role | is_disabled=$isDisabled');
 
             if (isDisabled) {
               // Suspended/banned account — login()'s own check runs
@@ -340,11 +316,8 @@ class _MyAppState extends ConsumerState<MyApp> {
               // the Guest/Home screen instead of showing the error —
               // same race class as the existing mobile-staff-block
               // case just below, just for a different condition.
-              print('→ Account is disabled, skipping redirect, '
-                  'login_form.dart will sign out.');
             } else if (!passwordSet &&
                 (role == 'Admin' || role == 'Cashier' || role == 'Super Admin')) {
-              print('→ Navigating to SetPasswordScreen');
               WidgetsBinding.instance.addPostFrameCallback((_) {
                 _navigatorKey.currentState?.pushAndRemoveUntil(
                   MaterialPageRoute(builder: (_) => const SetPasswordScreen()),
@@ -356,8 +329,7 @@ class _MyAppState extends ConsumerState<MyApp> {
               // own mobile-block check will sign this session back out
               // right after this listener runs — don't race it by
               // navigating to a staff layout that's about to be undone.
-              print('→ Staff role on mobile, skipping redirect, '
-                  'login_form.dart will sign out.');
+
             } else {
               // Central redirect for every OTHER window/tab sharing this
               // session (not just the one that actively logged in) — this
@@ -400,7 +372,18 @@ class _MyAppState extends ConsumerState<MyApp> {
               } else {
                 destination = const HomeScreen();
               }
-              print('→ Redirecting session to $role layout');
+                           // Merge BEFORE navigating, not concurrently with it —
+              // previously, navigation was scheduled via
+              // addPostFrameCallback while the cart merge ran at the
+              // same time in the background, a genuine race between
+              // two unrelated async operations.
+              try {
+                await ref.read(customerCartProvider.notifier).mergeGuestCartIntoAccount();
+              } catch (e) {
+                // Don't block login over a cart-merge hiccup — the
+                // account itself is still valid and logged in.
+              }
+
               WidgetsBinding.instance.addPostFrameCallback((_) {
                 _navigatorKey.currentState?.pushAndRemoveUntil(
                   MaterialPageRoute(builder: (_) => destination),
@@ -408,8 +391,6 @@ class _MyAppState extends ConsumerState<MyApp> {
                 );
               });
             }
-
-            await ref.read(customerCartProvider.notifier).mergeGuestCartIntoAccount();
           }
 
           // Force every notification feed to refetch fresh for
@@ -422,7 +403,6 @@ class _MyAppState extends ConsumerState<MyApp> {
           ref.invalidate(customerChatProvider);
           ref.invalidate(adminChatProvider);
         } catch (e) {
-          print('Auth event profile check error: $e');
         }
       }
     });

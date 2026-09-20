@@ -53,7 +53,7 @@ class ActivityLogService {
           '${profile['first_name'] ?? ''} ${profile['last_name'] ?? ''}'.trim();
       final role = profile['role'] as String? ?? 'Unknown';
 
-      await _supabase.from('activity_log').insert({
+            await _supabase.from('activity_log').insert({
         'admin_id': currentUser.id,
         'admin_name': adminName.isEmpty ? 'Unknown' : adminName,
         'role': role,
@@ -62,8 +62,6 @@ class ActivityLogService {
         'target_id': targetId,
         'metadata': metadata,
       });
-
-      print('ActivityLogService: logged "$action" [$affectedModule]');
     } catch (error) {
       // Logging should never break the actual operation it's attached to.
       print('ActivityLogService error: $error');

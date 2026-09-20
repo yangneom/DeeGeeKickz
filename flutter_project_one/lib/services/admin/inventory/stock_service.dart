@@ -66,7 +66,6 @@ class StockService {
           metadata: {'delta': isAddStock ? adjustment : -adjustment},
         );
       } catch (logError) {
-        print('adjustStock: activity log failed (adjustment still succeeded): $logError');
       }
       // Low/out-of-stock notifications now fire automatically from
       // the trg_check_low_stock database trigger on ANY stock_quantity
@@ -77,7 +76,6 @@ class StockService {
 
       return null;
    } on PostgrestException catch (error) {
-      print('adjustStock error: $error');
 
       if (error.code == '23514' && error.message.contains('reserved_not_exceed_stock')) {
         // This size has units currently reserved (in a cart / pending
@@ -113,7 +111,6 @@ class StockService {
       }
 
       return 'Failed to adjust stock. Please try again.';    } catch (error) {
-      print('adjustStock error: $error');
       return 'Failed to adjust stock. Please try again.';
     }
   }
@@ -137,15 +134,12 @@ class StockService {
     required int sizeId,
     required String label,
   }) async {
-    print('🔔🔔🔔 _checkAndNotifyLowStock CALLED for size #$sizeId 🔔🔔🔔');
     try {
       await _supabase.rpc('notify_staff_low_stock', params: {
         'p_size_id': sizeId,
         'p_label': label,
       });
-      print('🔔 Low stock RPC completed successfully');
     } catch (error) {
-      print('_checkAndNotifyLowStock error: $error');
-    }
+     }
   }
 }

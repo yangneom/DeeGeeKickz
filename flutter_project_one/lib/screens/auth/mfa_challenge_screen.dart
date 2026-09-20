@@ -68,7 +68,6 @@ class _MfaChallengeScreenState extends State<MfaChallengeScreen> {
 
       throw lastError ?? Exception('Verification failed');
     } catch (e) {
-      print('MfaChallengeScreen verify error: $e');
       if (!mounted) return;
       setState(() {
         _verifying = false;

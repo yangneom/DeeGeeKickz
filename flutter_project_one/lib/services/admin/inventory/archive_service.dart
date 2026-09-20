@@ -49,7 +49,6 @@ class ArchiveService {
       }
       return products;
     } catch (error) {
-      print('fetchArchivedProducts error: $error');
       return [];
     }
   }
@@ -81,7 +80,6 @@ class ArchiveService {
 
       return null;
     } on PostgrestException catch (error) {
-      print('restoreProduct error: $error');
 
       if (error.code == '23505' &&
           error.message.contains('product_active_name_unique')) {

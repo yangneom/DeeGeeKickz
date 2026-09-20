@@ -22,7 +22,7 @@ class _ResetPasswordOtpScreenState extends ConsumerState<ResetPasswordOtpScreen>
   String? _errorMessage;
 
   Timer? _timer;
-  int _secondsLeft = 60;
+  int _secondsLeft = 30;
 
   @override
   void initState() {
@@ -39,7 +39,7 @@ class _ResetPasswordOtpScreenState extends ConsumerState<ResetPasswordOtpScreen>
 
   void _startTimer() {
     _timer?.cancel();
-    setState(() => _secondsLeft = 60);
+    setState(() => _secondsLeft = 30);
     _timer = Timer.periodic(const Duration(seconds: 1), (t) {
       if (_secondsLeft <= 1) {
         t.cancel();

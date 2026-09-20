@@ -283,8 +283,7 @@ class FeedbackService {
         event: PostgresChangeEvent.insert,
         schema: 'public',
         table: 'feedback',
-        callback: (payload) {
-          print('🟢 [admin] feedback INSERT received: ${payload.newRecord}');
+                callback: (payload) {
           onChange();
         },
       )
@@ -292,8 +291,7 @@ class FeedbackService {
         event: PostgresChangeEvent.update,
         schema: 'public',
         table: 'feedback',
-        callback: (payload) {
-          print('🟢 [admin] feedback UPDATE received: ${payload.newRecord}');
+               callback: (payload) {
           onChange();
         },
       )
@@ -302,14 +300,10 @@ class FeedbackService {
         schema: 'public',
         table: 'feedback_replies',
         callback: (payload) {
-          print('🟢 [admin] feedback_replies INSERT received: ${payload.newRecord}');
           onChange();
         },
       )
-      .subscribe((status, error) {
-        print('🔵 [admin] admin_feedback_changes channel status: $status, error: $error');
-      });
-}
+      .subscribe();}
 
 void unsubscribe(RealtimeChannel channel) {
   _supabase.removeChannel(channel);

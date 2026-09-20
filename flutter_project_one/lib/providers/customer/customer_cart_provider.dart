@@ -28,7 +28,6 @@ class CustomerCartNotifier extends Notifier<List<CustomerCartItem>> {
       final jsonList = state.map((item) => item.toLocalJson()).toList();
       await prefs.setString(_guestCartKey, jsonEncode(jsonList));
     } catch (error) {
-      print('CustomerCartNotifier._saveGuestCartLocally error: $error');
     }
   }
 
@@ -45,7 +44,6 @@ class CustomerCartNotifier extends Notifier<List<CustomerCartItem>> {
           .map((e) => CustomerCartItem.fromLocalJson(e as Map<String, dynamic>))
           .toList();
     } catch (error) {
-      print('CustomerCartNotifier.loadGuestCartFromLocal error: $error');
     }
   }
 
@@ -54,7 +52,6 @@ class CustomerCartNotifier extends Notifier<List<CustomerCartItem>> {
       final prefs = await SharedPreferences.getInstance();
       await prefs.remove(_guestCartKey);
     } catch (error) {
-      print('CustomerCartNotifier._clearGuestLocalStorage error: $error');
     }
   }
 
@@ -74,7 +71,6 @@ class CustomerCartNotifier extends Notifier<List<CustomerCartItem>> {
           .map((row) => CustomerCartItem.fromJson(row as Map<String, dynamic>))
           .toList();
     } catch (error) {
-      print('CustomerCartNotifier.loadFromSupabase error: $error');
     }
   }
 
@@ -103,7 +99,6 @@ class CustomerCartNotifier extends Notifier<List<CustomerCartItem>> {
         );
       } catch (error) {
         allSucceeded = false;
-        print('CustomerCartNotifier.mergeGuestCartIntoAccount item failed: $error');
         // keep going — try to save the rest of the items even if
         // one fails, rather than aborting the whole merge
       }
@@ -116,7 +111,6 @@ class CustomerCartNotifier extends Notifier<List<CustomerCartItem>> {
       // account's profile row exists yet) or hit a network error.
       await _clearGuestLocalStorage();
     } else {
-      print('Guest cart merge had failures — keeping local guest cart as backup.');
     }
 
     await loadFromSupabase();
@@ -174,7 +168,6 @@ class CustomerCartNotifier extends Notifier<List<CustomerCartItem>> {
         state = updated;
       }
     } catch (error) {
-      print('CustomerCartNotifier._writeItem error: $error');
     }
   }
 
@@ -196,7 +189,6 @@ class CustomerCartNotifier extends Notifier<List<CustomerCartItem>> {
     try {
       await _supabase.from('cart_item').delete().eq('cart_item_id', item.cartItemId!);
     } catch (error) {
-      print('CustomerCartNotifier.removeItem error: $error');
     }
   }
 
@@ -233,7 +225,6 @@ class CustomerCartNotifier extends Notifier<List<CustomerCartItem>> {
           .update({'quantity': newQuantity})
           .eq('cart_item_id', item.cartItemId!);
     } catch (error) {
-      print('CustomerCartNotifier._updateQuantity error: $error');
     }
   }
 
@@ -250,7 +241,6 @@ class CustomerCartNotifier extends Notifier<List<CustomerCartItem>> {
     try {
       await _supabase.from('cart_item').delete().eq('user_id', userId);
     } catch (error) {
-      print('CustomerCartNotifier.clearCart error: $error');
     }
   }
 

@@ -129,7 +129,6 @@ class _CheckoutStep1ShippingState extends State<CheckoutStep1Shipping> {
         _userPhone = profile['phone'] ?? '';
       });
     } catch (e) {
-      print('CheckoutStep1Shipping._loadUserInfo error: $e');
     }
   }
 
@@ -190,7 +189,6 @@ class _CheckoutStep1ShippingState extends State<CheckoutStep1Shipping> {
       // not necessarily the address's fault, so offer a retry instead
       // of steering the customer toward editing an address that may
       // be perfectly fine.
-      print('CheckoutStep1Shipping._fetchShippingQuote error: $e');
       if (!mounted) return;
       setState(() {
         _isLoadingQuote = false;

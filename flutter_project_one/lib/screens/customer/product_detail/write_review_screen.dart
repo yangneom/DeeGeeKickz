@@ -80,7 +80,7 @@ class WriteReviewScreen extends ConsumerWidget {
                 color: Colors.white, size: 18),
             SizedBox(width: 10),
             Text(
-              'REVIEW SUBMITTED — THANK YOU!',
+              'REVIEW SUBMITTED, THANK YOU!',
               style: TextStyle(
                 fontFamily: 'Inter',
                 fontSize: 12,

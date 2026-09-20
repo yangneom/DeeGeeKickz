@@ -1,5 +1,6 @@
 import 'package:supabase_flutter/supabase_flutter.dart';
-
+import 'dart:io';
+import 'package:http/http.dart' as http;
 class AuthService {
 
   final SupabaseClient _supabase = Supabase.instance.client;
@@ -24,7 +25,6 @@ class AuthService {
         return null;
       }
 
-      print('getUserRole: Looking up UID ${user.id}');
 
       final response = await _supabase
           .from('users')
@@ -32,14 +32,11 @@ class AuthService {
           .eq('id', user.id)
           .single();
 
-      print('getUserRole: response = $response');
 
       final role = response['role'] as String?;
-      print('getUserRole: Found role = $role');
       return role;
 
     } catch (error) {
-      print('getUserRole error: $error');
       return null;
     }
   }
@@ -112,7 +109,6 @@ class AuthService {
         }
 
     } catch (error) {
-      print('Register unknown error: $error');
       return 'Something went wrong. Please try again.';
     }
   }
@@ -128,10 +124,8 @@ class AuthService {
         email: email.trim(),
         token: token.trim(),
       );
-      print('Email OTP verified. Session UID = ${_supabase.auth.currentUser?.id}');
       return null;
     } on AuthException catch (error) {
-      print('verifyEmailOtp error: ${error.message}');
       return error.message;
     }
   }
@@ -146,10 +140,8 @@ class AuthService {
         type: OtpType.signup,
         email: email.trim(),
       );
-      print('Resent email OTP to $email');
       return null;
    } on AuthException catch (error) {
-      print('resendEmailOtp error: ${error.message}');
       if (error.message.contains('security purposes') ||
           (error.message.contains('after') && error.message.contains('seconds'))) {
         return 'Please wait a bit before requesting another code.';
@@ -216,10 +208,6 @@ class AuthService {
 
     final currentUser = _supabase.auth.currentUser;
 
-    print('===================================');
-    print('LOGGED IN USER UID = ${currentUser?.id}');
-    print('LOGGED IN USER EMAIL = ${currentUser?.email}');
-    print('===================================');
 
     if (currentUser != null) {
       // Auto-clear a temporary suspension if its time has passed —
@@ -257,12 +245,19 @@ class AuthService {
           .eq('id', currentUser.id);
     }
 
-    print('Login successful for ${email.trim()}');
+
     return null;
 
   } on AuthException catch (error) {
     print('LOGIN ERROR = ${error.message}');
     return error.message;
+  } on SocketException catch (_) {
+    // Device has no route to the internet at all (DNS failure,
+    // airplane mode, no signal) — distinct from a wrong password,
+    // which throws AuthException instead and is handled above.
+    return 'Unable to connect to the server. Please check your internet connection and try again.';
+  } on http.ClientException catch (_) {
+    return 'Unable to connect to the server. Please check your internet connection and try again.';
   }
 }
 
@@ -274,9 +269,7 @@ class AuthService {
   Future<void> sendPasswordResetEmail(String email) async {
     try {
       await _supabase.auth.resetPasswordForEmail(email.trim());
-      print('Password reset email sent to $email');
     } catch (error) {
-      print('sendPasswordResetEmail error: $error');
       rethrow;
     }
   }
@@ -294,13 +287,10 @@ class AuthService {
         email: email.trim(),
         token: token.trim(),
       );
-      print('Password reset OTP verified for $email');
       return null;
     } on AuthException catch (error) {
-      print('verifyPasswordResetOtp error: ${error.message}');
       return error.message;
     } catch (error) {
-      print('verifyPasswordResetOtp unknown error: $error');
       return 'Something went wrong. Please try again.';
     }
   }
@@ -332,10 +322,8 @@ class AuthService {
         'password_changed_at': DateTime.now().toIso8601String(),
       }).eq('id', user.id);
 
-      print('Password changed successfully for ${user.email}');
       return null;
     } on AuthException catch (error) {
-      print('changeOwnPassword AuthException: ${error.message}');
       if (error.message.toLowerCase().contains('invalid login credentials')) {
         return 'Current password is incorrect.';
       }
@@ -345,7 +333,6 @@ class AuthService {
       }
       return error.message;
     } catch (error) {
-      print('changeOwnPassword unknown error: $error');
       return 'Something went wrong. Please try again.';
     }
   }
@@ -369,14 +356,12 @@ class AuthService {
       final daysSince = DateTime.now().difference(changedAt).inDays;
       return daysSince >= 30;
     } catch (error) {
-      print('isPasswordChangeDue error: $error');
       return false; // fail safe — don't nag if the check itself breaks
     }
   }
   // ── LOGOUT ──
   Future<void> logout() async {
     await _supabase.auth.signOut();
-    print('User logged out');
   }
   // ── GET USER PROFILE ──
   Future<Map<String, dynamic>?> getUserProfile() async {
@@ -393,7 +378,6 @@ class AuthService {
       return response;
 
     } catch (error) {
-      print('getUserProfile error: $error');
       return null;
     }
   }
