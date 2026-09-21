@@ -79,7 +79,7 @@ flutter:
   uses-material-design: true
 
   assets:
-    - .env
+    - env.public
     - assets/images/logo.jpg
     - assets/fonts/NotoSans-Regular.ttf
     - assets/fonts/NotoSans-Bold.ttf
