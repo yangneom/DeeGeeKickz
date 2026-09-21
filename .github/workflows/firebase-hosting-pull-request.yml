@@ -1,0 +1,41 @@
+# Deploy Flutter Web to Firebase Hosting for pull requests
+
+name: Deploy to Firebase Hosting on PR
+
+on:
+  pull_request:
+
+permissions:
+  checks: write
+  contents: read
+  pull-requests: write
+
+jobs:
+  build_and_preview:
+    if: ${{ github.event.pull_request.head.repo.full_name == github.repository }}
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Set up Flutter
+        uses: subosito/flutter-action@v2
+        with:
+          channel: stable
+
+      - name: Install Flutter dependencies
+        working-directory: ./flutter_project_one
+        run: flutter pub get
+
+      - name: Build Flutter Web
+        working-directory: ./flutter_project_one
+        run: flutter build web --release
+
+      - name: Deploy to Firebase Hosting
+        uses: FirebaseExtended/action-hosting-deploy@v0
+        with:
+          repoToken: ${{ secrets.GITHUB_TOKEN }}
+          firebaseServiceAccount: ${{ secrets.FIREBASE_SERVICE_ACCOUNT_DEEGEEKICKZ_7B041 }}
+          projectId: deegeekickz-7b041
+          entryPoint: ./flutter_project_one

@@ -106,3 +106,46 @@ final pendingRegistrationProvider =
     NotifierProvider<PendingRegistrationNotifier, PendingRegistration?>(() {
   return PendingRegistrationNotifier();
 });
+
+// ── OWN PROFILE (Realtime-aware) ──
+// Lets a logged-in staff member's own top bar/greeting update
+// automatically if their profile is edited elsewhere (e.g. a Super
+// Admin editing their name in Admin Management) — without this,
+// their already-open session would keep showing the old name until
+// they manually refreshed or logged back in.
+final ownProfileProvider = FutureProvider<Map<String, dynamic>?>((ref) async {
+  final user = Supabase.instance.client.auth.currentUser;
+  if (user == null) return null;
+  return await Supabase.instance.client
+      .from('users')
+      .select('first_name, last_name, email, phone, role')
+      .eq('id', user.id)
+      .maybeSingle();
+});
+
+final ownProfileRealtimeProvider = Provider<void>((ref) {
+  final supabase = Supabase.instance.client;
+  final user = supabase.auth.currentUser;
+  if (user == null) return;
+
+  final channel = supabase
+      .channel('own_profile_changes_${user.id}')
+      .onPostgresChanges(
+        event: PostgresChangeEvent.update,
+        schema: 'public',
+        table: 'users',
+        filter: PostgresChangeFilter(
+          type: PostgresChangeFilterType.eq,
+          column: 'id',
+          value: user.id,
+        ),
+        callback: (payload) {
+          ref.invalidate(ownProfileProvider);
+        },
+      )
+      .subscribe();
+
+  ref.onDispose(() {
+    supabase.removeChannel(channel);
+  });
+});

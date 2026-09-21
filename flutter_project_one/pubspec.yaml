@@ -85,3 +85,4 @@ flutter:
     - assets/fonts/NotoSans-Bold.ttf
     - assets/psgc/provinces.json
     - assets/psgc/cities.json
+    - env.public

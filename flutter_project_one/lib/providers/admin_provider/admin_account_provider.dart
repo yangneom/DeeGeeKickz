@@ -36,7 +36,6 @@ class AdminAccountNotifier
     required String email,
     required String role,
   }) async {
-    print('NOTIFIER createAccount()');
 
     await _service.createAccount(
       firstName: firstName,
@@ -49,17 +48,14 @@ class AdminAccountNotifier
   }
 
 Future<void> disableAccount(String userId) async {
-  print('NOTIFIER DISABLE = $userId');
 
   await _service.disableAccount(userId);
 
-  print('NOTIFIER DISABLE DONE');
 
   await loadAccounts();
 }
 
 Future<void> enableAccount(String userId) async {
-  print('ENABLING: $userId');
 
   await _service.enableAccount(userId);
 

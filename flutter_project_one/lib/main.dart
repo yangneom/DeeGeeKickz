@@ -22,7 +22,6 @@ import 'providers/customer/chat_provider.dart';
 import 'screens/auth/mfa_enroll_screen.dart';
 import 'screens/auth/mfa_challenge_screen.dart';
 
-
 // Global navigator key — lets any file navigate without needing a
 // local BuildContext that might get unmounted mid-flow (e.g. checkout
 // screens that disappear the instant the cart clears).
@@ -42,7 +41,19 @@ bool isCustomerPasswordResetFlow = false;
 void main() async {
   WidgetsFlutterBinding.ensureInitialized();
 
-  await dotenv.load(fileName: '.env');
+  await dotenv.load(fileName: 'env.public');
+
+  final hasSupabaseUrl = dotenv.env['SUPABASE_URL']?.isNotEmpty ?? false;
+  final hasSupabaseAnonKey =
+      dotenv.env['SUPABASE_ANON_KEY']?.isNotEmpty ?? false;
+
+  if (!hasSupabaseUrl || !hasSupabaseAnonKey) {
+    throw Exception(
+      'Missing Supabase environment configuration. '
+      'SUPABASE_URL present: $hasSupabaseUrl, '
+      'SUPABASE_ANON_KEY present: $hasSupabaseAnonKey',
+    );
+  }
 
   await Supabase.initialize(
     url: dotenv.env['SUPABASE_URL']!,
@@ -51,7 +62,6 @@ void main() async {
       authFlowType: AuthFlowType.implicit,
     ),
   );
-
 
   Widget startScreen = const HomeScreen();
 
@@ -73,7 +83,6 @@ void main() async {
           .eq('id', user.id)
           .maybeSingle();
 
-
       if (profile == null) {
         // Session exists but no public.users row — signup never
         // completed (likely phone OTP failed or app closed mid-flow).
@@ -84,41 +93,34 @@ void main() async {
         final passwordSet = profile['password_set'] as bool? ?? true;
         final role = profile['role'] as String? ?? 'Customer';
 
-
         if (!passwordSet &&
             (role == 'Admin' || role == 'Cashier' || role == 'Super Admin')) {
           startScreen = const SetPasswordScreen();
-               } else if (passwordSet && (role == 'Admin' || role == 'Super Admin' || role == 'Cashier')) {
+        } else if (passwordSet &&
+            (role == 'Admin' || role == 'Super Admin' || role == 'Cashier')) {
           final factors = await Supabase.instance.client.auth.mfa.listFactors();
           if (factors.totp.isEmpty) {
             startScreen = const MfaEnrollScreen();
           } else {
-            final aal = await Supabase.instance.client.auth.mfa.getAuthenticatorAssuranceLevel();
+            final aal = await Supabase.instance.client.auth.mfa
+                .getAuthenticatorAssuranceLevel();
             if (aal.currentLevel != AuthenticatorAssuranceLevels.aal2) {
-              startScreen = MfaChallengeScreen(
-                role: role,
-                onVerified: () {},
-              );
+              startScreen = MfaChallengeScreen(role: role, onVerified: () {});
             } else {
               startScreen = role == 'Admin'
                   ? const AdminLayout()
                   : role == 'Cashier'
-                      ? const CashierLayout()
-                      : const SuperLayout();
+                  ? const CashierLayout()
+                  : const SuperLayout();
             }
           }
         }
         // role == 'Customer' → startScreen stays HomeScreen (correct)
       }
-    } catch (e) {
-    }
+    } catch (e) {}
   }
 
-  runApp(
-    ProviderScope(
-      child: MyApp(startScreen: startScreen),
-    ),
-  );
+  runApp(ProviderScope(child: MyApp(startScreen: startScreen)));
 }
 
 // ================================================
@@ -138,7 +140,7 @@ class _MyAppState extends ConsumerState<MyApp> {
   Timer? _presenceHeartbeat;
 
   @override
-   void initState() {
+  void initState() {
     super.initState();
     if (!kIsWeb) {
       _initDeepLinks();
@@ -178,8 +180,7 @@ class _MyAppState extends ConsumerState<MyApp> {
           .from('users')
           .update({'last_active_at': DateTime.now().toIso8601String()})
           .eq('id', user.id);
-    } catch (e) {
-    }
+    } catch (e) {}
   }
 
   Future<void> _loadInitialCart() async {
@@ -223,15 +224,16 @@ class _MyAppState extends ConsumerState<MyApp> {
         return;
       }
 
-
-      ref.read(pendingRegistrationProvider.notifier).set(
-        PendingRegistration(
-          firstName: firstName,
-          lastName: lastName,
-          email: user.email ?? '',
-          phone: phone,
-        ),
-      );
+      ref
+          .read(pendingRegistrationProvider.notifier)
+          .set(
+            PendingRegistration(
+              firstName: firstName,
+              lastName: lastName,
+              email: user.email ?? '',
+              phone: phone,
+            ),
+          );
 
       if (!mounted) return;
       _navigatorKey.currentState?.pushAndRemoveUntil(
@@ -240,8 +242,7 @@ class _MyAppState extends ConsumerState<MyApp> {
         ),
         (route) => false,
       );
-    } catch (e) {
-    }
+    } catch (e) {}
   }
 
   void _initDeepLinks() {
@@ -266,7 +267,6 @@ class _MyAppState extends ConsumerState<MyApp> {
       final event = data.event;
       final session = data.session;
 
-
       if (session == null) {
         return;
       }
@@ -288,12 +288,11 @@ class _MyAppState extends ConsumerState<MyApp> {
 
       if (event == AuthChangeEvent.signedIn) {
         try {
-                    final profile = await Supabase.instance.client
+          final profile = await Supabase.instance.client
               .from('users')
               .select('password_set, role, is_disabled')
               .eq('id', user.id)
               .maybeSingle();
-
 
           if (profile == null) {
             // Mid-signup — email verified but phone step / profile
@@ -304,7 +303,6 @@ class _MyAppState extends ConsumerState<MyApp> {
             final passwordSet = profile['password_set'] as bool? ?? true;
             final role = profile['role'] as String? ?? 'Customer';
             final isDisabled = profile['is_disabled'] as bool? ?? false;
-
 
             if (isDisabled) {
               // Suspended/banned account — login()'s own check runs
@@ -317,7 +315,9 @@ class _MyAppState extends ConsumerState<MyApp> {
               // same race class as the existing mobile-staff-block
               // case just below, just for a different condition.
             } else if (!passwordSet &&
-                (role == 'Admin' || role == 'Cashier' || role == 'Super Admin')) {
+                (role == 'Admin' ||
+                    role == 'Cashier' ||
+                    role == 'Super Admin')) {
               WidgetsBinding.instance.addPostFrameCallback((_) {
                 _navigatorKey.currentState?.pushAndRemoveUntil(
                   MaterialPageRoute(builder: (_) => const SetPasswordScreen()),
@@ -329,22 +329,25 @@ class _MyAppState extends ConsumerState<MyApp> {
               // own mobile-block check will sign this session back out
               // right after this listener runs — don't race it by
               // navigating to a staff layout that's about to be undone.
-
             } else {
               // Central redirect for every OTHER window/tab sharing this
               // session (not just the one that actively logged in) — this
               // is what fixes stale screens after a different account
               // logs in elsewhere and swaps the shared session out from
               // under an already-open window.
-                           Widget destination;
-              if (role == 'Admin' || role == 'Super Admin' || role == 'Cashier') {
-                final factors = await Supabase.instance.client.auth.mfa.listFactors();
+              Widget destination;
+              if (role == 'Admin' ||
+                  role == 'Super Admin' ||
+                  role == 'Cashier') {
+                final factors = await Supabase.instance.client.auth.mfa
+                    .listFactors();
                 final bool hasMfaEnrolled = factors.totp.isNotEmpty;
 
                 if (!hasMfaEnrolled) {
                   destination = const MfaEnrollScreen();
                 } else {
-                  final aal = await Supabase.instance.client.auth.mfa.getAuthenticatorAssuranceLevel();
+                  final aal = await Supabase.instance.client.auth.mfa
+                      .getAuthenticatorAssuranceLevel();
                   if (aal.currentLevel != AuthenticatorAssuranceLevels.aal2) {
                     destination = MfaChallengeScreen(
                       role: role,
@@ -354,8 +357,8 @@ class _MyAppState extends ConsumerState<MyApp> {
                             builder: (_) => role == 'Admin'
                                 ? const AdminLayout()
                                 : role == 'Cashier'
-                                    ? const CashierLayout()
-                                    : const SuperLayout(),
+                                ? const CashierLayout()
+                                : const SuperLayout(),
                           ),
                           (route) => false,
                         );
@@ -365,20 +368,22 @@ class _MyAppState extends ConsumerState<MyApp> {
                     destination = role == 'Admin'
                         ? const AdminLayout()
                         : role == 'Cashier'
-                            ? const CashierLayout()
-                            : const SuperLayout();
+                        ? const CashierLayout()
+                        : const SuperLayout();
                   }
                 }
               } else {
                 destination = const HomeScreen();
               }
-                           // Merge BEFORE navigating, not concurrently with it —
+              // Merge BEFORE navigating, not concurrently with it —
               // previously, navigation was scheduled via
               // addPostFrameCallback while the cart merge ran at the
               // same time in the background, a genuine race between
               // two unrelated async operations.
               try {
-                await ref.read(customerCartProvider.notifier).mergeGuestCartIntoAccount();
+                await ref
+                    .read(customerCartProvider.notifier)
+                    .mergeGuestCartIntoAccount();
               } catch (e) {
                 // Don't block login over a cart-merge hiccup — the
                 // account itself is still valid and logged in.
@@ -402,8 +407,7 @@ class _MyAppState extends ConsumerState<MyApp> {
           ref.invalidate(superAdminNotificationProvider);
           ref.invalidate(customerChatProvider);
           ref.invalidate(adminChatProvider);
-        } catch (e) {
-        }
+        } catch (e) {}
       }
     });
   }

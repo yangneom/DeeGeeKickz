@@ -1,1 +1,39 @@
-{"flutter":{"platforms":{"android":{"default":{"projectId":"flutter-thesis-cce91","appId":"1:202172559756:android:a46f60319974b9d875a6a9","fileOutput":"android/app/google-services.json"}},"dart":{"lib/firebase_options.dart":{"projectId":"flutter-thesis-cce91","configurations":{"android":"1:202172559756:android:a46f60319974b9d875a6a9","ios":"1:202172559756:ios:d7fafccd8ac37c0d75a6a9","macos":"1:202172559756:ios:d7fafccd8ac37c0d75a6a9","web":"1:202172559756:web:ba4dacf0f6568bf675a6a9","windows":"1:202172559756:web:6022e12546bdc15975a6a9"}}}}}}
+{
+  "flutter": {
+    "platforms": {
+      "android": {
+        "default": {
+          "projectId": "flutter-thesis-cce91",
+          "appId": "1:202172559756:android:a46f60319974b9d875a6a9",
+          "fileOutput": "android/app/google-services.json"
+        }
+      },
+      "dart": {
+        "lib/firebase_options.dart": {
+          "projectId": "flutter-thesis-cce91",
+          "configurations": {
+            "android": "1:202172559756:android:a46f60319974b9d875a6a9",
+            "ios": "1:202172559756:ios:d7fafccd8ac37c0d75a6a9",
+            "macos": "1:202172559756:ios:d7fafccd8ac37c0d75a6a9",
+            "web": "1:202172559756:web:ba4dacf0f6568bf675a6a9",
+            "windows": "1:202172559756:web:6022e12546bdc15975a6a9"
+          }
+        }
+      }
+    }
+  },
+  "hosting": {
+    "public": "build/web",
+    "ignore": [
+      "firebase.json",
+      "**/.*",
+      "**/node_modules/**"
+    ],
+    "rewrites": [
+      {
+        "source": "**",
+        "destination": "/index.html"
+      }
+    ]
+  }
+}

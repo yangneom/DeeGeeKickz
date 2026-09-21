@@ -199,20 +199,19 @@ class _AdminTopBarState extends ConsumerState<AdminTopBar> {
 
             const SizedBox(width: 12),
 
-            // ── PROFILE SECTION ──
+            // ── PROFILE SECTION — now Realtime-aware ──
             authState.when(
               data: (state) {
                 final user = state.session?.user;
                 if (user == null) return const SizedBox.shrink();
 
-                return FutureBuilder<Map<String, dynamic>?>(
-                  future: Supabase.instance.client
-                      .from('users')
-                      .select('first_name, last_name, email, phone, role')
-                      .eq('id', user.id)
-                      .single()
-                      .then((v) => v),
-                  builder: (context, snapshot) {
+                ref.watch(ownProfileRealtimeProvider); // activates the subscription
+                final profileAsync = ref.watch(ownProfileProvider);
+
+                return profileAsync.when(
+                  loading: () => const SizedBox.shrink(),
+                  error: (_, __) => const SizedBox.shrink(),
+                  data: (data) {
                     String firstName = '';
                     String lastName = '';
                     String displayName = user.email ?? '';
@@ -220,8 +219,7 @@ class _AdminTopBarState extends ConsumerState<AdminTopBar> {
                     String phone = '';
                     String role = '';
 
-                    if (snapshot.hasData && snapshot.data != null) {
-                      final data = snapshot.data!;
+                    if (data != null) {
                       firstName = data['first_name'] ?? '';
                       lastName = data['last_name'] ?? '';
                       displayName = '$firstName $lastName'.trim();
@@ -282,7 +280,7 @@ class _AdminTopBarState extends ConsumerState<AdminTopBar> {
                               ),
                             ],
                           ),
-                        ],
+                                                ],
                       ),
                     );
                   },
