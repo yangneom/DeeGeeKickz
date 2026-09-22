@@ -26,6 +26,13 @@ class AccountSuspendedException implements Exception {
   @override
   String toString() => message;
 }
+class TooManyAttemptsException implements Exception {
+  final String message;
+  TooManyAttemptsException(this.message);
+
+  @override
+  String toString() => message;
+}
 
 class OrderService {
   final SupabaseClient _supabase = Supabase.instance.client;
@@ -130,8 +137,8 @@ class OrderService {
       if (e.code == 'P1002' || e.code == 'P1003') {
         throw ArchivedProductException(e.message);
       }
-         if (e.code == 'P1006') {
-        throw Exception('Too many order attempts. Please wait a moment and try again.');
+            if (e.code == 'P1006') {
+        throw TooManyAttemptsException(e.message);
       }
       if (e.code == 'P0001') {
         // P0001 is Postgres's generic user-raised-exception code —

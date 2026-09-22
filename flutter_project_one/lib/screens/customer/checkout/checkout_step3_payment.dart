@@ -141,7 +141,16 @@ class _CheckoutStep3PaymentState
         MaterialPageRoute(builder: (_) => const LoginScreen()),
         (route) => false,
       );
-        } on AccountSuspendedException catch (e) {
+           } on TooManyAttemptsException catch (e) {
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(
+            content: Text(e.message),
+            backgroundColor: const Color(0xFFDC2626),
+          ),
+        );
+      }
+    } on AccountSuspendedException catch (e) {
       if (mounted) {
         ScaffoldMessenger.of(context).showSnackBar(
           SnackBar(
