@@ -8,6 +8,8 @@ class AdminAccount {
   final bool isDisabled;
   final String lastLogin;
   final String registeredOn;
+  final String? disabledAt;
+  final String? disabledReason;
 
   const AdminAccount({
     required this.id,
@@ -19,6 +21,8 @@ class AdminAccount {
     required this.isDisabled,
     this.lastLogin = '-',
     this.registeredOn = '-',
+    this.disabledAt,
+    this.disabledReason,
   });
 
   factory AdminAccount.fromJson(
@@ -34,6 +38,8 @@ class AdminAccount {
       isDisabled: json['is_disabled'] ?? false,
       lastLogin: json['last_login']?.toString() ?? '-',
       registeredOn: json['registered_date']?.toString() ?? '-',
+      disabledAt: json['disabled_at']?.toString(),
+      disabledReason: json['disabled_reason']?.toString(),
     );
   }
 
@@ -47,6 +53,8 @@ class AdminAccount {
     bool? isDisabled,
     String? lastLogin,
     String? registeredOn,
+    String? disabledAt,
+    String? disabledReason,
   }) {
     return AdminAccount(
       id: id ?? this.id,
@@ -58,6 +66,8 @@ class AdminAccount {
       isDisabled: isDisabled ?? this.isDisabled,
       lastLogin: lastLogin ?? this.lastLogin,
       registeredOn: registeredOn ?? this.registeredOn,
+      disabledAt: disabledAt ?? this.disabledAt,
+      disabledReason: disabledReason ?? this.disabledReason,
     );
   }
 }

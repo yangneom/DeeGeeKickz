@@ -49,9 +49,9 @@ serve(async (req) => {
       );
     }
 
-    const { data: profile } = await adminClient
+        const { data: profile } = await adminClient
       .from("users")
-      .select("role")
+      .select("role, first_name, last_name")
       .eq("id", callingUser.id)
       .maybeSingle();
 
@@ -115,11 +115,25 @@ serve(async (req) => {
       console.error("signOut error (non-fatal):", signOutError.message);
     }
 
+    // Records WHO disabled this account, reusing the existing
+    // activity_log table rather than adding a new disabled_by
+    // column — "disabled by" is answerable by querying this log,
+    // the same way every other admin action already is.
+    const adminName = `${profile?.first_name ?? ""} ${profile?.last_name ?? ""}`.trim() || "Unknown";
+    await adminClient.from("activity_log").insert({
+      admin_id: callingUser.id,
+      admin_name: adminName,
+      role: profile?.role ?? "Unknown",
+      action: `Disabled account (${reason ?? "no reason given"})`,
+      affected_module: "Customer Management",
+      target_id: user_id,
+      metadata: { reason: reason ?? null },
+    });
+
     return new Response(
       JSON.stringify({ success: true }),
       { headers: { ...corsHeaders, "Content-Type": "application/json" } },
-    );
-  } catch (err) {
+    );  } catch (err) {
     return new Response(
       JSON.stringify({ success: false, error: String(err) }),
       { status: 500, headers: { ...corsHeaders, "Content-Type": "application/json" } },

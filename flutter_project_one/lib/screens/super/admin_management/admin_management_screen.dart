@@ -172,9 +172,18 @@ class _AdminManagementScreenState
     if (confirmed != true) return;
 
     try {
+      // Notifier's disableAccount() already calls loadAccounts()
+      // internally — the extra explicit call here was a redundant
+      // second network round-trip, removed.
       await ref.read(adminAccountsProvider.notifier).disableAccount(account.id);
       if (mounted) {
-        await ref.read(adminAccountsProvider.notifier).loadAccounts();
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(
+            content: Text('${account.firstName} ${account.lastName} disabled successfully.'),
+            backgroundColor: const Color(0xFF16A34A),
+            behavior: SnackBarBehavior.floating,
+          ),
+        );
       }
     } catch (e) {
       if (mounted) {
@@ -231,9 +240,29 @@ class _AdminManagementScreenState
     }
   }
 
-  Future<void> _handleEnable(AdminAccount account) async {    await ref.read(adminAccountsProvider.notifier).enableAccount(account.id);
-    if (mounted) {
-      ref.read(adminAccountsProvider.notifier).loadAccounts();
+  Future<void> _handleEnable(AdminAccount account) async {
+    try {
+      // enableAccount() already refreshes the list internally.
+      await ref.read(adminAccountsProvider.notifier).enableAccount(account.id);
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(
+            content: Text('${account.firstName} ${account.lastName} enabled successfully.'),
+            backgroundColor: const Color(0xFF16A34A),
+            behavior: SnackBarBehavior.floating,
+          ),
+        );
+      }
+    } catch (e) {
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(
+            content: Text(e.toString().replaceFirst('Exception: ', '')),
+            backgroundColor: const Color(0xFFEF4444),
+            behavior: SnackBarBehavior.floating,
+          ),
+        );
+      }
     }
   }
 

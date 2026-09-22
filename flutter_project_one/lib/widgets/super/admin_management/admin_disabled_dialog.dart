@@ -17,13 +17,14 @@ import '../../../models/admin_account.dart';
 
 class AdminDisabledDialog extends StatefulWidget {
   final List<AdminAccount> disabledAccounts;
-  final Function(AdminAccount) onEnable;
-
+  final Future<void> Function(AdminAccount) onEnable;
   const AdminDisabledDialog({
     super.key,
     required this.disabledAccounts,
     required this.onEnable,
   });
+
+  
 
   @override
   State<AdminDisabledDialog> createState() => _AdminDisabledDialogState();
@@ -32,6 +33,24 @@ class AdminDisabledDialog extends StatefulWidget {
 class _AdminDisabledDialogState extends State<AdminDisabledDialog> {
   final TextEditingController _searchController = TextEditingController();
   String _searchQuery = '';
+  final Set<String> _enablingIds = {};
+
+  // Formats an ISO timestamp string into a short, readable date —
+  // e.g. "Sep 22, 2026". Falls back to the raw string if parsing
+  // fails, so a malformed value still shows SOMETHING rather than
+  // crashing the whole dialog.
+  String _formatDateTime(String isoString) {
+    try {
+      final dt = DateTime.parse(isoString).toLocal();
+      const months = [
+        'Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun',
+        'Jul', 'Aug', 'Sep', 'Oct', 'Nov', 'Dec',
+      ];
+      return '${months[dt.month - 1]} ${dt.day}, ${dt.year}';
+    } catch (_) {
+      return isoString;
+    }
+  }
 
   // Local mutable copy — lets us remove a row immediately on Enable
   // without needing the parent screen to refetch and rebuild this
@@ -79,14 +98,35 @@ class _AdminDisabledDialogState extends State<AdminDisabledDialog> {
 
     if (confirmed != true) return;
 
-    widget.onEnable(account);
-
     if (!mounted) return;
-    setState(() {
-      _accounts.removeWhere((a) => a.id == account.id);
-    });
-  }
+    setState(() => _enablingIds.add(account.id));
 
+    try {
+      await widget.onEnable(account);
+
+      if (!mounted) return;
+      setState(() {
+        _accounts.removeWhere((a) => a.id == account.id);
+        _enablingIds.remove(account.id);
+      });
+
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(
+          content: Text('${account.firstName} ${account.lastName} enabled successfully.'),
+          backgroundColor: const Color(0xFF16A34A),
+        ),
+      );
+    } catch (e) {
+      if (!mounted) return;
+      setState(() => _enablingIds.remove(account.id));
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(
+          content: Text('Failed to enable ${account.firstName} ${account.lastName}. Please try again.'),
+          backgroundColor: const Color(0xFFEF4444),
+        ),
+      );
+    }
+  }
   List<List<Widget>> _buildRows() {
     return _filtered.map((account) {
       return [
@@ -103,24 +143,32 @@ class _AdminDisabledDialogState extends State<AdminDisabledDialog> {
           account.role,
           style: const TextStyle(fontSize: 13, color: Color(0xFF111827)),
         ),
-        const Text(
-          '-',
-          style: TextStyle(fontSize: 13, color: Color(0xFF111827)),
+                Text(
+          account.disabledAt != null
+              ? _formatDateTime(account.disabledAt!)
+              : '-',
+          style: const TextStyle(fontSize: 13, color: Color(0xFF111827)),
         ),
         Align(
           alignment: Alignment.centerLeft,
           child: ElevatedButton(
-            onPressed: () => _handleEnable(account),
+            onPressed: _enablingIds.contains(account.id) ? null : () => _handleEnable(account),
             style: ElevatedButton.styleFrom(
               backgroundColor: const Color(0xFF16A34A),
               foregroundColor: Colors.white,
+              disabledBackgroundColor: const Color(0xFF9CA3AF),
               elevation: 0,
               padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 8),
               shape: RoundedRectangleBorder(
                 borderRadius: BorderRadius.circular(6),
               ),
             ),
-            child: const Text('Enable', style: TextStyle(fontSize: 12)),
+            child: _enablingIds.contains(account.id)
+                ? const SizedBox(
+                    width: 12, height: 12,
+                    child: CircularProgressIndicator(strokeWidth: 2, color: Colors.white),
+                  )
+                : const Text('Enable', style: TextStyle(fontSize: 12)),
           ),
         ),
       ];

@@ -32,7 +32,7 @@ serve(async (req) => {
       .join("");
 
     if (computed !== signature) {
-      console.error("Signature mismatch — computed:", computed, "received:", signature);
+      console.error("Signature mismatch, computed:", computed, "received:", signature);
       return new Response("Unauthorized", { status: 401 });
     }
 

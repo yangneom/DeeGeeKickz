@@ -130,11 +130,31 @@ class _CustomerManagementScreenState
   // HANDLE ACTIVATE
   // ================================================
   Future<void> _handleActivate(CustomerAccount customer) async {
-    await ref
-        .read(customerAccountsProvider.notifier)
-        .enableAccount(customer.id);
+    try {
+      await ref
+          .read(customerAccountsProvider.notifier)
+          .enableAccount(customer.id);
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(
+            content: Text('${customer.fullName} enabled successfully.'),
+            backgroundColor: const Color(0xFF16A34A),
+            behavior: SnackBarBehavior.floating,
+          ),
+        );
+      }
+    } catch (e) {
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(
+            content: Text('Failed to enable ${customer.fullName}. Please try again.'),
+            backgroundColor: const Color(0xFFEF4444),
+            behavior: SnackBarBehavior.floating,
+          ),
+        );
+      }
+    }
   }
-
   Widget _buildPresenceCell(CustomerAccount customer) {
     if (customer.isOnline) {
       return Align(

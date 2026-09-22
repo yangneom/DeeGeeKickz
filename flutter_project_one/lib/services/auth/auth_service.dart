@@ -93,10 +93,12 @@ class AuthService {
       // completeRegistration() after both OTPs pass.
       return null;
 
-    } on AuthException catch (error) {
+        } on AuthException catch (error) {
         print('Register AuthException: ${error.message}');
 
-        if (error.message.contains('already registered')) {
+        if (error.statusCode == '429') {
+          return 'Too many account creation attempts. Please wait a few minutes and try again.';
+        } else if (error.message.contains('already registered')) {
           return 'An account already exists with this email.';
         } else if (error.message.contains('weak password') ||
             error.message.contains('Password should be')) {
@@ -114,7 +116,7 @@ class AuthService {
   }
 
   // ── VERIFY EMAIL OTP (step 2: this establishes the session) ──
-  Future<String?> verifyEmailOtp({
+    Future<String?> verifyEmailOtp({
     required String email,
     required String token,
   }) async {
@@ -126,10 +128,12 @@ class AuthService {
       );
       return null;
     } on AuthException catch (error) {
+      if (error.statusCode == '429') {
+        return 'Too many attempts. Please wait a few minutes and try again.';
+      }
       return error.message;
     }
   }
-
 
   // ── RESEND EMAIL OTP (used by the "Resend code" button on the email step) ──
   Future<String?> resendEmailOtp({
@@ -248,8 +252,11 @@ class AuthService {
 
     return null;
 
-  } on AuthException catch (error) {
+    } on AuthException catch (error) {
     print('LOGIN ERROR = ${error.message}');
+    if (error.statusCode == '429') {
+      return 'Too many login attempts. Please wait a few minutes and try again.';
+    }
     return error.message;
   } on SocketException catch (_) {
     // Device has no route to the internet at all (DNS failure,
@@ -277,7 +284,7 @@ class AuthService {
   // ── VERIFY PASSWORD RESET OTP ──
   // Verifying this code establishes a temporary authenticated session,
   // which ResetPasswordForm then uses to call updateUser(password: ...).
-  Future<String?> verifyPasswordResetOtp({
+    Future<String?> verifyPasswordResetOtp({
     required String email,
     required String token,
   }) async {
@@ -289,6 +296,9 @@ class AuthService {
       );
       return null;
     } on AuthException catch (error) {
+      if (error.statusCode == '429') {
+        return 'Too many attempts. Please wait a few minutes and try again.';
+      }
       return error.message;
     } catch (error) {
       return 'Something went wrong. Please try again.';
