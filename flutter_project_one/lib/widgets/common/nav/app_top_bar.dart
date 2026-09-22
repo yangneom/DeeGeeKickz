@@ -40,6 +40,7 @@ class AppTopBar extends ConsumerWidget implements PreferredSizeWidget {
     this.onNotificationsTap,
   });
 
+
   static const double _navHeight    = 64;
   static const double _mdBreakpoint = 768;
 
@@ -96,8 +97,9 @@ class AppTopBar extends ConsumerWidget implements PreferredSizeWidget {
     }
   }
 
-  @override
+    @override
   Widget build(BuildContext context, WidgetRef ref) {
+    ref.watch(customerDisabledWatcherProvider); // activates the subscription
     final cartCount = ref.watch(customerCartProvider.select(
       (items) => items.fold<int>(0, (sum, i) => sum + i.quantity),
     ));

@@ -1,7 +1,10 @@
+import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:supabase_flutter/supabase_flutter.dart';
 import '../../services/auth/auth_service.dart';
 import '../../services/auth/iprog_sms_service.dart';
+import '../../main.dart';
+import '../../screens/auth/login_screen.dart';
 
 
 // Creates ONE AuthService for the whole app
@@ -57,6 +60,7 @@ final registerIsLoadingProvider =
     NotifierProvider<RegisterIsLoadingNotifier, bool>(() {
   return RegisterIsLoadingNotifier();
 });
+
 
 // Stores error message when REGISTER fails
 class RegisterErrorNotifier extends Notifier<String?> {
@@ -141,6 +145,70 @@ final ownProfileRealtimeProvider = Provider<void>((ref) {
         ),
         callback: (payload) {
           ref.invalidate(ownProfileProvider);
+        },
+      )
+      .subscribe();
+
+  ref.onDispose(() {
+    supabase.removeChannel(channel);
+  });
+});
+
+// ── CUSTOMER DISABLED-ACCOUNT WATCHER ──
+// Reuses the same postgres_changes + auth.uid() filter pattern as
+// ownProfileRealtimeProvider, but reacts instead of just refreshing:
+// if is_disabled flips to true while a Customer is actively browsing,
+// force sign-out + redirect immediately, rather than waiting for
+// their next login attempt to discover it (deleting the server-side
+// session alone doesn't invalidate an already-issued access token).
+bool _disabledWatcherTriggered = false;
+
+final customerDisabledWatcherProvider = Provider<void>((ref) {
+  final supabase = Supabase.instance.client;
+  final user = supabase.auth.currentUser;
+  if (user == null) return;
+
+  _disabledWatcherTriggered = false;
+
+  final channel = supabase
+      .channel('customer_disabled_watcher_${user.id}')
+      .onPostgresChanges(
+        event: PostgresChangeEvent.update,
+        schema: 'public',
+        table: 'users',
+        filter: PostgresChangeFilter(
+          type: PostgresChangeFilterType.eq,
+          column: 'id',
+          value: user.id,
+        ),
+        callback: (payload) async {
+          if (_disabledWatcherTriggered) return;
+
+          final bool isDisabled = payload.newRecord['is_disabled'] == true;
+          if (!isDisabled) return;
+
+          _disabledWatcherTriggered = true;
+
+          final String reason = payload.newRecord['disabled_reason'] as String? ??
+              'Your account has been suspended.';
+
+          final ctx = appNavigatorKey.currentContext;
+          if (ctx != null && ctx.mounted) {
+            ScaffoldMessenger.of(ctx).showSnackBar(
+              SnackBar(
+                content: Text(reason),
+                backgroundColor: const Color(0xFFDC2626),
+                duration: const Duration(seconds: 6),
+              ),
+            );
+          }
+
+          await supabase.auth.signOut();
+
+          appNavigatorKey.currentState?.pushAndRemoveUntil(
+            MaterialPageRoute(builder: (_) => const LoginScreen()),
+            (route) => false,
+          );
         },
       )
       .subscribe();
