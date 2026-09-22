@@ -98,7 +98,7 @@ serve(async (req) => {
       "https://api.paymongo.com/v1/payment_methods",
       {
         method: "POST",
-        headers: { "Content-Type": "application/json", "Authorization": authHeader },
+        headers: { "Content-Type": "application/json", "Authorization": paymongoAuthHeader },
         body: JSON.stringify({
           data: {
             attributes: {
@@ -133,12 +133,11 @@ serve(async (req) => {
       `https://api.paymongo.com/v1/payment_intents/${intentId}/attach`,
       {
         method: "POST",
-        headers: { "Content-Type": "application/json", "Authorization": authHeader },
+        headers: { "Content-Type": "application/json", "Authorization": paymongoAuthHeader },
         body: JSON.stringify({
           data: {
             attributes: {
-              payment_method:         methodId,
-              client_key:             clientKey,
+              payment_method:         methodId,              client_key:             clientKey,
               payment_method_allowed: ["card"],
               return_url:             `https://deegeekickz-7b041.web.app/payment-success?order=${orderId}`,
             },

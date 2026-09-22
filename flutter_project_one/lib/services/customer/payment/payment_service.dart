@@ -610,17 +610,14 @@ Future<void> cancelOrder({
   // Moves order from 'Awaiting Payment' to 'Pending'
   // so it appears in admin approval immediately.
   // ================================================
-  Future<void> setCodPending({required int orderId}) async {
+    Future<void> setCodPending({required int orderId}) async {
     try {
-      await _supabase
-          .from('orders')
-          .update({'order_status': 'Pending'})
-          .eq('order_id', orderId);
-
-      await _supabase.from('order_progress').insert({
-        'order_id':   orderId,
-        'status':     'Pending',
-        'admin_note': 'Cash on Delivery order — awaiting admin approval.',
+      // Moved server-side — a direct client PATCH here is now
+      // correctly blocked by guard_customer_order_updates. This RPC
+      // performs the same transition legitimately, with real
+      // ownership + payment-method + status checks server-side.
+      await _supabase.rpc('mark_cod_order_pending', params: {
+        'p_order_id': orderId,
       });
     } catch (e) {
       print('PaymentService.setCodPending error: $e');

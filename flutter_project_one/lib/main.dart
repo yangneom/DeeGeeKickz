@@ -287,7 +287,17 @@ class _MyAppState extends ConsumerState<MyApp> {
         return;
       }
 
-      if (event == AuthChangeEvent.signedIn) {
+            // AUDIT FIX: an invite/magic link opened in a FRESH browser tab
+      // (exactly what clicking an email link does) establishes the
+      // session as initialSession, not signedIn — Supabase Flutter's
+      // SDK only fires signedIn for a transition WITHIN an already-
+      // open app. initialSession had zero handling here at all, so
+      // the correct password_set → SetPasswordScreen routing below
+      // simply never ran for a freshly-opened invite link — the
+      // session established fine (correct domain, no crash), but
+      // nothing ever redirected to Set Password.
+      if (event == AuthChangeEvent.signedIn ||
+          event == AuthChangeEvent.initialSession) {
         try {
           final profile = await Supabase.instance.client
               .from('users')
