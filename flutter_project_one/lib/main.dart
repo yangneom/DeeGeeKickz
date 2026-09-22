@@ -34,6 +34,7 @@ final GlobalKey<NavigatorState> appNavigatorKey = GlobalKey<NavigatorState>();
 // resets — this flag lets the global listener below tell the two
 // apart, so it doesn't hijack the customer flow's own navigation.
 bool isCustomerPasswordResetFlow = false;
+bool isOwnLoginInProgress = false;
 
 // ================================================
 // MAIN FUNCTION
@@ -329,12 +330,15 @@ class _MyAppState extends ConsumerState<MyApp> {
               // own mobile-block check will sign this session back out
               // right after this listener runs — don't race it by
               // navigating to a staff layout that's about to be undone.
+                                                       } else if (isOwnLoginInProgress) {
+              // login_form.dart is ALREADY actively handling this exact
+              // sign-in on this exact tab — this listener firing too
+              // was the actual bug: it would push a completely fresh
+              // MfaChallengeScreen via pushAndRemoveUntil, silently
+              // discarding whatever the user had already typed/
+              // submitted on the screen login_form.dart just showed.
+              // Skip entirely here; only act for OTHER tabs' sessions.
             } else {
-              // Central redirect for every OTHER window/tab sharing this
-              // session (not just the one that actively logged in) — this
-              // is what fixes stale screens after a different account
-              // logs in elsewhere and swaps the shared session out from
-              // under an already-open window.
               Widget destination;
               if (role == 'Admin' ||
                   role == 'Super Admin' ||

@@ -32,6 +32,7 @@ import '../../screens/auth/mfa_enroll_screen.dart';
 import 'package:supabase_flutter/supabase_flutter.dart';
 import 'package:connectivity_plus/connectivity_plus.dart';
 import '../../screens/auth/mfa_challenge_screen.dart';
+import '../../main.dart';
 
 // ================================================
 // LOGIN FORM WIDGET
@@ -164,6 +165,8 @@ final String? role = await authService.getUserRole();
         return;
       }
 
+      isOwnLoginInProgress = true;
+
       if (role == 'Admin' || role == 'Super Admin' || role == 'Cashier') {
         // Cashier now mandatory too — permissions-based reasoning:
         // Cashier accounts can process sales and perform
@@ -182,22 +185,21 @@ final String? role = await authService.getUserRole();
           return;
         }
 
+              isOwnLoginInProgress = false;
         if (mounted) {
           Navigator.pushReplacement(
             context,
             MaterialPageRoute(
-              builder: (_) => MfaChallengeScreen(
+              builder: (mfaScreenContext) => MfaChallengeScreen(
                 role: role,
                 onVerified: () {
-                  // Checked fresh at the moment this callback actually
-                  // fires (after TOTP verification completes), not
-                  // just when it was defined — main.dart's global
-                  // listener can race ahead and dispose this screen
-                  // first, especially now that three roles' worth of
-                  // MFA checks can run near-simultaneously.
-                  if (!mounted) return;
-                  Navigator.pushReplacement(
-                    context,
+                  // FIX: was checking LoginForm's OWN `mounted` — but
+                  // LoginForm is disposed the instant this MfaChallengeScreen
+                  // route replaces it, which happens on EVERY login, not
+                  // just during a race. This uses mfaScreenContext (THIS
+                  // screen's own context) instead, which is what's
+                  // actually still alive when this callback runs.
+                  Navigator.of(mfaScreenContext).pushReplacement(
                     MaterialPageRoute(
                       builder: (_) => role == 'Admin'
                           ? const AdminLayout()

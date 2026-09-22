@@ -129,9 +129,9 @@ class PaymongoService {
           'expYear':       card.expYear,
           'cvc':           card.cvc,
           'cardHolder':    card.cardHolderName,
-          'paymentMethodAllowed':  ['card'],  // ← ADD THIS
-        },
-      );
+          'paymentMethodAllowed':  ['card'],
+          'platform':      kIsWeb ? 'web' : 'mobile',
+        },      );
 
       final data = response.data;
 

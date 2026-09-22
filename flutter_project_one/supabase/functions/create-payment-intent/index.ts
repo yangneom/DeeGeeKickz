@@ -140,7 +140,7 @@ serve(async (req) => {
               payment_method:         methodId,
               client_key:             clientKey,
               payment_method_allowed: ["card"],
-              return_url:             `https://dgeekickz.com/payment-success?order=${orderId}`,
+              return_url:             `https://deegeekickz-7b041.web.app/payment-success?order=${orderId}`,
             },
           },
         }),
