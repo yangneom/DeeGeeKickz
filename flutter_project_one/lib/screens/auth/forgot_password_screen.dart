@@ -34,7 +34,7 @@ class _ForgotPasswordScreenState extends ConsumerState<ForgotPasswordScreen> {
 
     final String email = _emailController.text.trim();
 
-    try {
+        try {
       await ref.read(authServiceProvider).sendPasswordResetEmail(email);
       if (mounted) {
         Navigator.of(context).push(
@@ -42,9 +42,10 @@ class _ForgotPasswordScreenState extends ConsumerState<ForgotPasswordScreen> {
             builder: (_) => ResetPasswordOtpScreen(email: email),
           ),
         );
+        
       }
-    } catch (_) {
-      setState(() => _errorMessage = 'Something went wrong. Please try again.');
+    } catch (e) {
+      setState(() => _errorMessage = e.toString().replaceFirst('Exception: ', ''));
     } finally {
       if (mounted) setState(() => _isSubmitting = false);
     }

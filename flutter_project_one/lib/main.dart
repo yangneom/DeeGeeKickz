@@ -1,8 +1,9 @@
 import 'package:flutter/material.dart';
 import 'package:flutter/foundation.dart';
-import 'package:flutter_web_plugins/flutter_web_plugins.dart';
 import 'package:supabase_flutter/supabase_flutter.dart';
-import 'package:flutter_riverpod/flutter_riverpod.dart';
+import 'url_strategy_stub.dart'
+    if (dart.library.js_interop) 'url_strategy_web.dart';
+    import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:flutter_screenutil/flutter_screenutil.dart';
 import 'package:flutter_dotenv/flutter_dotenv.dart';
 import 'package:app_links/app_links.dart';
@@ -46,13 +47,13 @@ void main() async {
   // AUDIT FIX: Flutter Web's default hash-based URL strategy
   // (#/route) collides with Supabase's implicit-flow auth tokens,
   // which ALSO live in the URL's # fragment (#access_token=...).
-  // After Supabase parses and clears that fragment, Flutter's own
-  // hash-routing can misinterpret the cleared URL as a navigation
-  // event, potentially causing a second, invalid attempt to consume
-  // the same one-time invite token — producing exactly the
-  // "otp_expired" error observed. Switching to plain path-based
-  // URLs removes this collision entirely.
-  usePathUrlStrategy();
+  // usePathUrlStrategy() fixes this on Web, but depends on
+  // dart:ui_web — a library that genuinely doesn't exist on native
+  // platforms at all, and fails the ENTIRE Android/iOS build if
+  // called unconditionally. kIsWeb is a compile-time-safe check
+  // that works correctly on every platform, letting this call be
+  // completely skipped (and tree-shaken away) on native builds.
+    configureUrlStrategy();
 
   await dotenv.load(fileName: 'env.public');
 
@@ -76,8 +77,7 @@ void main() async {
     ),
   );
 
-  Widget startScreen = const HomeScreen();
-
+  Widget startScreen = kIsWeb ? const HomeScreen() : const LoginScreen();
   final user = Supabase.instance.client.auth.currentUser;
 
   // On the actual app (not web), no Guest browsing — force Login/Sign Up
