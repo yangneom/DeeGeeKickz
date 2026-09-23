@@ -25,6 +25,18 @@ class SetPasswordForm extends StatefulWidget {
 }
 
 class _SetPasswordFormState extends State<SetPasswordForm> {
+  @override
+  void initState() {
+    super.initState();
+    print('[AUTH-DEBUG] SetPasswordForm MOUNTED, url=${Uri.base}');
+  }
+
+  @override
+  void dispose() {
+    print('[AUTH-DEBUG] SetPasswordForm DISPOSED, url=${Uri.base}');
+    super.dispose();
+  }
+
   final _formKey = GlobalKey<FormState>();
   final _passwordController = TextEditingController();
   final _confirmController = TextEditingController();

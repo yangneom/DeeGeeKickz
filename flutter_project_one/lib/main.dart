@@ -133,6 +133,7 @@ void main() async {
     } catch (e) {}
   }
 
+    print('[AUTH-DEBUG] Cold-start decided startScreen=${startScreen.runtimeType}, url=${Uri.base}');
   runApp(ProviderScope(child: MyApp(startScreen: startScreen)));
 }
 
@@ -275,12 +276,15 @@ class _MyAppState extends ConsumerState<MyApp> {
     });
   }
 
-  void _listenForAuthEvents() {
+    void _listenForAuthEvents() {
     Supabase.instance.client.auth.onAuthStateChange.listen((data) async {
       final event = data.event;
       final session = data.session;
 
+      print('[AUTH-DEBUG] event=$event session=${session != null} user=${session?.user.id} url=${Uri.base}');
+
       if (session == null) {
+        print('[AUTH-DEBUG] session is NULL, returning early');
         return;
       }
 
@@ -337,10 +341,11 @@ class _MyAppState extends ConsumerState<MyApp> {
               // the Guest/Home screen instead of showing the error —
               // same race class as the existing mobile-staff-block
               // case just below, just for a different condition.
-            } else if (!passwordSet &&
+                     } else if (!passwordSet &&
                 (role == 'Admin' ||
                     role == 'Cashier' ||
                     role == 'Super Admin')) {
+              print('[AUTH-DEBUG] Navigating to SetPasswordScreen for role=$role');
               WidgetsBinding.instance.addPostFrameCallback((_) {
                 _navigatorKey.currentState?.pushAndRemoveUntil(
                   MaterialPageRoute(builder: (_) => const SetPasswordScreen()),
