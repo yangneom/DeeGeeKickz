@@ -57,11 +57,11 @@ Future<String?> showReferenceNumberDialog(BuildContext context) {
                     // reference numbers are alphanumeric (GCash: all
                     // digits, some card auth codes mix letters+digits).
                     FilteringTextInputFormatter.allow(RegExp(r'[a-zA-Z0-9]')),
-                    LengthLimitingTextInputFormatter(20),
+                    LengthLimitingTextInputFormatter(11),
                     UpperCaseTextFormatter(),
                   ],
                   decoration: InputDecoration(
-                    hintText: 'e.g. 1234567890123',
+                    hintText: 'e.g. 12345678901',
                     isDense: true,
                     contentPadding: const EdgeInsets.symmetric(
                         horizontal: 12, vertical: 12),
@@ -76,6 +76,9 @@ Future<String?> showReferenceNumberDialog(BuildContext context) {
                     }
                     if (trimmed.length < 6) {
                       return 'Reference number looks too short';
+                    }
+                    if (trimmed.length > 11) {
+                      return 'Reference number cannot exceed 11 characters';
                     }
                     return null;
                   },
