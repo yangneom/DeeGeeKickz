@@ -225,7 +225,6 @@ class InventoryService {
     required String productId,
   }) async {
     try {
-      // fetch name first so the log entry reads clearly
       final product = await _supabase
           .from('product')
           .select('product_name')
@@ -234,10 +233,15 @@ class InventoryService {
 
       final productName = product['product_name'] as String? ?? 'Unknown';
 
-      await _supabase.from('product').update({
-        'is_archived': true,
-        'archived_at': DateTime.now().toIso8601String(),
-      }).eq('product_id', int.parse(productId));
+      // AUDIT FIX: was a plain, unprotected client-side .update() —
+      // genuinely nothing stopped archiving a product with real,
+      // active orders still referencing it, and nothing prevented a
+      // direct client call bypassing any Flutter-side check. Now a
+      // genuine SECURITY DEFINER RPC, checking real pending orders
+      // server-side, the actual authority here — not the UI.
+      await _supabase.rpc('archive_product_if_no_pending_orders', params: {
+        'p_product_id': int.parse(productId),
+      });
 
       await _activityLog.log(
         action: 'Archived product $productName',
@@ -246,8 +250,13 @@ class InventoryService {
       );
 
       return null;
+    } on PostgrestException catch (error) {
+      if (error.code == 'P1007') {
+        return error.message;
+      }
+      return 'Failed to archive product. Please try again.';
     } catch (error) {
-      return error.toString();
+      return 'Failed to archive product. Please try again.';
     }
   }
 

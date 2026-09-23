@@ -28,7 +28,6 @@ class _SetPasswordFormState extends State<SetPasswordForm> {
   @override
   void initState() {
     super.initState();
-    print('[AUTH-DEBUG] SetPasswordForm MOUNTED, url=${Uri.base}');
   }
 
   final _formKey = GlobalKey<FormState>();

@@ -281,10 +281,8 @@ class _MyAppState extends ConsumerState<MyApp> {
       final event = data.event;
       final session = data.session;
 
-      print('[AUTH-DEBUG] event=$event session=${session != null} user=${session?.user.id} url=${Uri.base}');
 
       if (session == null) {
-        print('[AUTH-DEBUG] session is NULL, returning early');
         return;
       }
 
@@ -345,7 +343,6 @@ class _MyAppState extends ConsumerState<MyApp> {
                 (role == 'Admin' ||
                     role == 'Cashier' ||
                     role == 'Super Admin')) {
-              print('[AUTH-DEBUG] Navigating to SetPasswordScreen for role=$role');
               WidgetsBinding.instance.addPostFrameCallback((_) {
                 _navigatorKey.currentState?.pushAndRemoveUntil(
                   MaterialPageRoute(builder: (_) => const SetPasswordScreen()),
