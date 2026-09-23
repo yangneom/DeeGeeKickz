@@ -67,9 +67,51 @@ class CustomerCartNotifier extends Notifier<List<CustomerCartItem>> {
           .eq('user_id', userId)
           .order('created_at');
 
-      state = (response as List)
+      final List<CustomerCartItem> items = (response as List)
           .map((row) => CustomerCartItem.fromJson(row as Map<String, dynamic>))
           .toList();
+
+      // AUDIT FIX: price_snapshot is captured ONCE at add-time and
+      // never updated again — a refresh just re-read the same stale
+      // value forever, which is exactly why an admin price change
+      // permanently blocked checkout no matter how many times the
+      // customer reloaded. This re-fetches each item's REAL current
+      // price and self-heals the stale snapshot in the database too.
+      for (int i = 0; i < items.length; i++) {
+        final item = items[i];
+        if (item.sizeId == null) continue;
+
+        try {
+          final priceRow = await _supabase
+              .from('product_variant_size')
+              .select('product_variant!inner(retail_price)')
+              .eq('size_id', item.sizeId!)
+              .single();
+
+          final double livePrice =
+              (priceRow['product_variant']['retail_price'] as num).toDouble();
+
+          if (livePrice != item.retailPrice) {
+            items[i] = item.copyWith(
+              retailPrice: livePrice,
+              originalPrice: livePrice,
+            );
+
+            if (item.cartItemId != null) {
+              await _supabase.from('cart_item').update({
+                'price_snapshot': livePrice,
+                'original_price_snapshot': livePrice,
+              }).eq('cart_item_id', item.cartItemId!);
+            }
+          }
+        } catch (_) {
+          // If the live-price lookup fails for any reason, keep the
+          // old snapshot rather than losing the item entirely —
+          // create_order_full will still catch a genuine mismatch.
+        }
+      }
+
+      state = items;
     } catch (error) {
     }
   }
