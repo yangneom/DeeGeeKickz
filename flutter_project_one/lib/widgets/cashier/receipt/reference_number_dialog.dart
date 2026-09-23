@@ -51,14 +51,12 @@ Future<String?> showReferenceNumberDialog(BuildContext context) {
                 TextFormField(
                   controller: controller,
                   autofocus: true,
-                  textCapitalization: TextCapitalization.characters,
+                  keyboardType: TextInputType.number,
                   inputFormatters: [
-                    // Letters and digits only — no spaces/symbols. Real
-                    // reference numbers are alphanumeric (GCash: all
-                    // digits, some card auth codes mix letters+digits).
-                    FilteringTextInputFormatter.allow(RegExp(r'[a-zA-Z0-9]')),
+                    // Digits only, max 11 — matches GCash's real
+                    // reference number format.
+                    FilteringTextInputFormatter.digitsOnly,
                     LengthLimitingTextInputFormatter(11),
-                    UpperCaseTextFormatter(),
                   ],
                   decoration: InputDecoration(
                     hintText: 'e.g. 12345678901',
