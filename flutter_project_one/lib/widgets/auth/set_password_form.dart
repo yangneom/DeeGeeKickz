@@ -34,12 +34,12 @@ class _SetPasswordFormState extends State<SetPasswordForm> {
   bool _loading = false;
   String? _errorMessage;
 
-  @override
-  void dispose() {
-    _passwordController.dispose();
-    _confirmController.dispose();
-    super.dispose();Pmain
-  }
+@override
+void dispose() {
+  _passwordController.dispose();
+  _confirmController.dispose();
+  super.dispose();
+}
 
   // ── Submit ──────────────────────────────────── (unchanged)
   Future<void> _submit() async {
