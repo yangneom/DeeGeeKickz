@@ -379,6 +379,41 @@ Future<bool> hasOverlappingDiscount({
     required String status,
   }) async {
     try {
+      // AUDIT FIX: a Fixed discount genuinely equal to or greater than
+      // the retail price produces a negative effective price —
+      // create_order_full correctly floors this at ₱0 server-side,
+      // but nothing ever stopped an admin from CREATING such a
+      // nonsensical discount in the first place, silently letting a
+      // customer "save" a negative amount until checkout quietly
+      // clamps it. If variantId is null (whole-product), checks
+      // against the LOWEST retail price across every variant, since
+      // a single fixed amount must make sense for all of them.
+      if (discountType == 'Fixed') {
+        final List<dynamic> priceRows = variantId != null
+            ? await _supabase
+                .from('product_variant')
+                .select('retail_price')
+                .eq('variant_id', variantId)
+            : await _supabase
+                .from('product_variant')
+                .select('retail_price')
+                .eq('product_id', productId);
+
+        if (priceRows.isEmpty) {
+          return 'Could not verify retail price for this product/variant.';
+        }
+
+        final double lowestPrice = priceRows
+            .map((r) => (r['retail_price'] as num).toDouble())
+            .reduce((a, b) => a < b ? a : b);
+
+        if (discountValue >= lowestPrice) {
+          return 'Discount cannot be greater than or equal to the '
+              '${variantId != null ? "variant's" : "lowest variant's"} '
+              'retail price (₱${lowestPrice.toStringAsFixed(2)}).';
+        }
+      }
+
       final inserted = await _supabase
           .from(_table)
           .insert({
@@ -558,6 +593,43 @@ Future<bool> hasOverlappingDiscount({
     required String status,
   }) async {
     try {
+      // Same overflow-into-negative-price protection as addDiscount —
+      // scope (product_id/variant_id) isn't a parameter here since
+      // it's immutable once created, so fetch the discount's existing
+      // scope first to know which price(s) to validate against.
+      if (discountType == 'Fixed') {
+        final existing = await _supabase
+            .from(_table)
+            .select('product_id, variant_id')
+            .eq('discount_id', discountId)
+            .single();
+
+        final int productId = existing['product_id'] as int;
+        final int? variantId = existing['variant_id'] as int?;
+
+        final List<dynamic> priceRows = variantId != null
+            ? await _supabase
+                .from('product_variant')
+                .select('retail_price')
+                .eq('variant_id', variantId)
+            : await _supabase
+                .from('product_variant')
+                .select('retail_price')
+                .eq('product_id', productId);
+
+        if (priceRows.isNotEmpty) {
+          final double lowestPrice = priceRows
+              .map((r) => (r['retail_price'] as num).toDouble())
+              .reduce((a, b) => a < b ? a : b);
+
+          if (discountValue >= lowestPrice) {
+            return 'Discount cannot be greater than or equal to the '
+                '${variantId != null ? "variant's" : "lowest variant's"} '
+                'retail price (₱${lowestPrice.toStringAsFixed(2)}).';
+          }
+        }
+      }
+
       await _supabase.from(_table).update({
         'discount_type': discountType,
         'discount_value': discountValue,

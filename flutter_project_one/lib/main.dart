@@ -1,5 +1,6 @@
 import 'package:flutter/material.dart';
 import 'package:flutter/foundation.dart';
+import 'package:flutter_web_plugins/flutter_web_plugins.dart';
 import 'package:supabase_flutter/supabase_flutter.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:flutter_screenutil/flutter_screenutil.dart';
@@ -41,6 +42,17 @@ bool isOwnLoginInProgress = false;
 // ================================================
 void main() async {
   WidgetsFlutterBinding.ensureInitialized();
+
+  // AUDIT FIX: Flutter Web's default hash-based URL strategy
+  // (#/route) collides with Supabase's implicit-flow auth tokens,
+  // which ALSO live in the URL's # fragment (#access_token=...).
+  // After Supabase parses and clears that fragment, Flutter's own
+  // hash-routing can misinterpret the cleared URL as a navigation
+  // event, potentially causing a second, invalid attempt to consume
+  // the same one-time invite token — producing exactly the
+  // "otp_expired" error observed. Switching to plain path-based
+  // URLs removes this collision entirely.
+  usePathUrlStrategy();
 
   await dotenv.load(fileName: 'env.public');
 

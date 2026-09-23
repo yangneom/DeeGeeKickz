@@ -1101,6 +1101,7 @@ class _AddProductDialogState extends ConsumerState<AddProductDialog> {
               final double? parsed = double.tryParse(v);
               if (parsed == null) return 'Enter a valid number';
               if (parsed <= 0) return 'Cost price must be greater than ₱0';
+              if (parsed > 99999999.99) return 'Cost price is too large (max ₱99,999,999.99)';
               return null;
             },
           ),
@@ -1117,6 +1118,7 @@ class _AddProductDialogState extends ConsumerState<AddProductDialog> {
               final double? parsed = double.tryParse(v);
               if (parsed == null) return 'Enter a valid number';
               if (parsed <= 0) return 'Retail price must be greater than ₱0';
+              if (parsed > 99999999.99) return 'Retail price is too large (max ₱99,999,999.99)';
               return null;
             },
           ),

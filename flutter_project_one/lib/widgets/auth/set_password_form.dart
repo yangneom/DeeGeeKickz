@@ -38,7 +38,7 @@ class _SetPasswordFormState extends State<SetPasswordForm> {
   void dispose() {
     _passwordController.dispose();
     _confirmController.dispose();
-    super.dispose();
+    super.dispose();Pmain
   }
 
   // ── Submit ──────────────────────────────────── (unchanged)

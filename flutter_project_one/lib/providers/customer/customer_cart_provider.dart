@@ -77,6 +77,8 @@ class CustomerCartNotifier extends Notifier<List<CustomerCartItem>> {
       // permanently blocked checkout no matter how many times the
       // customer reloaded. This re-fetches each item's REAL current
       // price and self-heals the stale snapshot in the database too.
+      final String today = DateTime.now().toIso8601String().substring(0, 10);
+
       for (int i = 0; i < items.length; i++) {
         final item = items[i];
         if (item.sizeId == null) continue;
@@ -84,33 +86,72 @@ class CustomerCartNotifier extends Notifier<List<CustomerCartItem>> {
         try {
           final priceRow = await _supabase
               .from('product_variant_size')
-              .select('product_variant!inner(retail_price)')
+              .select('variant_id, product_variant!inner(product_id, retail_price)')
               .eq('size_id', item.sizeId!)
               .single();
 
-          final double livePrice =
+          final int variantId = priceRow['variant_id'] as int;
+          final int productId = priceRow['product_variant']['product_id'] as int;
+          final double baseRetail =
               (priceRow['product_variant']['retail_price'] as num).toDouble();
 
-          if (livePrice != item.retailPrice) {
+          // AUDIT FIX: previously only refreshed the base retail_price,
+          // never re-applying an active discount — a Fixed discount
+          // GREATER than the retail price produced a genuinely
+          // negative effective price, silently displayed as ₱0.00
+          // with an incorrect negative "saved" amount. This now
+          // mirrors create_order_full's exact resolution: variant-
+          // specific discount first, then whole-product, floored
+          // at 0 — so the cart and the order-creation RPC can never
+          // disagree about what a customer actually pays.
+          Map<String, dynamic>? discountRow = await _supabase
+              .from('discount')
+              .select('discount_type, discount_value')
+              .eq('variant_id', variantId)
+              .eq('status', 'Active')
+              .lte('start_date', today)
+              .gte('end_date', today)
+              .maybeSingle();
+
+          discountRow ??= await _supabase
+              .from('discount')
+              .select('discount_type, discount_value')
+              .eq('product_id', productId)
+              .filter('variant_id', 'is', null)
+              .eq('status', 'Active')
+              .lte('start_date', today)
+              .gte('end_date', today)
+              .maybeSingle();
+
+          double effectivePrice = baseRetail;
+          if (discountRow != null) {
+            final String discountType = discountRow['discount_type'] as String;
+            final double discountValue =
+                (discountRow['discount_value'] as num).toDouble();
+            effectivePrice = discountType == 'Percentage'
+                ? baseRetail - (baseRetail * (discountValue / 100))
+                : baseRetail - discountValue;
+            if (effectivePrice < 0) effectivePrice = 0;
+          }
+
+          if (effectivePrice != item.retailPrice || baseRetail != item.originalPrice) {
             items[i] = item.copyWith(
-              retailPrice: livePrice,
-              originalPrice: livePrice,
+              retailPrice: effectivePrice,
+              originalPrice: baseRetail,
             );
 
             if (item.cartItemId != null) {
               await _supabase.from('cart_item').update({
-                'price_snapshot': livePrice,
-                'original_price_snapshot': livePrice,
+                'price_snapshot': effectivePrice,
+                'original_price_snapshot': baseRetail,
               }).eq('cart_item_id', item.cartItemId!);
             }
           }
         } catch (_) {
-          // If the live-price lookup fails for any reason, keep the
-          // old snapshot rather than losing the item entirely —
+          // Keep the old snapshot if the live lookup fails —
           // create_order_full will still catch a genuine mismatch.
         }
       }
-
       state = items;
     } catch (error) {
     }
