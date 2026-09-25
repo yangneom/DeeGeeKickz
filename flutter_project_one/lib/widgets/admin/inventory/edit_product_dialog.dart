@@ -1,4 +1,6 @@
 import 'dart:io';
+import 'dart:typed_data';
+import 'package:crop_your_image/crop_your_image.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter_project_one/models/product.dart';
 import 'package:flutter/services.dart';
@@ -298,14 +300,87 @@ class _EditProductDialogState extends ConsumerState<EditProductDialog> {
     );
   }
 
+    Future<Uint8List?> _cropImage(Uint8List bytes) async {
+    final CropController cropController = CropController();
+    Uint8List? result;
+
+    await showDialog<void>(
+      context: context,
+      barrierDismissible: false,
+      builder: (dialogContext) {
+        return Dialog(
+          backgroundColor: Colors.white,
+          shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(8)),
+          child: SizedBox(
+            width: 420,
+            height: 520,
+            child: Column(
+              children: [
+                Padding(
+                  padding: const EdgeInsets.all(16),
+                  child: Row(
+                    mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                    children: [
+                      const Text('Crop Image', style: TextStyle(fontSize: 15, fontWeight: FontWeight.w600)),
+                      IconButton(
+                        icon: const Icon(Icons.close, size: 20),
+                        onPressed: () => Navigator.of(dialogContext).pop(),
+                      ),
+                    ],
+                  ),
+                ),
+                Expanded(
+                  child: Crop(
+                    controller: cropController,
+                    image: bytes,
+                    aspectRatio: 4 / 5,
+                    onCropped: (CropResult cropResult) {
+                      switch (cropResult) {
+                        case CropSuccess(:final croppedImage):
+                          result = croppedImage;
+                        case CropFailure(:final cause):
+                          print('Crop failed: $cause');
+                      }
+                      Navigator.of(dialogContext).pop();
+                    },
+                  ),
+                ),
+                Padding(
+                  padding: const EdgeInsets.all(16),
+                  child: SizedBox(
+                    width: double.infinity,
+                    child: ElevatedButton(
+                      onPressed: () => cropController.crop(),
+                      style: ElevatedButton.styleFrom(
+                        backgroundColor: Colors.black,
+                        foregroundColor: Colors.white,
+                        padding: const EdgeInsets.symmetric(vertical: 14),
+                        shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(8)),
+                      ),
+                      child: const Text('Crop & Use'),
+                    ),
+                  ),
+                ),
+              ],
+            ),
+          ),
+        );
+      },
+    );
+
+    return result;
+  }
+
   // ================================================
   // PICK IMAGES
   // ================================================
+
   Future<void> _pickImages(int variantIndex) async {
     try {
       final result = await FilePicker.platform.pickFiles(
         type: FileType.image,
         allowMultiple: true,
+        withData: true, // ensures bytes are available for cropping on web
       );
       if (result == null) return;
 
@@ -322,15 +397,59 @@ class _EditProductDialogState extends ConsumerState<EditProductDialog> {
         return;
       }
 
+      final List<PlatformFile> newFiles = result.files.take(remaining).toList();
+
+      // AUDIT FIX: this dialog previously skipped cropping entirely —
+      // images went straight from picker to upload, inconsistent with
+      // Add Product's 4:5 crop step, and with no aspect-ratio control
+      // at all before saving.
+      final List<PlatformFile> croppedFiles = [];
+      int failedCount = 0;
+      for (final file in newFiles) {
+        Uint8List? bytes = file.bytes;
+        if (bytes == null && file.path != null) {
+          bytes = await File(file.path!).readAsBytes();
+        }
+        if (bytes == null) {
+          failedCount++;
+          continue;
+        }
+
+        final Uint8List? cropped = await _cropImage(bytes);
+        if (cropped == null) {
+          failedCount++;
+          continue;
+        }
+
+        croppedFiles.add(PlatformFile(
+          name: file.name,
+          size: cropped.length,
+          bytes: cropped,
+        ));
+      }
+
+      if (failedCount > 0 && mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(
+            content: Text(
+              failedCount == 1
+                  ? '1 image could not be processed and was skipped.'
+                  : '$failedCount images could not be processed and were skipped.',
+            ),
+            backgroundColor: Colors.orange,
+          ),
+        );
+      }
+
+      if (croppedFiles.isEmpty) return;
+
       setState(() {
-        v.pickedImageFiles
-            .addAll(result.files.take(remaining));
+        v.pickedImageFiles.addAll(croppedFiles);
       });
     } catch (error) {
       print('_pickImages error: $error');
     }
   }
-
   // ── Remove a newly-picked image (not yet in DB) ──
   void _removePickedImage(int variantIndex, int imageIndex) {
     setState(() {
@@ -419,6 +538,52 @@ class _EditProductDialogState extends ConsumerState<EditProductDialog> {
   // ================================================
   // VARIANT MANAGEMENT
   // ================================================
+  bool _hasEdited = false;
+  bool _editListenersAttached = false;
+
+  // Attaches once, lazily, the first time build() runs — avoids
+  // needing to know exactly where/how controllers are created in
+  // initState. Any keystroke anywhere in the form flips _hasEdited.
+  void _attachEditListenersOnce() {
+    if (_editListenersAttached) return;
+    _editListenersAttached = true;
+
+    void markEdited() => _hasEdited = true;
+
+    _productNameController.addListener(markEdited);
+    _detailsController.addListener(markEdited);
+    for (final v in _variants) {
+      v.colorNameController.addListener(markEdited);
+      v.costController.addListener(markEdited);
+      v.retailController.addListener(markEdited);
+      v.arEffectUrlController.addListener(markEdited);
+      for (final row in v.sizeRows) {
+        row.sizeController.addListener(markEdited);
+        row.stockController.addListener(markEdited);
+      }
+    }
+  }
+
+  Future<void> _handleCancel() async {
+    if (!_hasEdited) {
+      Navigator.pop(context);
+      return;
+    }
+
+    final bool? confirmed = await showConfirmDialog(
+      context: context,
+      title: 'Discard these changes?',
+      message: 'You have unsaved changes. If you leave now, '
+          'your edits will be lost.',
+      confirmLabel: 'Discard',
+      confirmColor: const Color(0xFFDC2626),
+    );
+
+    if (confirmed == true && mounted) {
+      Navigator.pop(context);
+    }
+  }
+
   void _addVariant() =>
       setState(() => _variants.add(VariantData()));
 
@@ -1105,12 +1270,18 @@ class _EditProductDialogState extends ConsumerState<EditProductDialog> {
             controller: variant.retailController,
             hint: 'Enter Retail Price',
             allowDecimal: true,
+            // AUDIT FIX: same gap as Add Product — each field validated
+            // independently, never against the other.
             validator: (v) {
               if (v == null || v.isEmpty) return 'Please enter a retail price';
               final double? parsed = double.tryParse(v);
               if (parsed == null) return 'Enter a valid number';
               if (parsed <= 0) return 'Retail price must be greater than ₱0';
               if (parsed > 99999999.99) return 'Retail price is too large (max ₱99,999,999.99)';
+              final double? cost = double.tryParse(variant.costController.text);
+              if (cost != null && parsed <= cost) {
+                return 'Retail price must be higher than the cost price (₱${cost.toStringAsFixed(2)})';
+              }
               return null;
             },
           ),

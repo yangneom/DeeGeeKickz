@@ -335,15 +335,22 @@ class _AddProductDialogState extends ConsumerState<AddProductDialog> {
       // actual display ratio. Cancelling a crop skips just that one
       // image, not the whole batch.
       List<PlatformFile> croppedFiles = [];
+      int failedCount = 0;
       for (final file in newFiles) {
         Uint8List? bytes = file.bytes;
         if (bytes == null && file.path != null) {
           bytes = await File(file.path!).readAsBytes();
         }
-        if (bytes == null) continue;
+        if (bytes == null) {
+          failedCount++;
+          continue;
+        }
 
         final Uint8List? cropped = await _cropImage(bytes);
-        if (cropped == null) continue;
+        if (cropped == null) {
+          failedCount++;
+          continue;
+        }
 
         croppedFiles.add(PlatformFile(
           name: file.name,
@@ -352,12 +359,28 @@ class _AddProductDialogState extends ConsumerState<AddProductDialog> {
         ));
       }
 
+      // AUDIT FIX: a crop failure used to be silently dropped with no
+      // indication to the admin at all. This doesn't block anything
+      // (images stay optional), but the admin now genuinely knows
+      // an image they picked didn't make it in.
+      if (failedCount > 0 && mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(
+            content: Text(
+              failedCount == 1
+                  ? '1 image could not be processed and was skipped.'
+                  : '$failedCount images could not be processed and were skipped.',
+            ),
+            backgroundColor: Colors.orange,
+          ),
+        );
+      }
+
       if (croppedFiles.isEmpty) return;
 
       setState(() {
         _variants[variantIndex].pickedImageFiles.addAll(croppedFiles);
       });
-
     } catch (error) {
       print('_pickImages error: $error');
       if (mounted) {
@@ -386,41 +409,40 @@ class _AddProductDialogState extends ConsumerState<AddProductDialog> {
   // uploads all picked images for one variant
   // returns list of public URLs
   // ================================================
-  Future<List<String>> _uploadImages(
+  // Returns both the successful URLs and a count of failures — the
+  // caller needs to know if ANY image was lost, not just get back
+  // whatever quietly succeeded.
+  Future<({List<String> urls, int failedCount})> _uploadImages(
     int variantId,
     List<PlatformFile> files,
   ) async {
     List<String> urls = [];
+    int failedCount = 0;
 
     for (int i = 0; i < files.length; i = i + 1) {
       PlatformFile file = files[i];
 
       try {
-        // build a unique file path inside the bucket
-        // format: variant_{id}/{timestamp}_{filename}
         String timestamp = DateTime.now().millisecondsSinceEpoch.toString();
         String fileName = file.name;
         String filePath = 'variant_$variantId/${timestamp}_$fileName';
 
-        // get the file bytes
         Uint8List? fileBytes = file.bytes;
 
-        // on mobile, bytes may be null — read from path instead
         if (fileBytes == null && file.path != null) {
           fileBytes = await File(file.path!).readAsBytes();
         }
 
         if (fileBytes == null) {
           print('_uploadImages: skipping ${file.name} — no bytes');
+          failedCount++;
           continue;
         }
 
-        // upload to Supabase Storage
         await _supabase.storage
             .from('product-images')
             .uploadBinary(filePath, fileBytes);
 
-        // get public URL
         String publicUrl = _supabase.storage
             .from('product-images')
             .getPublicUrl(filePath);
@@ -429,15 +451,56 @@ class _AddProductDialogState extends ConsumerState<AddProductDialog> {
 
       } catch (error) {
         print('_uploadImages: failed to upload ${file.name}: $error');
-        // skip this file and continue with the rest
+        failedCount++;
       }
     }
 
-    return urls;
+    return (urls: urls, failedCount: failedCount);
   }
 
   void _addVariant() => setState(() => _variants.add(VariantData()));
 
+  // Checked before Cancel — only prompts if the admin actually typed
+  // something, so an empty, untouched form can close instantly.
+  bool _hasUnsavedChanges() {
+    if (_productNameController.text.trim().isNotEmpty) return true;
+    if (_detailsController.text.trim().isNotEmpty) return true;
+    if (_selectedBrand != null) return true;
+    if (_selectedCategory != null) return true;
+
+    for (final v in _variants) {
+      if (v.colorNameController.text.trim().isNotEmpty) return true;
+      if (v.costController.text.trim().isNotEmpty) return true;
+      if (v.retailController.text.trim().isNotEmpty) return true;
+      if (v.arEffectUrlController.text.trim().isNotEmpty) return true;
+      if (v.pickedImageFiles.isNotEmpty) return true;
+      for (final row in v.sizeRows) {
+        if (row.sizeController.text.trim().isNotEmpty) return true;
+        if (row.stockController.text.trim().isNotEmpty) return true;
+      }
+    }
+    return false;
+  }
+
+  Future<void> _handleCancel() async {
+    if (!_hasUnsavedChanges()) {
+      Navigator.pop(context);
+      return;
+    }
+
+    final bool? confirmed = await showConfirmDialog(
+      context: context,
+      title: 'Discard this product?',
+      message: 'You have unsaved changes. If you leave now, '
+          'everything you entered will be lost.',
+      confirmLabel: 'Discard',
+      confirmColor: const Color(0xFFDC2626),
+    );
+
+    if (confirmed == true && mounted) {
+      Navigator.pop(context);
+    }
+  }
   void _removeVariant(int index) {
     if (_variants.length == 1) return;
     setState(() {
@@ -591,6 +654,8 @@ class _AddProductDialogState extends ConsumerState<AddProductDialog> {
       // ── UPLOAD IMAGES ──
       // fetch the newly created variants to get their IDs
       // then upload images for each variant
+        int totalImageFailures = 0;
+
       try {
         List<dynamic> newVariants = await _supabase
             .from('product_variant')
@@ -598,8 +663,6 @@ class _AddProductDialogState extends ConsumerState<AddProductDialog> {
             .order('variant_id', ascending: false)
             .limit(_variants.length);
 
-        // newVariants are in reverse order (newest first)
-        // so we reverse to match our _variants order
         List<dynamic> orderedVariants = newVariants.reversed.toList();
 
         for (int i = 0; i < _variants.length; i = i + 1) {
@@ -609,35 +672,54 @@ class _AddProductDialogState extends ConsumerState<AddProductDialog> {
 
           int variantId = orderedVariants[i]['variant_id'] as int;
 
-          // upload images and get public URLs
-          List<String> imageUrls = await _uploadImages(variantId, files);
+          final uploadResult = await _uploadImages(variantId, files);
+          totalImageFailures += uploadResult.failedCount;
 
-          // save image URLs to product_image table
-          for (int j = 0; j < imageUrls.length; j = j + 1) {
+          for (int j = 0; j < uploadResult.urls.length; j = j + 1) {
             await _supabase.from('product_image').insert({
               'variant_id': variantId,
-              'image_url': imageUrls[j],
-              // first image is the primary image
+              'image_url': uploadResult.urls[j],
               'is_primary': j == 0,
             });
           }
         }
       } catch (imageError) {
-        // images failed but product was saved — not critical
+        // Something failed before we even knew how many images to
+        // expect (e.g. the variant-lookup query itself) — treat this
+        // as a total image loss for messaging purposes below.
         print('Image upload error: $imageError');
+        totalImageFailures += 1;
       }
-
       // tell inventory_screen to refresh
       widget.onProductAdded();
 
       if (mounted) {
         Navigator.pop(context);
-        ScaffoldMessenger.of(context).showSnackBar(
+        // AUDIT FIX: previously always showed a plain success message
+        // regardless of whether every selected image actually made
+        // it in. Product creation itself still succeeds either way
+        // (images remain optional by design) — but the admin is now
+        // told the truth about what happened.
+        if (totalImageFailures > 0) {
+          ScaffoldMessenger.of(context).showSnackBar(
+            SnackBar(
+              content: Text(
+                'Product created, but $totalImageFailures image(s) failed '
+                'to upload. You can add them later from Edit Product.',
+              ),
+              backgroundColor: Colors.orange,
+              duration: const Duration(seconds: 5),
+            ),
+          );
+        } else {
+          ScaffoldMessenger.of(context).showSnackBar(
           const SnackBar(
             content: Text('Product published successfully!'),
             backgroundColor: Color(0xFF16A34A),
           ),
         );
+      }
+
       }
 
     } catch (error) {
@@ -1113,12 +1195,21 @@ class _AddProductDialogState extends ConsumerState<AddProductDialog> {
             controller: variant.retailController,
             hint: 'Enter Retail Price',
             allowDecimal: true,
+            // AUDIT FIX: each field previously validated independently
+            // — nothing ever compared the two, so Retail < Cost could
+            // be saved without any warning. This reads the sibling
+            // Cost field directly since both belong to the same
+            // `variant` object.
             validator: (v) {
               if (v == null || v.isEmpty) return 'Please enter a retail price';
               final double? parsed = double.tryParse(v);
               if (parsed == null) return 'Enter a valid number';
               if (parsed <= 0) return 'Retail price must be greater than ₱0';
               if (parsed > 99999999.99) return 'Retail price is too large (max ₱99,999,999.99)';
+              final double? cost = double.tryParse(variant.costController.text);
+              if (cost != null && parsed <= cost) {
+                return 'Retail price must be higher than the cost price (₱${cost.toStringAsFixed(2)})';
+              }
               return null;
             },
           ),
@@ -1388,10 +1479,8 @@ child: Container(
                 child: Row(
                   mainAxisAlignment: MainAxisAlignment.end,
                   children: [
-                    OutlinedButton(
-                      onPressed: _isLoading
-                          ? null
-                          : () => Navigator.pop(context),
+                                       OutlinedButton(
+                      onPressed: _isLoading ? null : _handleCancel,
                       style: OutlinedButton.styleFrom(
                         foregroundColor: const Color(0xFF374151),
                         side: const BorderSide(color: Color(0xFFD1D5DB)),
