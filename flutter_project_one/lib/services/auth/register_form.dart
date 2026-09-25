@@ -554,7 +554,7 @@ class _RegisterFormState extends ConsumerState<RegisterForm> {
                         return 'Please enter a password';
                       }
                       if (value.length < 6) {
-                        return 'Password must be at least 6 characters';
+                        return 'Password must be at least 8 characters';
                       }
                       return null;
                     },
@@ -599,6 +599,10 @@ class _RegisterFormState extends ConsumerState<RegisterForm> {
                               vertical: 14,
                             ),
                           ),
+                          // AUDIT FIX: this was validating against a
+                          // letters-only NAME pattern, not a phone
+                          // number — desktop signup was structurally
+                          // unable to ever accept a real phone number.
                           validator: (String? value) {
                             if (value == null || value.isEmpty) {
                               return 'Please enter your phone number';

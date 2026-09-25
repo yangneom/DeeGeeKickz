@@ -129,7 +129,7 @@ class _ArchivedItemsDialogState extends ConsumerState<ArchivedItemsDialog> {
                 crossAxisAlignment: CrossAxisAlignment.start,
                 children: const [
                   Text(
-                    'Archived Items',
+                                        'Discontinued Items',
                     style: TextStyle(
                       fontSize: 22,
                       fontWeight: FontWeight.bold,
@@ -138,7 +138,7 @@ class _ArchivedItemsDialogState extends ConsumerState<ArchivedItemsDialog> {
                   ),
                   SizedBox(height: 4),
                   Text(
-                    'View and restore previously archived products.',
+                                        'View and restore previously discontinued products.',
                     style: TextStyle(
                       fontSize: 13,
                       color: Color(0xFF6B7280),
@@ -184,7 +184,7 @@ class _ArchivedItemsDialogState extends ConsumerState<ArchivedItemsDialog> {
                           padding: const EdgeInsets.fromLTRB(24, 16, 24, 16),
                           child: ExpandableProductTable(
                             products: _products,
-                            extraHeaderLabel: 'Archived Date',
+                            extraHeaderLabel: 'Discontinued Date',
                             extraValueBuilder: (Product product) {
                               return product.archivedDate ?? '';
                             },

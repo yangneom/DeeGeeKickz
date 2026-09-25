@@ -59,11 +59,7 @@ class _FeedbackScreenState extends ConsumerState<FeedbackScreen> {
     return Scaffold(
       backgroundColor: const Color(0xFFF8F9FA),
       body: GestureDetector(
-        onTap: () {
-          if (_showFilterPanel) {
-            setState(() => _showFilterPanel = false);
-          }
-        },
+                onTap: () {},
         child: Padding(
           padding: const EdgeInsets.all(32),
           child: Column(
@@ -98,25 +94,7 @@ class _FeedbackScreenState extends ConsumerState<FeedbackScreen> {
                         .read(feedbackFilterProvider.notifier)
                         .setSearch(value),
                   ),
-                  const SizedBox(width: 8),
-                                    FilterButton(
-                    isOpen: _showFilterPanel,
-                    onTap: () => setState(() {
-                      _showFilterPanel = !_showFilterPanel;
-                    }),
-                    selectedValues: const {},
-                    onValueChanged: (String section, String? value) {},
-                    onClear: () {
-                      _searchController.clear();
-                      ref.read(feedbackFilterProvider.notifier).clear();
-                      setState(() => _showFilterPanel = false);
-                    },
-                    onApply: () {
-                      setState(() => _showFilterPanel = false);
-                    },
-                    sections: const [],
-                  ),
-                ],
+                             ],
               ),
 
               const SizedBox(height: 24),

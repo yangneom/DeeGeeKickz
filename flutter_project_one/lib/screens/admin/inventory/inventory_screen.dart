@@ -232,13 +232,14 @@ class _InventoryScreenState extends ConsumerState<InventoryScreen> {
   // HANDLE ARCHIVE — called from 3-dot menu
   // shows confirm dialog → calls service → refreshes
   // ================================================
-  Future<void> _handleArchive(Product product) async {
+   Future<void> _handleArchive(Product product) async {
     final bool? confirmed = await showConfirmDialog(
       context: context,
-      title: 'Archive "${product.productName}"?',
-      message: 'This product will be hidden from inventory and the cashier. '
-          'You can restore it anytime from the Archived section.',
-      confirmLabel: 'Archive',
+      title: 'Discontinue "${product.productName}"?',
+      message: 'This product will be marked as discontinued and hidden from '
+          'inventory and the cashier. You can restore it anytime from the '
+          'Discontinued section.',
+      confirmLabel: 'Discontinue',
       confirmColor: const Color(0xFF9CA3AF),
     );
 
@@ -338,7 +339,7 @@ class _InventoryScreenState extends ConsumerState<InventoryScreen> {
             ),
             SizedBox(width: 8),
             Text(
-              'Archive',
+              'Discontinue',
               style: TextStyle(
                 fontSize: 13,
                 color: Color(0xFF374151),

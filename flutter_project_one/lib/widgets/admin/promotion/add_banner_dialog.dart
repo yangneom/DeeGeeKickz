@@ -307,7 +307,7 @@ class _AddBannerDialogState extends State<AddBannerDialog> {
                             ),
                           )
                         : const Text(
-                            'Upload Banner',
+                                                        'Upload & Publish Banner',
                             style: TextStyle(
                               fontSize: 13,
                               fontWeight: FontWeight.w500,
@@ -392,10 +392,16 @@ class _AddBannerDialogState extends State<AddBannerDialog> {
             width: double.infinity,
             height: 220,
             color: const Color(0xFF111827),
-            child: Crop(
+                       child: Crop(
               controller: _cropController,
               image: _pickedBytes!,
-              aspectRatio: 16 / 5,
+              // AUDIT FIX: was 16/5, matching neither of hero_section's
+              // two real display ratios (21/9 desktop, 4/3 mobile) —
+              // now matches Desktop exactly, since that's the primary
+              // experience and closest in shape to the original value.
+              // Mobile's own, separate 4/3 crop remains an intentional,
+              // documented design choice in hero_section.dart itself.
+              aspectRatio: 21 / 9,
               baseColor: const Color(0xFF111827),
               maskColor: Colors.black.withOpacity(0.55),
               onCropped: _handleCropResult,
@@ -421,8 +427,8 @@ class _AddBannerDialogState extends State<AddBannerDialog> {
                     borderRadius: BorderRadius.circular(8),
                   ),
                 ),
-                child: const Text(
-                  'Cancel',
+                               child: const Text(
+                  'Choose Different Image',
                   style: TextStyle(fontSize: 13, fontWeight: FontWeight.w500),
                 ),
               ),
@@ -461,8 +467,8 @@ class _AddBannerDialogState extends State<AddBannerDialog> {
       children: [
         ClipRRect(
           borderRadius: BorderRadius.circular(8),
-          child: AspectRatio(
-            aspectRatio: 16 / 5,
+                    child: AspectRatio(
+            aspectRatio: 21 / 9,
             child: Image.memory(
               _croppedBytes!,
               width: double.infinity,
