@@ -620,12 +620,15 @@ class _AddProductDialogState extends ConsumerState<AddProductDialog> {
           'arEffectUrl': v.arEffectUrlController.text.trim().isEmpty
               ? null
               : v.arEffectUrlController.text.trim(),
-          'arEffectUrl': v.arEffectUrlController.text.trim().isEmpty
-              ? null
-              : v.arEffectUrlController.text.trim(),
           'sizeRows': sizeRows,
-          // pass picked files so we can upload after product is saved
-          'pickedFiles': v.pickedImageFiles,
+          // AUDIT FIX: 'pickedFiles' used to be included here, but raw
+          // PlatformFile objects (containing image bytes) can't be
+          // JSON-encoded — this silently broke the RPC call the moment
+          // any image was attached, throwing all the way up to the
+          // outer catch as "Failed to save product." Images are
+          // uploaded entirely separately, directly from
+          // _variants[i].pickedImageFiles further down — this key was
+          // never actually read by anything.
         });
       }
 

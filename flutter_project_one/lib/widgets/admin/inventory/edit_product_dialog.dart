@@ -1475,6 +1475,12 @@ class _EditProductDialogState extends ConsumerState<EditProductDialog> {
   // ================================================
   @override
   Widget build(BuildContext context) {
+    // AUDIT FIX: this call was never actually wired in — meaning
+    // _hasEdited stayed false forever, and _handleCancel() always
+    // took its "no changes, just close" branch regardless of what
+    // the admin had actually typed.
+    _attachEditListenersOnce();
+
     final double screenHeight =
         MediaQuery.of(context).size.height;
     final double screenWidth = MediaQuery.of(context).size.width;
