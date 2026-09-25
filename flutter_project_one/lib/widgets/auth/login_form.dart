@@ -152,7 +152,7 @@ class _LoginFormState extends ConsumerState<LoginForm> {
       }
 final String? role = await authService.getUserRole();
 
-      // Staff roles (Admin/Cashier/Super Admin) are web-only — the
+            // Staff roles (Admin/Cashier/Super Admin) are web-only — the
       // mobile app is Customer-only by design. Block here rather than
       // letting them reach a staff layout that assumes web-only
       // features (CSV/Excel export, etc.) are available.
@@ -161,6 +161,28 @@ final String? role = await authService.getUserRole();
         ref.read(errorMessageProvider.notifier).setError(
           'This account type isn\'t supported on the mobile app. '
           'Please use the web version to log in as $role.',
+        );
+        return;
+      }
+
+      // AUDIT FIX: the check above only ever caught the native APK
+      // (!kIsWeb) — a staff member opening the Web portal in a phone's
+      // browser was never blocked at all, since kIsWeb is true there
+      // regardless of screen width. Staff layouts assume desktop-width
+      // features are available (the same reasoning as the APK block
+      // above), so this closes that gap using a genuine viewport-width
+      // check instead of a platform check. This is a presentation-layer
+      // rule only — real authorization stays entirely server-side via
+      // RLS/guard_protected_user_columns, unaffected by this check.
+      if (kIsWeb &&
+          role != 'Customer' &&
+          role != null &&
+          mounted &&
+          MediaQuery.of(context).size.width < 768) {
+        await authService.logout();
+        ref.read(errorMessageProvider.notifier).setError(
+          'The staff portal requires a desktop or laptop screen. '
+          'Please log in as $role from a larger device.',
         );
         return;
       }
