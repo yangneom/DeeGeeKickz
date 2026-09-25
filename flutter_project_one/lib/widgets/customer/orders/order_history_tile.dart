@@ -300,13 +300,12 @@ class OrderHistoryTile extends StatelessWidget {
                                 cancelledBy: 'customer',
                               );
 
-                              if (order.contact.isNotEmpty) {
-                                await SmsService().sendOrderCancelled(
-                                  phone:   order.contact,
-                                  orderId: order.orderId,
-                                  reason:  reason,
-                                );
-                              }
+                              // AUDIT FIX: customer-initiated cancellations
+                              // should notify Admin only, never send the
+                              // customer an SMS — sendOrderCancelled()
+                              // stays in SmsService for a genuine future
+                              // admin/system-initiated flow, just no
+                              // longer called from this button.
 
                                 if (context.mounted) {
                                   Navigator.of(context).pop();

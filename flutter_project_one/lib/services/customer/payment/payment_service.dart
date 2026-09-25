@@ -521,27 +521,20 @@ Future<void> cancelOrder({
     required String reason,
   }) async {
     try {
-      final staff = await _supabase
-          .from('users')
-          .select('id')
-          .eq('role', 'Admin');
-
-      if ((staff as List).isEmpty) return;
-
-      final rows = staff.map((u) => {
-            'customer_id': u['id'],
-            'type': 'order_cancellation',
-            'title': 'Order cancelled',
-            'body': 'Order #$orderId was cancelled by the customer. Reason: $reason',
-            'recipient_role': 'admin',
-          }).toList();
-
-      await _supabase.from('notifications').insert(rows); // NO .select() !
+      // AUDIT FIX: this used to read the users table directly using
+      // the CUSTOMER's own session — but RLS only ever allows reading
+      // your own row, so `staff` was silently always empty and this
+      // returned before ever creating a notification. Now a genuine
+      // SECURITY DEFINER RPC, which correctly reads every Admin
+      // server-side, bypassing RLS legitimately.
+      await _supabase.rpc('notify_admin_order_cancellation', params: {
+        'p_order_id': orderId,
+        'p_reason': reason,
+      });
     } catch (error) {
       print('_notifyStaffOrderCancellation error: $error');
     }
   }
-
   // ================================================
   // FETCH PAYMENT FOR ORDER
   // ================================================
