@@ -1,5 +1,6 @@
 // Basic Flutter import
 import 'package:flutter/material.dart';
+import 'package:flutter/services.dart';
 
 // Needed for TapGestureRecognizer, which lets us make a single word
 // inside a RichText/TextSpan tappable (a plain GestureDetector only
@@ -241,6 +242,10 @@ class _RegisterFormState extends ConsumerState<RegisterForm> {
                         const SizedBox(height: 8),
                         TextFormField(
                           controller: _firstNameController,
+                          inputFormatters: [
+                            FilteringTextInputFormatter.deny(RegExp(r'[0-9]')),
+                            LengthLimitingTextInputFormatter(50),
+                          ],
                           decoration: InputDecoration(
                             hintText: 'Jane',
                             border: OutlineInputBorder(
@@ -252,8 +257,12 @@ class _RegisterFormState extends ConsumerState<RegisterForm> {
                             ),
                           ),
                           validator: (String? value) {
-                            if (value == null || value.isEmpty) {
+                            final String trimmed = value?.trim() ?? '';
+                            if (trimmed.isEmpty) {
                               return 'Please enter your first name';
+                            }
+                            if (!RegExp(r"^[a-zA-Z\s\-']+$").hasMatch(trimmed)) {
+                              return 'First name should only contain letters';
                             }
                             return null;
                           },
@@ -324,6 +333,10 @@ class _RegisterFormState extends ConsumerState<RegisterForm> {
                   const SizedBox(height: 8),
                   TextFormField(
                     controller: _firstNameController,
+                    inputFormatters: [
+                      FilteringTextInputFormatter.deny(RegExp(r'[0-9]')),
+                      LengthLimitingTextInputFormatter(50),
+                    ],
                     decoration: InputDecoration(
                       hintText: 'Jane',
                       border: OutlineInputBorder(
@@ -335,8 +348,12 @@ class _RegisterFormState extends ConsumerState<RegisterForm> {
                       ),
                     ),
                     validator: (String? value) {
-                      if (value == null || value.isEmpty) {
+                      final String trimmed = value?.trim() ?? '';
+                      if (trimmed.isEmpty) {
                         return 'Please enter your first name';
+                      }
+                      if (!RegExp(r"^[a-zA-Z\s\-']+$").hasMatch(trimmed)) {
+                        return 'First name should only contain letters';
                       }
                       return null;
                     },
@@ -403,6 +420,10 @@ class _RegisterFormState extends ConsumerState<RegisterForm> {
                         const SizedBox(height: 8),
                         TextFormField(
                           controller: _lastNameController,
+                          inputFormatters: [
+                            FilteringTextInputFormatter.deny(RegExp(r'[0-9]')),
+                            LengthLimitingTextInputFormatter(50),
+                          ],
                           decoration: InputDecoration(
                             hintText: 'Doe',
                             border: OutlineInputBorder(
@@ -414,8 +435,12 @@ class _RegisterFormState extends ConsumerState<RegisterForm> {
                             ),
                           ),
                           validator: (String? value) {
-                            if (value == null || value.isEmpty) {
+                            final String trimmed = value?.trim() ?? '';
+                            if (trimmed.isEmpty) {
                               return 'Please enter your last name';
+                            }
+                            if (!RegExp(r"^[a-zA-Z\s\-']+$").hasMatch(trimmed)) {
+                              return 'Last name should only contain letters';
                             }
                             return null;
                           },
@@ -497,6 +522,10 @@ class _RegisterFormState extends ConsumerState<RegisterForm> {
                   const SizedBox(height: 8),
                   TextFormField(
                     controller: _lastNameController,
+                    inputFormatters: [
+                      FilteringTextInputFormatter.deny(RegExp(r'[0-9]')),
+                      LengthLimitingTextInputFormatter(50),
+                    ],
                     decoration: InputDecoration(
                       hintText: 'Doe',
                       border: OutlineInputBorder(
@@ -508,8 +537,12 @@ class _RegisterFormState extends ConsumerState<RegisterForm> {
                       ),
                     ),
                     validator: (String? value) {
-                      if (value == null || value.isEmpty) {
+                      final String trimmed = value?.trim() ?? '';
+                      if (trimmed.isEmpty) {
                         return 'Please enter your last name';
+                      }
+                      if (!RegExp(r"^[a-zA-Z\s\-']+$").hasMatch(trimmed)) {
+                        return 'Last name should only contain letters';
                       }
                       return null;
                     },
@@ -589,6 +622,10 @@ class _RegisterFormState extends ConsumerState<RegisterForm> {
                        TextFormField(
                           controller: _phoneController,
                           keyboardType: TextInputType.phone,
+                          inputFormatters: [
+                            FilteringTextInputFormatter.allow(RegExp(r'[\d+]')),
+                            LengthLimitingTextInputFormatter(13),
+                          ],
                           decoration: InputDecoration(
                             hintText: 'e.g. 09171234567',
                             border: OutlineInputBorder(
@@ -696,6 +733,10 @@ class _RegisterFormState extends ConsumerState<RegisterForm> {
                   TextFormField(
                     controller: _phoneController,
                     keyboardType: TextInputType.phone,
+                    inputFormatters: [
+                      FilteringTextInputFormatter.allow(RegExp(r'[\d+]')),
+                      LengthLimitingTextInputFormatter(13),
+                    ],
                     decoration: InputDecoration(
                       hintText: 'e.g. 09171234567',
                       border: OutlineInputBorder(

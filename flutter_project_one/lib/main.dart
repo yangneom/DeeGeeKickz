@@ -362,7 +362,28 @@ class _MyAppState extends ConsumerState<MyApp> {
               // discarding whatever the user had already typed/
               // submitted on the screen login_form.dart just showed.
               // Skip entirely here; only act for OTHER tabs' sessions.
-            } else {
+                        } else {
+              // AUDIT FIX: the desktop-width restriction was only ever
+              // checked in login_form.dart's own _handleLogin() — this
+              // GLOBAL listener also reacts to the same signedIn event
+              // independently, with no viewport awareness at all,
+              // letting a staff login proceed to MFA regardless of
+              // screen width via this separate path. Same check,
+              // applied here too, so neither path can bypass the other.
+              if (kIsWeb &&
+                  (role == 'Admin' || role == 'Super Admin' || role == 'Cashier') &&
+                  _navigatorKey.currentContext != null &&
+                  MediaQuery.of(_navigatorKey.currentContext!).size.width < 768) {
+                await Supabase.instance.client.auth.signOut();
+                WidgetsBinding.instance.addPostFrameCallback((_) {
+                  _navigatorKey.currentState?.pushAndRemoveUntil(
+                    MaterialPageRoute(builder: (_) => const LoginScreen()),
+                    (route) => false,
+                  );
+                });
+                return;
+              }
+
               Widget destination;
               if (role == 'Admin' ||
                   role == 'Super Admin' ||
