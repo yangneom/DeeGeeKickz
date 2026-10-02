@@ -20,14 +20,20 @@ class SalesScreen extends ConsumerStatefulWidget {
   ConsumerState<SalesScreen> createState() => _SalesScreenState();
 }
 
+enum AdminDateFilter { all, today, yesterday, thisWeek, thisMonth, thisYear, custom }
+
 class _SalesScreenState extends ConsumerState<SalesScreen> {
 
   final SalesManagementService _salesService = SalesManagementService();
   final TextEditingController _searchController = TextEditingController();
 
-  bool _showFilterPanel = false;
+    bool _showFilterPanel = false;
   String? _selectedStatus;
   String _selectedType = 'All'; // All / online / In-Store
+
+  // AUDIT ADD: Phase 6 — date filter
+  AdminDateFilter _dateFilter = AdminDateFilter.all;
+  DateTimeRange? _customDateRange;
 
   List<SaleRecord> _allSales = [];
   List<SaleRecord> _filteredSales = [];
@@ -79,6 +85,8 @@ class _SalesScreenState extends ConsumerState<SalesScreen> {
     String searchQuery = _searchController.text.toLowerCase();
     List<SaleRecord> results = [];
 
+    final DateTimeRange? dateRange = _resolveDateRange();
+
     for (final sale in _allSales) {
       // Search filter
       if (searchQuery.isNotEmpty) {
@@ -88,10 +96,55 @@ class _SalesScreenState extends ConsumerState<SalesScreen> {
         if (!matchesSearch) continue;
       }
 
+      // AUDIT ADD: Phase 6 — date filter
+      if (dateRange != null) {
+        if (sale.rawDateTime.isBefore(dateRange.start) ||
+            !sale.rawDateTime.isBefore(dateRange.end)) {
+          continue;
+        }
+      }
+
       results.add(sale);
     }
 
     setState(() => _filteredSales = results);
+  }
+
+  // AUDIT ADD: Phase 6 — translates the selected named filter into a
+  // concrete [start, end) range. Returns null for "All" (no filter).
+  DateTimeRange? _resolveDateRange() {
+    final DateTime now = DateTime.now();
+    final DateTime todayStart = DateTime(now.year, now.month, now.day);
+
+    switch (_dateFilter) {
+      case AdminDateFilter.all:
+        return null;
+      case AdminDateFilter.today:
+        return DateTimeRange(start: todayStart, end: todayStart.add(const Duration(days: 1)));
+      case AdminDateFilter.yesterday:
+        final DateTime y = todayStart.subtract(const Duration(days: 1));
+        return DateTimeRange(start: y, end: todayStart);
+      case AdminDateFilter.thisWeek:
+        final DateTime weekStart = todayStart.subtract(Duration(days: todayStart.weekday - 1));
+        return DateTimeRange(start: weekStart, end: todayStart.add(const Duration(days: 1)));
+      case AdminDateFilter.thisMonth:
+        return DateTimeRange(
+          start: DateTime(now.year, now.month),
+          end: todayStart.add(const Duration(days: 1)),
+        );
+      case AdminDateFilter.thisYear:
+        return DateTimeRange(
+          start: DateTime(now.year),
+          end: todayStart.add(const Duration(days: 1)),
+        );
+      case AdminDateFilter.custom:
+        if (_customDateRange == null) return null;
+        return DateTimeRange(
+          start: _customDateRange!.start,
+          end: DateTime(_customDateRange!.end.year, _customDateRange!.end.month, _customDateRange!.end.day)
+              .add(const Duration(days: 1)),
+        );
+    }
   }
 
   void _clearFilters() {
@@ -381,6 +434,62 @@ static const List<String> _exportHeaders = [
               ),
             ],
           ),
+        ),
+      ),
+    );
+  }
+
+    Widget _buildDateFilterSelector() {
+    const Map<AdminDateFilter, String> labels = {
+      AdminDateFilter.all: 'All Time',
+      AdminDateFilter.today: 'Today',
+      AdminDateFilter.yesterday: 'Yesterday',
+      AdminDateFilter.thisWeek: 'This Week',
+      AdminDateFilter.thisMonth: 'This Month',
+      AdminDateFilter.thisYear: 'This Year',
+      AdminDateFilter.custom: 'Custom Range',
+    };
+
+    return PopupMenuButton<AdminDateFilter>(
+      shape: RoundedRectangleBorder(
+        borderRadius: BorderRadius.circular(8),
+        side: const BorderSide(color: Color(0xFFE5E7EB)),
+      ),
+      itemBuilder: (context) => AdminDateFilter.values
+          .map((f) => PopupMenuItem(value: f, child: Text(labels[f]!)))
+          .toList(),
+      onSelected: (filter) async {
+        if (filter == AdminDateFilter.custom) {
+          final DateTimeRange? picked = await showDateRangePicker(
+            context: context,
+            firstDate: DateTime(2020),
+            lastDate: DateTime.now(),
+            initialDateRange: _customDateRange,
+          );
+          if (picked == null) return;
+          setState(() {
+            _dateFilter = AdminDateFilter.custom;
+            _customDateRange = picked;
+          });
+        } else {
+          setState(() => _dateFilter = filter);
+        }
+        _applyFilters();
+      },
+      child: Container(
+        padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 8),
+        decoration: BoxDecoration(
+          color: const Color(0xFFF9FAFB),
+          borderRadius: BorderRadius.circular(8),
+          border: Border.all(color: const Color(0xFFE5E7EB)),
+        ),
+        child: Row(
+          mainAxisSize: MainAxisSize.min,
+          children: [
+            Text(labels[_dateFilter]!, style: const TextStyle(fontSize: 13, color: Color(0xFF111827))),
+            const SizedBox(width: 4),
+            const Icon(Icons.keyboard_arrow_down, size: 16, color: Color(0xFF6B7280)),
+          ],
         ),
       ),
     );

@@ -11,6 +11,10 @@ class SaleRecord {
   final String paymentMethod;
   final String orderStatus;
   final String dateTime;
+  // AUDIT ADD: Phase 6 — the real DateTime, kept alongside the
+  // formatted display string so the date filter can actually compare
+  // real dates instead of re-parsing a human-readable string.
+  final DateTime rawDateTime;
   final String? receiptUrl;     // ← new, so Sales table can offer a direct download
 
 
@@ -24,14 +28,18 @@ class SaleRecord {
     required this.paymentMethod,
     required this.orderStatus,
     required this.dateTime,
+    required this.rawDateTime,
     this.receiptUrl,
 
   });
 
   factory SaleRecord.fromMap(Map<String, dynamic> map) {
     String dateTime = '';
+    DateTime rawDateTime = DateTime.fromMillisecondsSinceEpoch(0);
     if (map['created_at'] != null) {
-      final DateTime dt = DateTime.parse(map['created_at'].toString()).toLocal();
+            // AUDIT FIX: same Philippine-time correction as SalesReportService.
+      final DateTime dt = DateTime.parse(map['created_at'].toString()).toUtc().add(const Duration(hours: 8));
+      rawDateTime = dt;
       final String month  = dt.month.toString().padLeft(2, '0');
       final String day    = dt.day.toString().padLeft(2, '0');
       final String year   = dt.year.toString();
@@ -51,6 +59,7 @@ class SaleRecord {
       paymentMethod:   map['payment_method'] ?? '',
       orderStatus:     map['order_status'] ?? '',
       dateTime:        dateTime,
+      rawDateTime:     rawDateTime,
       receiptUrl:      map['receipt_url'] as String?,
     );
   }

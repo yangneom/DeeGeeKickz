@@ -10,7 +10,7 @@ import '../../../services/super/sales/sales_report_service.dart';
 import '../../../core/utils/csv_export_helper.dart';
 import '../../../core/utils/excel_export_helper.dart';
 import '../../../widgets/super/sales/full_product_sales_report_dialog.dart';
-
+import '../../../services/super/sales/sales_report_service.dart';
 // ================================================
 // SALES REPORT SCREEN
 //
@@ -22,6 +22,16 @@ import '../../../widgets/super/sales/full_product_sales_report_dialog.dart';
 //
 // Has search, filter by growth direction, and export.
 // ================================================
+
+enum SalesReportPeriodType { month, year, custom }
+
+  List<DateTime> _availableMonths = [];
+
+  // AUDIT ADD: Phase 2 — period-type selector (Month/Year/Custom)
+  SalesReportPeriodType _periodType = SalesReportPeriodType.month;
+  int? _selectedYear;
+  DateTimeRange? _selectedCustomRange;
+  
 class SalesReportScreen extends ConsumerStatefulWidget {
   const SalesReportScreen({super.key});
 
@@ -37,8 +47,23 @@ class _SalesReportScreenState extends ConsumerState<SalesReportScreen> {
   bool _showFilterPanel = false;
   String? _selectedFilter;
 
-  List<MonthlyReport> _allReports = [];
+    List<MonthlyReport> _allReports = [];
   List<MonthlyReport> _filteredReports = [];
+
+  // AUDIT ADD: Phase 3 — Year view aggregated summary + the subset
+  // of _allReports belonging to the selected year.
+    List<MonthlyReport> _yearMonths = [];
+
+  // AUDIT ADD: Phase 4 — daily breakdown table within the Month view.
+  List<DailySalesSummary> _dailyBreakdown = [];
+  bool _isLoadingYear = false;
+
+  // AUDIT ADD: Phase 5 — Custom range summary (day-level granularity,
+  // not covered by MonthlyReport/_allReports, so this needs its own
+  // service call).
+  CustomRangeSummary? _customRangeSummary;
+  bool _isLoadingCustomRange = false;
+  String? _customRangeError;
 
   bool _isLoading = true;
   String? _errorMessage;
@@ -99,12 +124,15 @@ class _SalesReportScreenState extends ConsumerState<SalesReportScreen> {
       _monthDetailError = null;
     });
 
-    try {
+      try {
       final MonthSalesDetail detail =
           await _reportService.getMonthSalesDetail(month);
+      final List<DailySalesSummary> daily =
+          await _reportService.getDailyBreakdown(month);
       if (!mounted) return;
       setState(() {
         _monthDetail = detail;
+        _dailyBreakdown = daily;
         _isLoadingMonthDetail = false;
       });
     } catch (e) {
@@ -113,6 +141,43 @@ class _SalesReportScreenState extends ConsumerState<SalesReportScreen> {
       setState(() {
         _isLoadingMonthDetail = false;
         _monthDetailError = 'Failed to load data for this month.';
+      });
+    }
+  }
+
+    // AUDIT ADD: Phase 3 — filters the already-loaded _allReports by
+  // year. No new query needed; _loadReports() already fetched every
+  // qualifying month once.
+  void _onYearChanged(int year) {
+    setState(() {
+      _isLoadingYear = true;
+      _yearMonths = _allReports.where((r) => r.monthStart.year == year).toList()
+        ..sort((a, b) => a.monthStart.compareTo(b.monthStart));
+      _isLoadingYear = false;
+    });
+  }
+
+  // AUDIT ADD: Phase 5 — custom range needs day-level data that
+  // MonthlyReport doesn't carry, so this calls a dedicated service
+  // method rather than reusing _allReports.
+  Future<void> _onCustomRangeChanged(DateTimeRange range) async {
+    setState(() {
+      _isLoadingCustomRange = true;
+      _customRangeError = null;
+    });
+    try {
+      final CustomRangeSummary summary =
+          await _reportService.getCustomRangeSummary(range.start, range.end);
+      if (!mounted) return;
+      setState(() {
+        _customRangeSummary = summary;
+        _isLoadingCustomRange = false;
+      });
+    } catch (e) {
+      if (!mounted) return;
+      setState(() {
+        _customRangeError = 'Failed to load this date range.';
+        _isLoadingCustomRange = false;
       });
     }
   }
@@ -271,7 +336,7 @@ class _SalesReportScreenState extends ConsumerState<SalesReportScreen> {
   // ================================================
   static const List<String> _exportHeaders = [
     'Month',
-    'Total Sales',
+    'Product Sales',
     'COGS',
     'Gross Profit',
     'Best Seller',
@@ -342,6 +407,297 @@ class _SalesReportScreenState extends ConsumerState<SalesReportScreen> {
     return tableRows;
   }
 
+    Widget _buildPeriodSelector() {
+    String label;
+    switch (_periodType) {
+      case SalesReportPeriodType.month:
+        label = _selectedMonth != null ? _formatMonthLabel(_selectedMonth!) : 'Select month';
+        break;
+      case SalesReportPeriodType.year:
+        label = _selectedYear != null ? '$_selectedYear' : 'Select year';
+        break;
+      case SalesReportPeriodType.custom:
+        label = _selectedCustomRange != null
+            ? '${_formatShortDate(_selectedCustomRange!.start)} – ${_formatShortDate(_selectedCustomRange!.end)}'
+            : 'Select range';
+        break;
+    }
+
+    return PopupMenuButton<String>(
+      offset: const Offset(0, 40),
+      shape: RoundedRectangleBorder(
+        borderRadius: BorderRadius.circular(8),
+        side: const BorderSide(color: Color(0xFFE5E7EB)),
+      ),
+      itemBuilder: (context) => [
+        const PopupMenuItem(value: 'month', child: Text('Month')),
+        const PopupMenuItem(value: 'year', child: Text('Year')),
+        const PopupMenuItem(value: 'custom', child: Text('Custom Range')),
+      ],
+      onSelected: (value) async {
+        if (value == 'month') {
+          setState(() => _periodType = SalesReportPeriodType.month);
+        } else if (value == 'year') {
+          final int initialYear = _selectedYear ?? DateTime.now().year;
+          setState(() {
+            _periodType = SalesReportPeriodType.year;
+            _selectedYear = initialYear;
+          });
+          _onYearChanged(initialYear);
+        } else if (value == 'custom') {
+          final DateTimeRange? picked = await showDateRangePicker(
+            context: context,
+            firstDate: DateTime(2020),
+            lastDate: DateTime.now(),
+            initialDateRange: _selectedCustomRange,
+          );
+          if (picked != null) {
+            setState(() {
+              _periodType = SalesReportPeriodType.custom;
+              _selectedCustomRange = picked;
+            });
+            _onCustomRangeChanged(picked);
+          }
+        }
+      },
+      child: Container(
+        padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 8),
+        decoration: BoxDecoration(
+          color: const Color(0xFFF9FAFB),
+          borderRadius: BorderRadius.circular(8),
+          border: Border.all(color: const Color(0xFFE5E7EB)),
+        ),
+        child: Row(
+          mainAxisSize: MainAxisSize.min,
+          children: [
+            Text(label, style: const TextStyle(fontSize: 13, color: Color(0xFF111827))),
+            const SizedBox(width: 4),
+            const Icon(Icons.keyboard_arrow_down, size: 16, color: Color(0xFF6B7280)),
+          ],
+        ),
+      ),
+    );
+  }
+
+  String _formatShortDate(DateTime d) =>
+      '${_monthNames[d.month - 1]} ${d.day}, ${d.year}';
+
+  // ================================================
+  // YEAR VIEW — Phase 3
+  // ================================================
+  Widget _buildYearView() {
+    final double totalSales = _yearMonths.fold(0, (sum, m) => sum + m.totalSales);
+    final double totalCogs = _yearMonths.fold(0, (sum, m) => sum + m.cogs);
+    final double totalGrossProfit = _yearMonths.fold(0, (sum, m) => sum + m.grossProfit);
+    final int totalOrders = _yearMonths.fold(0, (sum, m) => sum + m.totalOrders);
+    final int totalQuantity = _yearMonths.fold(0, (sum, m) => sum + m.totalQuantitySold);
+
+    return Container(
+      width: double.infinity,
+      padding: const EdgeInsets.all(24),
+      decoration: BoxDecoration(
+        color: Colors.white,
+        borderRadius: BorderRadius.circular(12),
+        border: Border.all(color: const Color(0xFFE5E7EB)),
+      ),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          Row(
+            children: [
+              Text(
+                '${_selectedYear ?? DateTime.now().year} Summary',
+                style: const TextStyle(
+                  fontSize: 16,
+                  fontWeight: FontWeight.bold,
+                  color: Color(0xFF111827),
+                ),
+              ),
+              const Spacer(),
+              _buildPeriodSelector(),
+            ],
+          ),
+          const SizedBox(height: 20),
+
+          if (_isLoadingYear)
+            const Padding(
+              padding: EdgeInsets.symmetric(vertical: 32),
+              child: Center(child: CircularProgressIndicator()),
+            )
+          else if (_yearMonths.isEmpty)
+            const Padding(
+              padding: EdgeInsets.symmetric(vertical: 24),
+              child: Center(
+                child: Text('No sales recorded for this year.',
+                    style: TextStyle(fontSize: 13, color: Color(0xFF6B7280))),
+              ),
+            )
+          else ...[
+            LayoutBuilder(builder: (context, constraints) {
+              final bool isNarrow = constraints.maxWidth < 720;
+              final List<Widget> cards = [
+                _buildMetricCard(
+                  icon: Icons.payments_outlined,
+                  iconBg: const Color(0xFFDCFCE7),
+                  iconColor: const Color(0xFF16A34A),
+                  title: 'Product Sales',
+                  valueText: _formatCurrency(totalSales),
+                ),
+                _buildMetricCard(
+                  icon: Icons.receipt_long_outlined,
+                  iconBg: const Color(0xFFDBEAFE),
+                  iconColor: const Color(0xFF2563EB),
+                  title: 'Total Orders',
+                  valueText: totalOrders.toString(),
+                ),
+                _buildMetricCard(
+                  icon: Icons.inventory_2_outlined,
+                  iconBg: const Color(0xFFFEF3C7),
+                  iconColor: const Color(0xFFD97706),
+                  title: 'Total Quantity Sold',
+                  valueText: totalQuantity.toString(),
+                ),
+                _buildMetricCard(
+                  icon: Icons.trending_up,
+                  iconBg: const Color(0xFFEDE9FE),
+                  iconColor: const Color(0xFF7C3AED),
+                  title: 'Gross Profit',
+                  valueText: _formatCurrency(totalGrossProfit),
+                ),
+              ];
+              return isNarrow
+                  ? Column(children: cards.map((c) => Padding(
+                      padding: const EdgeInsets.only(bottom: 12), child: c)).toList())
+                  : Row(children: cards.map((c) => Expanded(
+                      child: Padding(padding: const EdgeInsets.only(right: 12), child: c))).toList());
+            }),
+            const SizedBox(height: 24),
+            CommonTable(
+              headers: const [
+                'Month', 'Product Sales', 'COGS', 'Gross Profit', 'Best Seller', 'Growth %',
+              ],
+              rows: _yearMonths.map((m) {
+                return <Widget>[
+                  Text(
+                    m.month,
+                    style: const TextStyle(fontSize: 13, color: Color(0xFF111827)),
+                  ),
+                  _buildAmountText(_formatCurrency(m.totalSales)),
+                  _buildAmountText(
+                    _formatCurrency(m.cogs),
+                    color: const Color(0xFFDC2626),
+                  ),
+                  _buildAmountText(
+                    _formatCurrency(m.grossProfit),
+                    color: const Color(0xFF16A34A),
+                  ),
+                  Text(
+                    m.bestSeller,
+                    style: const TextStyle(fontSize: 13, color: Color(0xFF111827)),
+                  ),
+                  _buildGrowthBadge(m.growthPercent),
+                ];
+              }).toList(),
+            ),
+          ],
+        ],
+      ),
+    );
+  }
+
+  // ================================================
+  // CUSTOM RANGE VIEW — Phase 5
+  // ================================================
+  Widget _buildCustomRangeView() {
+    return Container(
+      width: double.infinity,
+      padding: const EdgeInsets.all(24),
+      decoration: BoxDecoration(
+        color: Colors.white,
+        borderRadius: BorderRadius.circular(12),
+        border: Border.all(color: const Color(0xFFE5E7EB)),
+      ),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          Row(
+            children: [
+              const Text(
+                'Custom Range Summary',
+                style: TextStyle(
+                  fontSize: 16,
+                  fontWeight: FontWeight.bold,
+                  color: Color(0xFF111827),
+                ),
+              ),
+              const Spacer(),
+              _buildPeriodSelector(),
+            ],
+          ),
+          const SizedBox(height: 20),
+
+          if (_isLoadingCustomRange)
+            const Padding(
+              padding: EdgeInsets.symmetric(vertical: 32),
+              child: Center(child: CircularProgressIndicator()),
+            )
+          else if (_customRangeError != null)
+            Padding(
+              padding: const EdgeInsets.symmetric(vertical: 24),
+              child: Text(_customRangeError!,
+                  style: const TextStyle(fontSize: 13, color: Color(0xFF6B7280))),
+            )
+          else if (_customRangeSummary == null)
+            const Padding(
+              padding: EdgeInsets.symmetric(vertical: 24),
+              child: Text('Select a date range to view its summary.',
+                  style: TextStyle(fontSize: 13, color: Color(0xFF6B7280))),
+            )
+          else
+            LayoutBuilder(builder: (context, constraints) {
+              final bool isNarrow = constraints.maxWidth < 720;
+              final CustomRangeSummary s = _customRangeSummary!;
+              final List<Widget> cards = [
+                _buildMetricCard(
+                  icon: Icons.payments_outlined,
+                  iconBg: const Color(0xFFDCFCE7),
+                  iconColor: const Color(0xFF16A34A),
+                  title: 'Product Sales',
+                  valueText: _formatCurrency(s.totalSales),
+                ),
+                _buildMetricCard(
+                  icon: Icons.receipt_long_outlined,
+                  iconBg: const Color(0xFFDBEAFE),
+                  iconColor: const Color(0xFF2563EB),
+                  title: 'Total Orders',
+                  valueText: s.totalOrders.toString(),
+                ),
+                _buildMetricCard(
+                  icon: Icons.inventory_2_outlined,
+                  iconBg: const Color(0xFFFEF3C7),
+                  iconColor: const Color(0xFFD97706),
+                  title: 'Total Quantity Sold',
+                  valueText: s.totalQuantitySold.toString(),
+                ),
+                _buildMetricCard(
+                  icon: Icons.trending_up,
+                  iconBg: const Color(0xFFEDE9FE),
+                  iconColor: const Color(0xFF7C3AED),
+                  title: 'Gross Profit',
+                  valueText: _formatCurrency(s.grossProfit),
+                ),
+              ];
+              return isNarrow
+                  ? Column(children: cards.map((c) => Padding(
+                      padding: const EdgeInsets.only(bottom: 12), child: c)).toList())
+                  : Row(children: cards.map((c) => Expanded(
+                      child: Padding(padding: const EdgeInsets.only(right: 12), child: c))).toList());
+            }),
+        ],
+      ),
+    );
+  }
+
   // ================================================
   // BUILD
   // ================================================
@@ -350,6 +706,16 @@ class _SalesReportScreenState extends ConsumerState<SalesReportScreen> {
   // Top 5, view details
   // ================================================
   Widget _buildMonthDetailSection() {
+    // AUDIT ADD: Phase 3/5 — dispatch to the Year or Custom Range
+    // view when selected. The existing month-view Container/Column
+    // below is completely untouched when _periodType is month.
+    if (_periodType == SalesReportPeriodType.year) {
+      return _buildYearView();
+    }
+    if (_periodType == SalesReportPeriodType.custom) {
+      return _buildCustomRangeView();
+    }
+
     return Container(
       width: double.infinity,
       padding: const EdgeInsets.all(24),
@@ -373,33 +739,7 @@ class _SalesReportScreenState extends ConsumerState<SalesReportScreen> {
                 ),
               ),
               const Spacer(),
-              if (_availableMonths.isNotEmpty)
-                Container(
-                  padding: const EdgeInsets.symmetric(horizontal: 12),
-                  decoration: BoxDecoration(
-                    color: const Color(0xFFF9FAFB),
-                    borderRadius: BorderRadius.circular(8),
-                    border: Border.all(color: const Color(0xFFE5E7EB)),
-                  ),
-                  child: DropdownButtonHideUnderline(
-                    child: DropdownButton<DateTime>(
-                      value: _selectedMonth,
-                      items: _availableMonths.map((DateTime m) {
-                        return DropdownMenuItem<DateTime>(
-                          value: m,
-                          child: Text(
-                            _formatMonthLabel(m),
-                            style: const TextStyle(
-                                fontSize: 13, color: Color(0xFF111827)),
-                          ),
-                        );
-                      }).toList(),
-                      onChanged: (DateTime? month) {
-                        if (month != null) _onMonthChanged(month);
-                      },
-                    ),
-                  ),
-                ),
+              _buildPeriodSelector(),
             ],
           ),
           const SizedBox(height: 20),
@@ -438,6 +778,51 @@ class _SalesReportScreenState extends ConsumerState<SalesReportScreen> {
             _buildMonthMetrics(_monthDetail!),
             const SizedBox(height: 24),
             _buildTopProductsSection(_monthDetail!),
+            if (_dailyBreakdown.isNotEmpty) ...[
+              const SizedBox(height: 24),
+              Text(
+                'Sales Breakdown — ${_formatMonthLabel(_selectedMonth!)}',
+                style: const TextStyle(
+                  fontSize: 15,
+                  fontWeight: FontWeight.bold,
+                  color: Color(0xFF111827),
+                ),
+              ),
+              const SizedBox(height: 12),
+                           CommonTable(
+                headers: const [
+                  'Date', 'Product Sales', 'Orders', 'Quantity Sold', 'Gross Profit',
+                ],
+                rows: _dailyBreakdown.map((d) {
+                  return <Widget>[
+                    InkWell(
+                      onTap: () => _showDayDrillDown(d.date),
+                      child: Text(
+                        _formatShortDate(d.date),
+                        style: const TextStyle(
+                          fontSize: 13,
+                          color: Color(0xFF2563EB),
+                          decoration: TextDecoration.underline,
+                        ),
+                      ),
+                    ),
+                    _buildAmountText(_formatCurrency(d.totalSales)),
+                    Text(
+                      d.totalOrders.toString(),
+                      style: const TextStyle(fontSize: 13, color: Color(0xFF111827)),
+                    ),
+                    Text(
+                      d.totalQuantitySold.toString(),
+                      style: const TextStyle(fontSize: 13, color: Color(0xFF111827)),
+                    ),
+                    _buildAmountText(
+                      _formatCurrency(d.grossProfit),
+                      color: const Color(0xFF16A34A),
+                    ),
+                  ];
+                }).toList(),
+              ),
+            ],
           ],
         ],
       ),
@@ -448,11 +833,11 @@ class _SalesReportScreenState extends ConsumerState<SalesReportScreen> {
     return LayoutBuilder(builder: (context, constraints) {
       final bool isNarrow = constraints.maxWidth < 720;
       final List<Widget> cards = [
-        _buildMetricCard(
+                _buildMetricCard(
           icon: Icons.payments_outlined,
           iconBg: const Color(0xFFDCFCE7),
           iconColor: const Color(0xFF16A34A),
-          title: 'Total Sales',
+          title: 'Product Sales',
           valueText: _formatCurrency(detail.totalSales),
         ),
         _buildMetricCard(
@@ -501,6 +886,62 @@ class _SalesReportScreenState extends ConsumerState<SalesReportScreen> {
         ),
       );
     });
+  }
+
+    Future<void> _showDayDrillDown(DateTime day) async {
+    final List<DayTransaction> transactions =
+        await _reportService.getDayTransactions(day);
+    if (!mounted) return;
+
+    showDialog(
+      context: context,
+      builder: (context) {
+        return Dialog(
+          shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
+          child: Container(
+            width: 600,
+            constraints: const BoxConstraints(maxHeight: 600),
+            padding: const EdgeInsets.all(24),
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              mainAxisSize: MainAxisSize.min,
+              children: [
+                Text(
+                  _formatShortDate(day),
+                  style: const TextStyle(fontSize: 18, fontWeight: FontWeight.bold),
+                ),
+                const SizedBox(height: 16),
+                Flexible(
+                  child: transactions.isEmpty
+                      ? const Text('No transactions this day.')
+                      : CommonTable(
+                          headers: const ['Order ID', 'Date & Time', 'Total', 'Payment Method', 'Type', 'Status'],
+                          rows: transactions.map((t) {
+                            return <Widget>[
+                              Text('#${t.orderId}'),
+                              Text(_formatShortDate(t.dateTime)),
+                              _buildAmountText(_formatCurrency(t.totalAmount)),
+                              Text(t.paymentMethod),
+                              Text(t.orderType),
+                              Text(t.orderStatus),
+                            ];
+                          }).toList(),
+                        ),
+                ),
+                const SizedBox(height: 16),
+                Align(
+                  alignment: Alignment.centerRight,
+                  child: TextButton(
+                    onPressed: () => Navigator.of(context).pop(),
+                    child: const Text('Close'),
+                  ),
+                ),
+              ],
+            ),
+          ),
+        );
+      },
+    );
   }
 
   Widget _buildMetricCard({
@@ -690,7 +1131,7 @@ class _SalesReportScreenState extends ConsumerState<SalesReportScreen> {
               shape:
                   RoundedRectangleBorder(borderRadius: BorderRadius.circular(6)),
             ),
-            child: const Text('View Full Product Sales Report',
+                        child: const Text('View All Product Sales',
                 style: TextStyle(fontSize: 12, fontWeight: FontWeight.w500)),
           ),
         ),
@@ -839,10 +1280,10 @@ class _SalesReportScreenState extends ConsumerState<SalesReportScreen> {
                   ),
                 )
               else
-                CommonTable(
+                                CommonTable(
                   headers: const [
                     'Month',
-                    'Total Sales',
+                    'Product Sales',
                     'COGS',
                     'Gross Profit',
                     'Best Seller',
