@@ -445,11 +445,8 @@ class _SalesReportScreenState extends ConsumerState<SalesReportScreen> {
           });
           _onYearChanged(initialYear);
         } else if (value == 'custom') {
-          final DateTimeRange? picked = await showDateRangePicker(
-            context: context,
-            firstDate: DateTime(2020),
-            lastDate: DateTime.now(),
-            initialDateRange: _selectedCustomRange,
+          final DateTimeRange? picked = await _showCompactDateRangeDialog(
+            initialRange: _selectedCustomRange,
           );
           if (picked != null) {
             setState(() {
@@ -481,6 +478,111 @@ class _SalesReportScreenState extends ConsumerState<SalesReportScreen> {
 
   String _formatShortDate(DateTime d) =>
       '${_monthNames[d.month - 1]} ${d.day}, ${d.year}';
+
+        // AUDIT ADD: replaces Flutter's built-in showDateRangePicker, which
+  // is always full-screen by design — this is a small, compact dialog
+  // matching the existing app's visual style instead.
+  Future<DateTimeRange?> _showCompactDateRangeDialog({DateTimeRange? initialRange}) async {
+    DateTime? start = initialRange?.start;
+    DateTime? end = initialRange?.end;
+
+    return showDialog<DateTimeRange>(
+      context: context,
+      builder: (context) {
+        return StatefulBuilder(
+          builder: (context, setDialogState) {
+            Future<void> pickStart() async {
+              final DateTime? picked = await showDatePicker(
+                context: context,
+                initialDate: start ?? DateTime.now(),
+                firstDate: DateTime(2020),
+                lastDate: DateTime.now(),
+              );
+              if (picked != null) setDialogState(() => start = picked);
+            }
+
+            Future<void> pickEnd() async {
+              final DateTime? picked = await showDatePicker(
+                context: context,
+                initialDate: end ?? start ?? DateTime.now(),
+                firstDate: start ?? DateTime(2020),
+                lastDate: DateTime.now(),
+              );
+              if (picked != null) setDialogState(() => end = picked);
+            }
+
+            Widget dateField(String label, DateTime? value, VoidCallback onTap) {
+              return InkWell(
+                onTap: onTap,
+                child: Container(
+                  padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 10),
+                  decoration: BoxDecoration(
+                    color: const Color(0xFFF9FAFB),
+                    borderRadius: BorderRadius.circular(8),
+                    border: Border.all(color: const Color(0xFFE5E7EB)),
+                  ),
+                  child: Row(
+                    children: [
+                      Expanded(
+                        child: Text(
+                          value != null ? _formatShortDate(value) : label,
+                          style: TextStyle(
+                            fontSize: 13,
+                            color: value != null ? const Color(0xFF111827) : const Color(0xFF9CA3AF),
+                          ),
+                        ),
+                      ),
+                      const Icon(Icons.calendar_today_outlined, size: 16, color: Color(0xFF6B7280)),
+                    ],
+                  ),
+                ),
+              );
+            }
+
+            return Dialog(
+              shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
+              child: Container(
+                width: 320,
+                padding: const EdgeInsets.all(20),
+                child: Column(
+                  mainAxisSize: MainAxisSize.min,
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    const Text('Custom Range', style: TextStyle(fontSize: 16, fontWeight: FontWeight.bold)),
+                    const SizedBox(height: 16),
+                    const Text('Start Date', style: TextStyle(fontSize: 12, color: Color(0xFF6B7280))),
+                    const SizedBox(height: 4),
+                    dateField('Select start date', start, pickStart),
+                    const SizedBox(height: 12),
+                    const Text('End Date', style: TextStyle(fontSize: 12, color: Color(0xFF6B7280))),
+                    const SizedBox(height: 4),
+                    dateField('Select end date', end, pickEnd),
+                    const SizedBox(height: 20),
+                    Row(
+                      mainAxisAlignment: MainAxisAlignment.end,
+                      children: [
+                        TextButton(
+                          onPressed: () => Navigator.of(context).pop(),
+                          child: const Text('Cancel'),
+                        ),
+                        const SizedBox(width: 8),
+                        ElevatedButton(
+                          onPressed: (start != null && end != null && !end!.isBefore(start!))
+                              ? () => Navigator.of(context).pop(DateTimeRange(start: start!, end: end!))
+                              : null,
+                          child: const Text('Apply'),
+                        ),
+                      ],
+                    ),
+                  ],
+                ),
+              ),
+            );
+          },
+        );
+      },
+    );
+  }
 
   // ================================================
   // YEAR VIEW — Phase 3

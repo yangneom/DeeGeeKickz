@@ -784,11 +784,18 @@ class SalesReportService {
         grossProfit: 0, totalOrders: 0, totalQuantitySold: 0,
       );
     }
-
-    // Inclusive of the whole end day, in Philippine time.
-    final DateTime rangeStartUtc = start.toUtc().subtract(const Duration(hours: 8));
+    // AUDIT FIX: previously called .toUtc() on `start` FIRST — but
+    // `start` comes from the date picker as a device-local DateTime,
+    // so .toUtc() applied the DEVICE's uncontrolled timezone offset
+    // before the hardcoded -8h was even subtracted, silently
+    // corrupting the boundary by however far off the device's
+    // timezone was from Manila. This treats the picked Y-M-D as the
+    // intended Philippine calendar date directly, converting that
+    // naive date to UTC without ever touching the device's own clock.
+    final DateTime rangeStartUtc =
+        DateTime(start.year, start.month, start.day).subtract(const Duration(hours: 8));
     final DateTime rangeEndUtc =
-        DateTime(end.year, end.month, end.day).add(const Duration(days: 1)).toUtc().subtract(const Duration(hours: 8));
+        DateTime(end.year, end.month, end.day).add(const Duration(days: 1)).subtract(const Duration(hours: 8));
 
     final List<dynamic> orders = await _supabase
         .from('orders')

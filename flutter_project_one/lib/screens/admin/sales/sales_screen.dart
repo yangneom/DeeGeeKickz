@@ -52,6 +52,303 @@ class _SalesScreenState extends ConsumerState<SalesScreen> {
     super.dispose();
   }
 
+    String _formatShortDate(DateTime d) {
+    const List<String> monthNames = [
+      'Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun',
+      'Jul', 'Aug', 'Sep', 'Oct', 'Nov', 'Dec',
+    ];
+    return '${monthNames[d.month - 1]} ${d.day}, ${d.year}';
+  }
+
+    Widget _buildCombinedFilterPanel() {
+    const Map<AdminDateFilter, String> dateLabels = {
+      AdminDateFilter.all: 'All Time',
+      AdminDateFilter.today: 'Today',
+      AdminDateFilter.yesterday: 'Yesterday',
+      AdminDateFilter.thisWeek: 'This Week',
+      AdminDateFilter.thisMonth: 'This Month',
+      AdminDateFilter.thisYear: 'This Year',
+      AdminDateFilter.custom: 'Custom Range',
+    };
+
+    Widget chip(String label, bool isSelected, VoidCallback onTap) {
+      return GestureDetector(
+        onTap: onTap,
+        child: Container(
+          padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 6),
+          decoration: BoxDecoration(
+            color: isSelected ? const Color(0xFFEFF6FF) : Colors.white,
+            borderRadius: BorderRadius.circular(20),
+            border: Border.all(
+              color: isSelected ? const Color(0xFF2563EB) : const Color(0xFFD1D5DB),
+            ),
+          ),
+          child: Text(
+            label,
+            style: TextStyle(
+              fontSize: 12,
+              fontWeight: FontWeight.w500,
+              color: isSelected ? const Color(0xFF2563EB) : const Color(0xFF374151),
+            ),
+          ),
+        ),
+      );
+    }
+
+    Widget sectionLabel(String label) => Text(
+          label,
+          style: const TextStyle(fontSize: 12, fontWeight: FontWeight.w500, color: Color(0xFF374151)),
+        );
+
+    Widget dateField(String label, DateTime? date, VoidCallback onTap) {
+      return GestureDetector(
+        onTap: onTap,
+        child: Container(
+          padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 10),
+          decoration: BoxDecoration(
+            color: Colors.white,
+            borderRadius: BorderRadius.circular(8),
+            border: Border.all(color: const Color(0xFFD1D5DB)),
+          ),
+          child: Row(
+            children: [
+              const Icon(Icons.calendar_today_outlined, size: 14, color: Color(0xFF6B7280)),
+              const SizedBox(width: 8),
+              Text(
+                date != null ? _formatShortDate(date) : label,
+                style: TextStyle(
+                  fontSize: 12,
+                  color: date != null ? const Color(0xFF111827) : const Color(0xFF9CA3AF),
+                ),
+              ),
+            ],
+          ),
+        ),
+      );
+    }
+
+    return Positioned(
+      top: 46,
+      right: 0,
+      child: Material(
+        elevation: 4,
+        borderRadius: BorderRadius.circular(8),
+        child: Container(
+          width: 260,
+          padding: const EdgeInsets.all(14),
+          decoration: BoxDecoration(
+            color: Colors.white,
+            borderRadius: BorderRadius.circular(8),
+            border: Border.all(color: const Color(0xFFE5E7EB)),
+            boxShadow: [
+              BoxShadow(color: Colors.black.withOpacity(0.08), blurRadius: 12, offset: const Offset(0, 4)),
+            ],
+          ),
+          child: StatefulBuilder(
+            builder: (context, setPanelState) {
+              return Column(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                mainAxisSize: MainAxisSize.min,
+                children: [
+                  const Text('Filter', style: TextStyle(fontSize: 14, fontWeight: FontWeight.w600, color: Color(0xFF111827))),
+                  const SizedBox(height: 12),
+                  sectionLabel('Type'),
+                  const SizedBox(height: 8),
+                  Wrap(
+                    spacing: 6,
+                    runSpacing: 6,
+                    children: [
+                      chip('All', _selectedType == 'All', () => setPanelState(() => _selectedType = 'All')),
+                      chip('Online', _selectedType == 'online', () => setPanelState(() => _selectedType = 'online')),
+                      chip('In-Store', _selectedType == 'In-Store', () => setPanelState(() => _selectedType = 'In-Store')),
+                    ],
+                  ),
+                  const SizedBox(height: 12),
+                  const Divider(height: 1, color: Color(0xFFE5E7EB)),
+                  const SizedBox(height: 12),
+                  sectionLabel('Date'),
+                  const SizedBox(height: 8),
+                  Wrap(
+                    spacing: 6,
+                    runSpacing: 6,
+                    children: AdminDateFilter.values.map((f) {
+                      return chip(dateLabels[f]!, _dateFilter == f, () async {
+                        if (f == AdminDateFilter.custom) {
+                          final DateTimeRange? picked = await _showCompactDateRangeDialog(initialRange: _customDateRange);
+                          if (picked != null) {
+                            setPanelState(() {
+                              _dateFilter = AdminDateFilter.custom;
+                              _customDateRange = picked;
+                            });
+                          }
+                        } else {
+                          setPanelState(() => _dateFilter = f);
+                        }
+                      });
+                    }).toList(),
+                  ),
+                  if (_dateFilter == AdminDateFilter.custom && _customDateRange != null) ...[
+                    const SizedBox(height: 8),
+                    dateField('Start', _customDateRange!.start, () {}),
+                    const SizedBox(height: 8),
+                    dateField('End', _customDateRange!.end, () {}),
+                  ],
+                  const SizedBox(height: 14),
+                  Row(
+                    children: [
+                      Expanded(
+                        child: OutlinedButton(
+                          onPressed: () {
+                            setPanelState(() {
+                              _selectedType = 'All';
+                              _dateFilter = AdminDateFilter.all;
+                              _customDateRange = null;
+                            });
+                            _clearFilters();
+                          },
+                          style: OutlinedButton.styleFrom(
+                            foregroundColor: const Color(0xFF374151),
+                            side: const BorderSide(color: Color(0xFFD1D5DB)),
+                            padding: const EdgeInsets.symmetric(vertical: 8),
+                            shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(6)),
+                          ),
+                          child: const Text('Clear', style: TextStyle(fontSize: 12)),
+                        ),
+                      ),
+                      const SizedBox(width: 8),
+                      Expanded(
+                        child: ElevatedButton(
+                          onPressed: () {
+                            setState(() => _showFilterPanel = false);
+                            _loadSales();
+                            _applyFilters();
+                          },
+                          style: ElevatedButton.styleFrom(
+                            backgroundColor: const Color(0xFF2563EB),
+                            foregroundColor: Colors.white,
+                            elevation: 0,
+                            padding: const EdgeInsets.symmetric(vertical: 8),
+                            shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(6)),
+                          ),
+                          child: const Text('Filter', style: TextStyle(fontSize: 12)),
+                        ),
+                      ),
+                    ],
+                  ),
+                ],
+              );
+            },
+          ),
+        ),
+      ),
+    );
+  }
+
+  // AUDIT ADD: replaces Flutter's built-in showDateRangePicker, which
+  // is always full-screen by design — this is a small, compact dialog
+  // matching the existing app's visual style instead.
+  Future<DateTimeRange?> _showCompactDateRangeDialog({DateTimeRange? initialRange}) async {
+    DateTime? start = initialRange?.start;
+    DateTime? end = initialRange?.end;
+
+    return showDialog<DateTimeRange>(
+      context: context,
+      builder: (context) {
+        return StatefulBuilder(
+          builder: (context, setDialogState) {
+            Future<void> pickStart() async {
+              final DateTime? picked = await showDatePicker(
+                context: context,
+                initialDate: start ?? DateTime.now(),
+                firstDate: DateTime(2020),
+                lastDate: DateTime.now(),
+              );
+              if (picked != null) setDialogState(() => start = picked);
+            }
+
+            Future<void> pickEnd() async {
+              final DateTime? picked = await showDatePicker(
+                context: context,
+                initialDate: end ?? start ?? DateTime.now(),
+                firstDate: start ?? DateTime(2020),
+                lastDate: DateTime.now(),
+              );
+              if (picked != null) setDialogState(() => end = picked);
+            }
+
+            Widget dateField(String label, DateTime? value, VoidCallback onTap) {
+              return InkWell(
+                onTap: onTap,
+                child: Container(
+                  padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 10),
+                  decoration: BoxDecoration(
+                    color: const Color(0xFFF9FAFB),
+                    borderRadius: BorderRadius.circular(8),
+                    border: Border.all(color: const Color(0xFFE5E7EB)),
+                  ),
+                  child: Row(
+                    children: [
+                      Expanded(
+                        child: Text(
+                          value != null ? _formatShortDate(value) : label,
+                          style: TextStyle(
+                            fontSize: 13,
+                            color: value != null ? const Color(0xFF111827) : const Color(0xFF9CA3AF),
+                          ),
+                        ),
+                      ),
+                      const Icon(Icons.calendar_today_outlined, size: 16, color: Color(0xFF6B7280)),
+                    ],
+                  ),
+                ),
+              );
+            }
+
+            return Dialog(
+              shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
+              child: Container(
+                width: 320,
+                padding: const EdgeInsets.all(20),
+                child: Column(
+                  mainAxisSize: MainAxisSize.min,
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    const Text('Custom Range', style: TextStyle(fontSize: 16, fontWeight: FontWeight.bold)),
+                    const SizedBox(height: 16),
+                    const Text('Start Date', style: TextStyle(fontSize: 12, color: Color(0xFF6B7280))),
+                    const SizedBox(height: 4),
+                    dateField('Select start date', start, pickStart),
+                    const SizedBox(height: 12),
+                    const Text('End Date', style: TextStyle(fontSize: 12, color: Color(0xFF6B7280))),
+                    const SizedBox(height: 4),
+                    dateField('Select end date', end, pickEnd),
+                    const SizedBox(height: 20),
+                    Row(
+                      mainAxisAlignment: MainAxisAlignment.end,
+                      children: [
+                        TextButton(
+                          onPressed: () => Navigator.of(context).pop(),
+                          child: const Text('Cancel'),
+                        ),
+                        const SizedBox(width: 8),
+                        ElevatedButton(
+                          onPressed: (start != null && end != null && !end!.isBefore(start!))
+                              ? () => Navigator.of(context).pop(DateTimeRange(start: start!, end: end!))
+                              : null,
+                          child: const Text('Apply'),
+                        ),
+                      ],
+                    ),
+                  ],
+                ),
+              ),
+            );
+          },
+        );
+      },
+    );
+  }
+
   Future<void> _loadSales() async {
     setState(() {
       _isLoading = true;
@@ -362,50 +659,64 @@ static const List<String> _exportHeaders = [
               const Text('View and manage all sales transactions.', style: TextStyle(fontSize: 13, color: Color(0xFF9CA3AF))),
               const SizedBox(height: 16),
 
-              Row(
-                crossAxisAlignment: CrossAxisAlignment.center,
+              Stack(
+                clipBehavior: Clip.none,
                 children: [
-                  CommonSearchBar(
-                    controller: _searchController,
-                    hintText: 'Search sales...',
-                    onChanged: (value) => _applyFilters(),
-                  ),
-                  const SizedBox(width: 8),
-                  FilterButton(
-                    isOpen: _showFilterPanel,
-                    onTap: () => setState(() => _showFilterPanel = !_showFilterPanel),
-                    selectedValues: {
-                      'Type': _selectedType == 'All' ? null : _selectedType,
-                    },
-                    onValueChanged: (String section, String? value) {
-                      setState(() => _selectedType = value ?? 'All');
-                    },
-                    onClear: _clearFilters,
-                    onApply: () {
-                      _loadSales();
-                      setState(() => _showFilterPanel = false);
-                    },
-                    sections: [
-                        FilterSection(
-                          title: 'Type',
-                          options: [
-                            FilterOption(label: 'Online', value: 'online'),
-                            FilterOption(label: 'In-Store', value: 'In-Store'),
-                          ],
+                  Row(
+                    crossAxisAlignment: CrossAxisAlignment.center,
+                    children: [
+                      CommonSearchBar(
+                        controller: _searchController,
+                        hintText: 'Search sales...',
+                        onChanged: (value) => _applyFilters(),
+                      ),
+                      const SizedBox(width: 8),
+                      InkWell(
+                        onTap: () => setState(() => _showFilterPanel = !_showFilterPanel),
+                        borderRadius: BorderRadius.circular(8),
+                        child: Container(
+                          padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 10),
+                          decoration: BoxDecoration(
+                            color: _showFilterPanel ? const Color(0xFFEFF6FF) : Colors.white,
+                            borderRadius: BorderRadius.circular(8),
+                            border: Border.all(
+                              color: _showFilterPanel ? const Color(0xFF2563EB) : const Color(0xFFD1D5DB),
+                            ),
+                          ),
+                          child: Row(
+                            mainAxisSize: MainAxisSize.min,
+                            children: [
+                              Icon(
+                                Icons.filter_list,
+                                size: 16,
+                                color: _showFilterPanel ? const Color(0xFF2563EB) : const Color(0xFF374151),
+                              ),
+                              const SizedBox(width: 6),
+                              Text(
+                                'Filter',
+                                style: TextStyle(
+                                  fontSize: 13,
+                                  color: _showFilterPanel ? const Color(0xFF2563EB) : const Color(0xFF374151),
+                                ),
+                              ),
+                            ],
+                          ),
                         ),
-                          ],
+                      ),
+                      const Spacer(),
+                      ExportButton(
+                        onExport: _exportToCsv,
+                        onFormatSelected: (format) {
+                          if (format == 'excel') {
+                            _exportToExcel();
+                          } else {
+                            _exportToCsv();
+                          }
+                        },
+                      ),
+                    ],
                   ),
-                  const Spacer(),
-                  ExportButton(
-                    onExport: _exportToCsv,
-                    onFormatSelected: (format) {
-                      if (format == 'excel') {
-                        _exportToExcel();
-                      } else {
-                        _exportToCsv();
-                      }
-                    },
-                  ),
+                  if (_showFilterPanel) _buildCombinedFilterPanel(),
                 ],
               ),
 
@@ -460,11 +771,8 @@ static const List<String> _exportHeaders = [
           .toList(),
       onSelected: (filter) async {
         if (filter == AdminDateFilter.custom) {
-          final DateTimeRange? picked = await showDateRangePicker(
-            context: context,
-            firstDate: DateTime(2020),
-            lastDate: DateTime.now(),
-            initialDateRange: _customDateRange,
+          final DateTimeRange? picked = await _showCompactDateRangeDialog(
+            initialRange: _customDateRange,
           );
           if (picked == null) return;
           setState(() {
