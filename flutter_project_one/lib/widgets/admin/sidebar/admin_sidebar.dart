@@ -3,7 +3,7 @@ import 'package:flutter_riverpod/flutter_riverpod.dart';
 import '../../../providers/auth/auth_provider.dart';
 import '../../../providers/customer/customer_cart_provider.dart';
 import '../../../screens/auth/login_screen.dart';
-
+import '../../common/dialog/logout_confirm.dart';
 // ================================================
 // ADMIN SIDEBAR
 //
@@ -36,7 +36,11 @@ Future<void> _handleLogout() async {
     // an async gap, this widget may have rebuilt/unmounted, making
     // `ref` unsafe to read again.
     final authService = ref.read(authServiceProvider);
-    final cartNotifier = ref.read(customerCartProvider.notifier);
+        final cartNotifier = ref.read(customerCartProvider.notifier);
+
+    // Ask for confirmation first. Cancel (or tapping outside the
+    // dialog) stops here and the user stays logged in.
+    if (!await confirmLogout(context)) return;
 
     try {
       await authService.logout();
@@ -259,14 +263,11 @@ Future<void> _handleLogout() async {
             label: 'Promotions',
           ),
 
-          // ── NOTIFICATIONS SECTION ──
-          _buildSectionLabel('Notifications'),
-
-          _buildNavItem(
-            index: 7,
-            icon: Icons.notifications_outlined,
-            label: 'Notification',
-          ),
+          // AUDIT REMOVE: Notifications is now accessed via the
+          // top-bar bell (with a quick-preview popover) rather than
+          // duplicated here. The screen itself (index 7) is untouched
+          // and still reachable — "See All" in the popover navigates
+          // to it directly, reusing the exact same route.
 
           // ── SPACER ──
           // pushes logout to bottom but not too far

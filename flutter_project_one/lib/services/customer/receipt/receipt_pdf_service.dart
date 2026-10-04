@@ -151,7 +151,7 @@ class ReceiptPdfService {
               pw.SizedBox(height: 2),
               pw.Center(
                 child: pw.Text(
-                  'Official Order Receipt',
+                  'This is not the official Order Receipt',
                   style: pw.TextStyle(font: notoRegular, fontSize: 10),
                 ),
               ),

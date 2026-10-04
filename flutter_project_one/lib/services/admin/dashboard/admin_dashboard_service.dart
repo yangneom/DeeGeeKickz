@@ -102,15 +102,20 @@ class AdminDashboardService {
 
     return rows.length;
   }
-
   // ================================================
-  // FLAGGED FEEDBACK COUNT
+  // NEW FEEDBACK COUNT = reviews still waiting for an admin reply.
+  //
+  // This used to count status = 'Flagged', but moderation-by-hiding
+  // was removed (see FeedbackService.saveReply), so nothing can set
+  // that status any more and the card was permanently 0. The method
+  // and AdminDashboardData.flaggedFeedback keep their old names so no
+  // other file has to change.
   // ================================================
   Future<int> _getFlaggedFeedbackCount() async {
     final List<dynamic> rows = await _supabase
         .from('feedback')
         .select('feedback_id')
-        .eq('status', 'Flagged');
+        .isFilter('admin_reply', null);
 
     return rows.length;
   }

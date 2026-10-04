@@ -198,11 +198,27 @@ Widget build(BuildContext context) {
             children: [
 
               // top bar at the top of RIGHT side only
-              const AdminTopBar(),
+              AdminTopBar(
+  onNavigate: (int index) {
+    setState(() {
+      _currentIndex = index;
+    });
+  },
+),
 
-              // content below the top bar
+              // AUDIT ADD: caps content width on ultrawide displays —
+              // without this, tables/cards stretched edge-to-edge
+              // indefinitely on very large monitors. 1600px comfortably
+              // fits the richest existing screens (Sales Report, Sales
+              // Management tables) without feeling cramped on a normal
+              // desktop, while preventing excessive spread on huge ones.
               Expanded(
-                child: _getCurrentScreen(),
+                child: Center(
+                  child: ConstrainedBox(
+                    constraints: const BoxConstraints(maxWidth: 1600),
+                    child: _getCurrentScreen(),
+                  ),
+                ),
               ),
             ],
           ),

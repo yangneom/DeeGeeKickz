@@ -284,7 +284,6 @@ class _AdminManagementScreenState
           account.role,
           style: const TextStyle(fontSize: 13, color: Color(0xFF111827)),
         ),
-        _buildStatusBadge(account.isDisabled ? 'Inactive' : 'Active'),
         Text(
           _formatDateTime(account.lastLogin),
           style: const TextStyle(fontSize: 13, color: Color(0xFF111827)),
@@ -341,8 +340,8 @@ class _AdminManagementScreenState
   @override
   Widget build(BuildContext context) {
     final accounts = ref.watch(adminAccountsProvider);
-    final visibleAccounts = accounts
-        .where((a) => a.role == 'Admin' || a.role == 'Cashier' || a.role == 'Super Admin')
+        final visibleAccounts = accounts
+        .where((a) => a.role == 'Admin' || a.role == 'Cashier')
         .toList();
 
     return Scaffold(
@@ -523,12 +522,11 @@ class _AdminManagementScreenState
                             'Name',
                             'Email',
                             'Role',
-                            'Status',
                             'Last Login',
                             'Registered On',
                             'Action',
                           ],
-                          columnFlex: const [2, 3, 1, 1, 2, 2, 1],
+                          columnFlex: const [2, 3, 1, 2, 2, 2],
                           rows: _buildRows(
                             _filteredAccounts(
                               visibleAccounts.where((a) => !a.isDisabled).toList(),

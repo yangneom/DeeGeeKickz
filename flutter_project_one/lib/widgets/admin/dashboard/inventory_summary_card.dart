@@ -3,18 +3,27 @@ import 'package:flutter/material.dart';
 // ================================================
 // INVENTORY SUMMARY CARD
 //
-// Shows a summary of inventory status
+// Shows a summary of inventory status, with a simple
+// Inventory Health bar built from the same counts.
 //
-// ┌─────────────────────────┐
-// │ Inventory Summary View all→│
-// │                         │
-// │ Total Products      120  │
-// │ In Stock             97  │
-// │ Low Stock            12  │
-// │ Out of Stock          3  │
-// │                         │
-// │ Please restock...       │
-// └─────────────────────────┘
+// ┌─────────────────────────────┐
+// │ Inventory Summary  View all→│
+// │                             │
+// │ Inventory Health   97% in stock
+// │ [███████████████░░░]        │
+// │                             │
+// │ ● Total Products      120   │
+// │ ● In Stock             97   │
+// │ ● Low Stock            12   │
+// │ ● Out of Stock          3   │
+// │                             │
+// │ [ restock note ]            │
+// └─────────────────────────────┘
+//
+// NOTE: this card is placed in a Row with
+// CrossAxisAlignment.stretch (see AdminDashboardScreen), so it
+// always has a bounded height — the Spacer pushes the note to the
+// bottom instead of leaving a dead gap.
 // ================================================
 class InventorySummaryCard extends StatelessWidget {
 
@@ -35,6 +44,10 @@ class InventorySummaryCard extends StatelessWidget {
     required this.outOfStock,
     required this.onViewAll,
   });
+
+  static const Color _green = Color(0xFF16A34A);
+  static const Color _amber = Color(0xFFF59E0B);
+  static const Color _red = Color(0xFFEF4444);
 
   // ================================================
   // BUILD ONE SUMMARY ROW
@@ -80,6 +93,120 @@ class InventorySummaryCard extends StatelessWidget {
               fontSize: 13,
               fontWeight: FontWeight.w600,
               color: Color(0xFF111827),
+            ),
+          ),
+        ],
+      ),
+    );
+  }
+
+  // ================================================
+  // INVENTORY HEALTH
+  // A single proportional bar: in stock / low / out.
+  // Uses only the counts this card already receives —
+  // no new calculation of what counts as low/out of stock.
+  // ================================================
+  Widget _buildHealth() {
+    final int segmentTotal = inStock + lowStock + outOfStock;
+    final int healthyPercent = segmentTotal == 0
+        ? 0
+        : ((inStock / segmentTotal) * 100).round();
+
+    return Column(
+      crossAxisAlignment: CrossAxisAlignment.start,
+      children: [
+        Row(
+          children: [
+            Text(
+              'Inventory Health · $totalProducts products',
+              style: const TextStyle(
+                fontSize: 12,
+                fontWeight: FontWeight.w500,
+                color: Color(0xFF374151),
+              ),
+            ),
+            const Spacer(),
+            Text(
+              segmentTotal == 0 ? '—' : '$healthyPercent% in stock',
+              style: const TextStyle(
+                fontSize: 12,
+                fontWeight: FontWeight.w600,
+                color: Color(0xFF111827),
+              ),
+            ),
+          ],
+        ),
+        const SizedBox(height: 8),
+        ClipRRect(
+          borderRadius: BorderRadius.circular(4),
+          child: SizedBox(
+            height: 8,
+            child: segmentTotal == 0
+                ? Container(color: const Color(0xFFE5E7EB))
+                : Row(
+                    children: [
+                      if (inStock > 0)
+                        Expanded(
+                          flex: inStock,
+                          child: Container(color: _green),
+                        ),
+                      if (lowStock > 0)
+                        Expanded(
+                          flex: lowStock,
+                          child: Container(color: _amber),
+                        ),
+                      if (outOfStock > 0)
+                        Expanded(
+                          flex: outOfStock,
+                          child: Container(color: _red),
+                        ),
+                    ],
+                  ),
+          ),
+        ),
+      ],
+    );
+  }
+
+  // ================================================
+  // NOTE AT THE BOTTOM
+  // Only asks for a restock when there is something to restock.
+  // ================================================
+  Widget _buildNote() {
+    final bool needsAttention = lowStock > 0 || outOfStock > 0;
+
+    return Container(
+      width: double.infinity,
+      padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 10),
+      decoration: BoxDecoration(
+        color: needsAttention
+            ? const Color(0xFFFFFBEB)
+            : const Color(0xFFF0FDF4),
+        borderRadius: BorderRadius.circular(8),
+      ),
+      child: Row(
+        children: [
+          Icon(
+            needsAttention
+                ? Icons.warning_amber_outlined
+                : Icons.check_circle_outline,
+            size: 14,
+            color: needsAttention
+                ? const Color(0xFFB45309)
+                : const Color(0xFF15803D),
+          ),
+          const SizedBox(width: 8),
+          Expanded(
+            child: Text(
+              needsAttention
+                  ? 'Please restock items that are low or out of stock.'
+                  : 'All products are well stocked.',
+              style: TextStyle(
+                fontSize: 11,
+                color: needsAttention
+                    ? const Color(0xFF92400E)
+                    : const Color(0xFF166534),
+              ),
             ),
           ),
         ],
@@ -160,43 +287,41 @@ class InventorySummaryCard extends StatelessWidget {
             ],
           ),
 
+          const SizedBox(height: 20),
+
+          // ── INVENTORY HEALTH BAR ──
+          _buildHealth(),
+
           const SizedBox(height: 16),
 
           // ── SUMMARY ROWS ──
-          _buildSummaryRow(
-            'Total Products',
-            totalProducts,
-            const Color(0xFF6B7280),
-          ),
-
+          // (Total Products now lives in the health line above. The three
+          // rows below always add up to it.)
           _buildSummaryRow(
             'In Stock',
             inStock,
-            const Color(0xFF16A34A),
+            _green,
           ),
 
           _buildSummaryRow(
             'Low Stock',
             lowStock,
-            const Color(0xFFF59E0B),
+            _amber,
           ),
 
           _buildSummaryRow(
             'Out of Stock',
             outOfStock,
-            const Color(0xFFEF4444),
+            _red,
           ),
 
-          const SizedBox(height: 16),
+          // pushes the note to the bottom of the card
+          const Spacer(),
 
-          // ── WARNING MESSAGE ──
-          const Text(
-            'Please restock items that are low or out of stock.',
-            style: TextStyle(
-              fontSize: 11,
-              color: Color(0xFF9CA3AF),
-            ),
-          ),
+          const SizedBox(height: 12),
+
+          // ── NOTE ──
+          _buildNote(),
         ],
       ),
     );

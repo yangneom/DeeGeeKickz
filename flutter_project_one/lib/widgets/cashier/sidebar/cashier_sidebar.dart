@@ -2,6 +2,7 @@ import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 import '../../../providers/auth/auth_provider.dart';
 import '../../../screens/auth/login_screen.dart';
+import '../../common/dialog/logout_confirm.dart';
 
 // ================================================
 // CASHIER SIDEBAR
@@ -150,7 +151,8 @@ class CashierSidebar extends ConsumerWidget {
   // ================================================
   Widget _buildLogoutItem(BuildContext context, WidgetRef ref) {
     return GestureDetector(
-      onTap: () async {
+         onTap: () async {
+        if (!await confirmLogout(context)) return;
         final authService = ref.read(authServiceProvider);
         await authService.logout();
         if (!context.mounted) return;

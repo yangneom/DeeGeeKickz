@@ -267,7 +267,7 @@ final feedbackProvider =
 
 // Recent feedback for the dashboard card.
 final recentFeedbackProvider =
-    FutureProvider<List<FeedbackModel>>((ref) async {
+    FutureProvider.autoDispose<List<FeedbackModel>>((ref) async {
   final service = ref.watch(feedbackServiceProvider);
   return service.fetchRecentFeedback(limit: 5);
 });

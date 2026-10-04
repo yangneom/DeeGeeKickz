@@ -3,6 +3,7 @@ import 'package:flutter_riverpod/flutter_riverpod.dart';
 import '../../../providers/auth/auth_provider.dart';
 import '../../../providers/customer/customer_cart_provider.dart';
 import '../../../screens/auth/login_screen.dart';
+import '../../common/dialog/logout_confirm.dart';
 
 // ================================================
 // SUPER ADMIN SIDEBAR
@@ -13,7 +14,7 @@ import '../../../screens/auth/login_screen.dart';
 //   Overview
 //     0 = Dashboard
 //   Account Management
-//     1 = Admin
+//     1 = Admin        final cartNotifier = ref.read(customerCartProvider.notifier);
 //     2 = Customer
 //   Reports
 //     3 = Sales Report
@@ -106,15 +107,11 @@ class SuperSidebar extends ConsumerWidget {
             icon: Icons.chat_bubble_outline,
             label: 'Feedback Management',
           ),
-
-          // ── NOTIFICATIONS SECTION ──
-          _buildSectionLabel('Notifications'),
-
-          _buildNavItem(
-            index: 5,
-            icon: Icons.notifications_outlined,
-            label: 'Notification',
-          ),
+          // AUDIT REMOVE: Notifications is now accessed via the
+          // top-bar bell (with a quick-preview popover) rather than
+          // duplicated here. The screen itself (index 5) is untouched
+          // and still reachable — "See All" in the popover navigates
+          // to it directly, reusing the exact same route.
 
           // ── AUDIT SECTION ──
           _buildSectionLabel('Audit'),
@@ -241,7 +238,11 @@ class SuperSidebar extends ConsumerWidget {
         // an async gap, this widget may have rebuilt/unmounted, making
         // `ref` unsafe to read again.
         final authService = ref.read(authServiceProvider);
-        final cartNotifier = ref.read(customerCartProvider.notifier);
+                final cartNotifier = ref.read(customerCartProvider.notifier);
+
+        // Ask for confirmation first. Cancel (or tapping outside the
+        // dialog) stops here and the user stays logged in.
+        if (!await confirmLogout(context)) return;
 
         try {
           await authService.logout();

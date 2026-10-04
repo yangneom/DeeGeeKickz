@@ -423,8 +423,10 @@ class SalesReportService {
 
     final Set<int> monthOrderIds = {};
     for (final row in orders) {
-      final DateTime created =
-          DateTime.parse(row['created_at'].toString()).toLocal();
+      // AUDIT FIX: was .toLocal() — follows the viewing device's own
+      // timezone rather than a guaranteed Philippine business date,
+      // same class of bug fixed everywhere else in this file.
+      final DateTime created = _toPhilippineTime(row['created_at']);
       if (!created.isBefore(start) && created.isBefore(end)) {
         monthOrderIds.add((row['order_id'] as num).toInt());
       }
@@ -491,6 +493,8 @@ class SalesReportService {
       totalQuantitySold: totalQuantity,
       products: products,
     );
+
+    
   }
 
   // Resolves one image per product via the REAL foreign-key chain:
@@ -846,6 +850,16 @@ class SalesReportService {
   Future<List<DailySalesSummary>> getDailyBreakdown(DateTime month) async {
     final DateTime start = DateTime(month.year, month.month);
     final DateTime end = DateTime(month.year, month.month + 1);
+    return getDailyBreakdownForRange(start, end.subtract(const Duration(days: 1)));
+  }
+
+  // AUDIT ADD: generalizes the day-bucketing logic to an arbitrary
+  // [start, end] range (inclusive both ends) instead of a whole
+  // month — getDailyBreakdown() above now just calls this with a
+  // month's own boundaries, so there's one real implementation.
+  Future<List<DailySalesSummary>> getDailyBreakdownForRange(DateTime start, DateTime end) async {
+    final DateTime rangeStart = DateTime(start.year, start.month, start.day);
+    final DateTime rangeEndExclusive = DateTime(end.year, end.month, end.day).add(const Duration(days: 1));
 
     final Set<int> qualifyingIds = await _getQualifyingOrderIds();
     if (qualifyingIds.isEmpty) return [];
@@ -858,9 +872,9 @@ class SalesReportService {
     final Map<int, DateTime> orderDateMap = {};
     final Map<String, Set<int>> dailyOrderIds = {};
 
-    for (final row in orders) {
+        for (final row in orders) {
       final DateTime created = _toPhilippineTime(row['created_at']);
-      if (created.isBefore(start) || !created.isBefore(end)) continue;
+      if (created.isBefore(rangeStart) || !created.isBefore(rangeEndExclusive)) continue;
       final int orderId = (row['order_id'] as num).toInt();
       orderDateMap[orderId] = created;
       final String key = '${created.year}-${created.month.toString().padLeft(2, '0')}-${created.day.toString().padLeft(2, '0')}';
@@ -934,6 +948,134 @@ class SalesReportService {
     }
     result.sort((a, b) => b.dateTime.compareTo(a.dateTime));
     return result;
+  }
+
+    // AUDIT ADD: generalizes getDayTransactions() to an arbitrary
+  // [start, end] range — same underlying qualifying-order query and
+  // DayTransaction shape, just a wider date comparison instead of an
+  // exact day match. getDayTransactions() itself is left untouched
+  // so the existing Month-view per-day drill-down keeps working
+  // exactly as before.
+  Future<List<DayTransaction>> getRangeTransactions(DateTime start, DateTime end) async {
+    final Set<int> qualifyingIds = await _getQualifyingOrderIds();
+    if (qualifyingIds.isEmpty) return [];
+
+    final List<dynamic> orders = await _supabase
+        .from('orders')
+        .select('order_id, total_amount, payment_method, order_type, order_status, created_at')
+        .inFilter('order_id', qualifyingIds.toList());
+
+    final DateTime rangeStart = DateTime(start.year, start.month, start.day);
+    final DateTime rangeEndExclusive = DateTime(end.year, end.month, end.day).add(const Duration(days: 1));
+
+    final List<DayTransaction> result = [];
+    for (final row in orders) {
+      final DateTime created = _toPhilippineTime(row['created_at']);
+      if (!created.isBefore(rangeStart) && created.isBefore(rangeEndExclusive)) {
+        result.add(DayTransaction(
+          orderId: (row['order_id'] as num).toInt(),
+          dateTime: created,
+          totalAmount: (row['total_amount'] as num?)?.toDouble() ?? 0,
+          paymentMethod: row['payment_method'] ?? '',
+          orderType: row['order_type'] ?? 'Online',
+          orderStatus: row['order_status'] ?? '',
+        ));
+      }
+    }
+    result.sort((a, b) => b.dateTime.compareTo(a.dateTime));
+    return result;
+  }
+
+  
+  // AUDIT ADD: day-scoped twin of getMonthSalesDetail() — same
+  // MonthSalesDetail shape and ProductSalesEntry reused as-is, so
+  // the "View Details" dialog works identically for monthly rows
+  // (This Year) and daily rows (This Month/Week/Custom), with no
+  // duplicate model or rendering logic.
+  Future<MonthSalesDetail> getDaySalesDetail(DateTime day) async {
+    final DateTime start = DateTime(day.year, day.month, day.day);
+    final DateTime end = start.add(const Duration(days: 1));
+
+    final Set<int> qualifyingIds = await _getQualifyingOrderIds();
+    if (qualifyingIds.isEmpty) {
+      return MonthSalesDetail(
+        month: start, totalSales: 0, totalOrders: 0,
+        totalQuantitySold: 0, products: [],
+      );
+    }
+
+    final List<dynamic> orders = await _supabase
+        .from('orders')
+        .select('order_id, created_at')
+        .inFilter('order_id', qualifyingIds.toList());
+
+    final Set<int> dayOrderIds = {};
+    for (final row in orders) {
+      final DateTime created = _toPhilippineTime(row['created_at']);
+      if (!created.isBefore(start) && created.isBefore(end)) {
+        dayOrderIds.add((row['order_id'] as num).toInt());
+      }
+    }
+
+    if (dayOrderIds.isEmpty) {
+      return MonthSalesDetail(
+        month: start, totalSales: 0, totalOrders: 0,
+        totalQuantitySold: 0, products: [],
+      );
+    }
+
+    final List<dynamic> items = await _supabase
+        .from('order_item')
+        .select('order_id, product_name_snapshot, quantity, subtotal, size_id')
+        .inFilter('order_id', dayOrderIds.toList());
+
+    double totalSales = 0;
+    int totalQuantity = 0;
+    final Map<String, int> qtyByProduct = {};
+    final Map<String, double> revenueByProduct = {};
+    final Map<String, int> sampleSizeIdByProduct = {};
+
+    for (final row in items) {
+      final String name = row['product_name_snapshot'] ?? 'Unknown';
+      final int qty = (row['quantity'] as num?)?.toInt() ?? 0;
+      final double subtotal = (row['subtotal'] as num?)?.toDouble() ?? 0;
+
+      totalSales += subtotal;
+      totalQuantity += qty;
+      qtyByProduct[name] = (qtyByProduct[name] ?? 0) + qty;
+      revenueByProduct[name] = (revenueByProduct[name] ?? 0) + subtotal;
+
+      final dynamic sizeIdRaw = row['size_id'];
+      if (sizeIdRaw != null && !sampleSizeIdByProduct.containsKey(name)) {
+        sampleSizeIdByProduct[name] = (sizeIdRaw as num).toInt();
+      }
+    }
+
+    final List<MapEntry<String, int>> sorted = qtyByProduct.entries.toList()
+      ..sort((a, b) {
+        final int cmp = b.value.compareTo(a.value);
+        return cmp != 0 ? cmp : a.key.compareTo(b.key);
+      });
+
+    final Map<String, String?> imageByProduct =
+        await _fetchProductImages(sampleSizeIdByProduct);
+
+    final List<ProductSalesEntry> products = sorted.map((e) {
+      return ProductSalesEntry(
+        productName: e.key,
+        quantitySold: e.value,
+        salesAmount: revenueByProduct[e.key] ?? 0,
+        imageUrl: imageByProduct[e.key],
+      );
+    }).toList();
+
+    return MonthSalesDetail(
+      month: start,
+      totalSales: totalSales,
+      totalOrders: dayOrderIds.length,
+      totalQuantitySold: totalQuantity,
+      products: products,
+    );
   }
 
 }

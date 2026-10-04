@@ -150,11 +150,23 @@ class _SuperLayoutState extends ConsumerState<SuperLayout> {
               children: [
 
                 // top bar
-                const SuperTopBar(),
+                SuperTopBar(
+  onNavigate: (int index) {
+    setState(() {
+      _currentIndex = index;
+    });
+  },
+),
 
-                // content
+                // AUDIT ADD: same ultrawide cap as AdminLayout, for
+                // visual/behavioral consistency between the two roles.
                 Expanded(
-                  child: _getCurrentScreen(),
+                  child: Center(
+                    child: ConstrainedBox(
+                      constraints: const BoxConstraints(maxWidth: 1600),
+                      child: _getCurrentScreen(),
+                    ),
+                  ),
                 ),
               ],
             ),

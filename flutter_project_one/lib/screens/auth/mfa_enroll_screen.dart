@@ -108,10 +108,67 @@ class _MfaEnrollScreenState extends State<MfaEnrollScreen> {
     }
   }
 
+   // True while "Back to login" is running, so a double-tap can't run it twice.
+  bool _leaving = false;
+
+  // Back to login: at this screen the user is already signed in with their
+  // password (they just haven't finished MFA), so going "back" has to sign
+  // them out. Merely navigating away would leave a half-logged-in session
+  // that the app's auth listener could send straight back here.
+  Future<void> _backToLogin() async {
+    if (_leaving) return;
+    setState(() => _leaving = true);
+
+    final supabase = Supabase.instance.client;
+
+    // Best effort: remove the unfinished authenticator setup so abandoned
+    // attempts don't pile up on the account. If this fails we still sign out.
+    final String? factorId = _factorId;
+    if (factorId != null) {
+      try {
+        await supabase.auth.mfa.unenroll(factorId);
+      } catch (_) {
+        // best effort
+      }
+    }
+
+    try {
+      await supabase.auth.signOut();
+    } catch (_) {
+      // best effort: we still leave the screen below
+    }
+
+    if (!mounted) return;
+    Navigator.of(context).pushAndRemoveUntil(
+      MaterialPageRoute(builder: (_) => const LoginScreen()),
+      (route) => false,
+    );
+  }
+
   @override
   Widget build(BuildContext context) {
     return Scaffold(
       backgroundColor: Colors.white,
+      appBar: AppBar(
+        backgroundColor: Colors.white,
+        surfaceTintColor: Colors.white,
+        elevation: 0,
+        scrolledUnderElevation: 0,
+        automaticallyImplyLeading: false,
+        leadingWidth: 176,
+        leading: Align(
+          alignment: Alignment.centerLeft,
+          child: Padding(
+            padding: const EdgeInsets.only(left: 12),
+            child: TextButton.icon(
+              onPressed: (_verifying || _leaving) ? null : _backToLogin,
+              icon: const Icon(Icons.arrow_back, size: 18),
+              label: const Text('Back to login', style: TextStyle(fontSize: 14)),
+              style: TextButton.styleFrom(foregroundColor: const Color(0xFF374151)),
+            ),
+          ),
+        ),
+      ),
       body: SafeArea(
         child: Center(
           child: ConstrainedBox(

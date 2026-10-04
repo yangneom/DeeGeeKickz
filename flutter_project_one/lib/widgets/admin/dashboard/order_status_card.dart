@@ -235,13 +235,22 @@ class OrderStatusCard extends StatelessWidget {
                         showTitle: false,
                       ),
 
-                      // cancelled — red
+                                            // cancelled — red
                       PieChartSectionData(
                         value: cancelled.toDouble(),
                         color: const Color(0xFFEF4444),
                         radius: 30,
                         showTitle: false,
                       ),
+
+                      // no orders at all: show a neutral gray ring
+                      if (totalOrders == 0)
+                        PieChartSectionData(
+                          value: 1,
+                          color: const Color(0xFFE5E7EB),
+                          radius: 30,
+                          showTitle: false,
+                        ),
                     ],
                   ),
                 ),

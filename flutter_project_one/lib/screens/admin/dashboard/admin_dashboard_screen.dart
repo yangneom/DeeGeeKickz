@@ -6,7 +6,7 @@ import '../../../widgets/admin/dashboard/order_status_card.dart';
 import '../../../widgets/admin/dashboard/recent_feedback_card.dart';
 import '../../../providers/admin_provider/admin_dashboard_provider.dart';
 import '../../../providers/customer/notification_provider.dart';
-
+import '../../../providers/customer/review_providers.dart';
 class AdminDashboardScreen extends ConsumerStatefulWidget {
   // Called with the sidebar index to jump to (see AdminLayout's
   // _currentIndex mapping: 0=Dashboard,1=Inventory,2=Sales,
@@ -26,12 +26,13 @@ class _AdminDashboardScreenState
   @override
   void initState() {
     super.initState();
-    // notificationProvider (used elsewhere for the bell icon /
-    // notifications screen) only loads once by default — make sure
-    // it's fresh when the dashboard is opened, same as
-    // AdminNotificationsScreen already does.
+    // Make sure the ADMIN inbox is fresh when the dashboard opens.
+    // (This used to refresh the Customer notifier, `notificationProvider`,
+    // which is a different inbox from the one the Admin bell and the
+    // Admin notifications page read — so the card could disagree with
+    // the bell.)
     WidgetsBinding.instance.addPostFrameCallback((_) {
-      ref.read(notificationProvider.notifier).loadNotifications();
+      ref.read(adminNotificationProvider.notifier).loadNotifications();
     });
   }
 
@@ -41,14 +42,18 @@ class _AdminDashboardScreenState
   @override
   Widget build(BuildContext context) {
     final dashboardAsync = ref.watch(adminDashboardDataProvider);
-    final unreadNotifications = ref.watch(notificationProvider).unreadCount;
+    // Same provider as the top-bar bell and the Admin notifications
+    // page, so all three always show the same unread number.
+    final unreadNotifications =
+        ref.watch(adminNotificationProvider).unreadCount;
 
     return Scaffold(
       backgroundColor: const Color(0xFFF8F9FA),
       body: RefreshIndicator(
         onRefresh: () async {
           ref.invalidate(adminDashboardDataProvider);
-          await ref.read(notificationProvider.notifier).loadNotifications();
+          ref.invalidate(recentFeedbackProvider);
+          await ref.read(adminNotificationProvider.notifier).loadNotifications();
         },
         child: SingleChildScrollView(
           physics: const AlwaysScrollableScrollPhysics(),
@@ -112,18 +117,25 @@ class _AdminDashboardScreenState
                   ),
                 ),
                 data: (data) {
+                  final int pending = data.pendingOrders;
                   final int outOfStock = data.outOfStockProducts;
                   final int lowStock = data.lowStockProducts;
+                  final int feedback = data.flaggedFeedback;
+
+                  // A number only takes its warning color when there is
+                  // something to act on; at zero it stays neutral so the
+                  // dashboard doesn't shout about nothing.
+                  const Color neutral = Color(0xFF111827);
 
                   return Column(
                     crossAxisAlignment: CrossAxisAlignment.start,
                     children: [
 
-                      // ── 5 STATS CARDS ──
+                      // ── 5 STATS CARDS — ordered by urgency ──
                       Row(
                         children: [
 
-                          // pending orders
+                          // 1. pending orders — operational / action item
                           Expanded(
                             child: StatsCard(
                               icon: Icons.shopping_cart_outlined,
@@ -131,15 +143,20 @@ class _AdminDashboardScreenState
                                   const Color(0xFFEFF6FF),
                               iconColor: const Color(0xFF2563EB),
                               title: 'Pending Orders',
-                              count: data.pendingOrders,
-                              countColor: const Color(0xFF111827),
+                              count: pending,
+                              countColor: pending > 0
+                                  ? const Color(0xFF2563EB)
+                                  : neutral,
+                              caption: pending > 0
+                                  ? 'Awaiting your action'
+                                  : 'All clear',
                               onTap: () => widget.onNavigate?.call(5),
                             ),
                           ),
 
                           const SizedBox(width: 16),
 
-                          // low stock items
+                          // 2. low stock — warning
                           Expanded(
                             child: StatsCard(
                               icon: Icons.warning_amber_outlined,
@@ -148,56 +165,74 @@ class _AdminDashboardScreenState
                               iconColor: const Color(0xFFF59E0B),
                               title: 'Low Stock Items',
                               count: lowStock,
-                              countColor: const Color(0xFFF59E0B),
+                              countColor: lowStock > 0
+                                  ? const Color(0xFFD97706)
+                                  : neutral,
+                              caption: lowStock > 0
+                                  ? 'Running low'
+                                  : 'All clear',
                               onTap: () => widget.onNavigate?.call(1),
                             ),
                           ),
 
                           const SizedBox(width: 16),
 
-                          // new feedback (flagged)
+                          // 3. out of stock — critical
+                          Expanded(
+                            child: StatsCard(
+                              icon: Icons.remove_shopping_cart_outlined,
+                              iconBackgroundColor:
+                                  const Color(0xFFFEF2F2),
+                              iconColor: const Color(0xFFDC2626),
+                              title: 'Out of Stock Items',
+                              count: outOfStock,
+                              countColor: outOfStock > 0
+                                  ? const Color(0xFFDC2626)
+                                  : neutral,
+                              caption: outOfStock > 0
+                                  ? 'Needs restocking'
+                                  : 'All clear',
+                              onTap: () => widget.onNavigate?.call(1),
+                            ),
+                          ),
+
+                          const SizedBox(width: 16),
+
+                          // 4. new feedback — customer-related
                           Expanded(
                             child: StatsCard(
                               icon: Icons.chat_bubble_outline,
                               iconBackgroundColor:
-                                  const Color(0xFFFFF7ED),
-                              iconColor: const Color(0xFFF97316),
+                                  const Color(0xFFF5F3FF),
+                              iconColor: const Color(0xFF7C3AED),
                               title: 'New Feedback',
-                              count: data.flaggedFeedback,
-                              countColor: const Color(0xFFF97316),
+                              count: feedback,
+                              countColor: feedback > 0
+                                  ? const Color(0xFF7C3AED)
+                                  : neutral,
+                                                          caption: feedback > 0
+                                  ? 'Awaiting your reply'
+                                  : 'All replied',
                               onTap: () => widget.onNavigate?.call(3),
                             ),
                           ),
 
                           const SizedBox(width: 16),
 
-                          // unread notifications
+                          // 5. unread notifications — neutral
                           Expanded(
                             child: StatsCard(
                               icon: Icons.notifications_outlined,
                               iconBackgroundColor:
-                                  const Color(0xFFF0FDF4),
-                              iconColor: const Color(0xFF16A34A),
+                                  const Color(0xFFF3F4F6),
+                              iconColor: const Color(0xFF6B7280),
                               title: 'Unread Notifications',
                               count: unreadNotifications,
-                              countColor: const Color(0xFF16A34A),
+                              countColor: const Color(0xFF374151),
+                              caption: unreadNotifications > 0
+                                  ? 'Waiting for you'
+                                  : 'All caught up',
                               onTap: () => widget.onNavigate?.call(7),
-                            ),
-                          ),
-
-                          const SizedBox(width: 16),
-
-                          // out of stock
-                          Expanded(
-                            child: StatsCard(
-                              icon: Icons.inventory_2_outlined,
-                              iconBackgroundColor:
-                                  const Color(0xFFF5F3FF),
-                              iconColor: const Color(0xFF7C3AED),
-                              title: 'Out of Stock Items',
-                              count: outOfStock,
-                              countColor: const Color(0xFF7C3AED),
-                              onTap: () => widget.onNavigate?.call(1),
                             ),
                           ),
                         ],

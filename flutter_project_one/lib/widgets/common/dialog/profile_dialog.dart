@@ -1,5 +1,8 @@
 import 'package:flutter/material.dart';
+import 'package:flutter/services.dart';
+import 'package:flutter_riverpod/flutter_riverpod.dart';
 import 'package:supabase_flutter/supabase_flutter.dart';
+import '../../../providers/auth/auth_provider.dart';
 import '../../../services/auth/auth_service.dart';
 import 'confirm_dialog.dart';
 import '../../../screens/auth/mfa_enroll_screen.dart' show RecoveryCodesDialog;
@@ -45,6 +48,15 @@ class ProfileDialog extends StatefulWidget {
 class _ProfileDialogState extends State<ProfileDialog> {
   bool _isEditing = false;
   bool _isSaving = false;
+  String? _nameError;
+
+  // Latest saved names. Cancel restores these (not widget.firstName /
+  // lastName, which go stale after a successful save).
+  late String _savedFirstName;
+  late String _savedLastName;
+
+  // Only the Super Admin can change their own name from this dialog.
+  bool get _canChangeName => widget.canEdit && widget.role == 'Super Admin';
 
   late TextEditingController _firstNameController;
   late TextEditingController _lastNameController;
@@ -74,7 +86,9 @@ class _ProfileDialogState extends State<ProfileDialog> {
     super.initState();
     _firstNameController = TextEditingController(text: widget.firstName);
     _lastNameController = TextEditingController(text: widget.lastName);
-    _phoneController = TextEditingController(text: widget.phone);
+        _phoneController = TextEditingController(text: widget.phone);
+    _savedFirstName = widget.firstName;
+    _savedLastName = widget.lastName;
     _showPasswordSection = widget.autoOpenPasswordSection;
   }
 
@@ -106,40 +120,87 @@ class _ProfileDialogState extends State<ProfileDialog> {
         .toUpperCase();
   }
 
+  // Letters (including accented ones like ñ), spaces, hyphens,
+  // apostrophes and periods, e.g. "Ma. Cristina", "O'Connor".
+  static final RegExp _nameRegex = RegExp(r"^[\p{L}\s\-'.]+$", unicode: true);
+
+  String? _validateName(String value, String label) {
+    if (value.isEmpty) return '$label is required.';
+    if (value.length > 50) return '$label is too long (max 50 characters).';
+    if (!_nameRegex.hasMatch(value)) {
+      return '$label can only contain letters, spaces, hyphens, apostrophes and periods.';
+    }
+    return null;
+  }
+
   Future<void> _handleSave() async {
-    setState(() => _isSaving = true);
+    if (!_canChangeName) return;
+
+    final String first =
+        _firstNameController.text.trim().replaceAll(RegExp(r'\s+'), ' ');
+    final String last =
+        _lastNameController.text.trim().replaceAll(RegExp(r'\s+'), ' ');
+
+    final String? validationError =
+        _validateName(first, 'First name') ?? _validateName(last, 'Last name');
+    if (validationError != null) {
+      setState(() => _nameError = validationError);
+      return;
+    }
+
+    // Nothing changed: just leave edit mode.
+    if (first == _savedFirstName && last == _savedLastName) {
+      setState(() {
+        _isEditing = false;
+        _nameError = null;
+      });
+      return;
+    }
+
+    setState(() {
+      _isSaving = true;
+      _nameError = null;
+    });
 
     try {
-      await Supabase.instance.client.from('users').update({
-        'first_name': _firstNameController.text.trim(),
-        'last_name': _lastNameController.text.trim(),
-        'phone': _phoneController.text.trim(),
-      }).eq('id', widget.userId);
+      // .select() so an update silently blocked by RLS (0 rows) is
+      // detected instead of being reported as a success.
+      final List<dynamic> updated = await Supabase.instance.client
+          .from('users')
+          .update({'first_name': first, 'last_name': last})
+          .eq('id', widget.userId)
+          .select('id');
+
+      if (updated.isEmpty) {
+        throw Exception('No rows updated');
+      }
 
       if (!mounted) return;
+      // Refresh the top-bar greeting immediately instead of waiting for
+      // the realtime event (which also fires, and is harmless).
+      ProviderScope.containerOf(context).invalidate(ownProfileProvider);
+      _firstNameController.text = first;
+      _lastNameController.text = last;
       setState(() {
+        _savedFirstName = first;
+        _savedLastName = last;
         _isEditing = false;
         _isSaving = false;
       });
 
       ScaffoldMessenger.of(context).showSnackBar(
-        SnackBar(
-          content: const Text('Profile updated'),
+        const SnackBar(
+          content: Text('Name updated'),
           backgroundColor: _kDarkText,
           behavior: SnackBarBehavior.floating,
         ),
       );
-    } catch (e) {
+    } catch (_) {
       if (!mounted) return;
-      setState(() => _isSaving = false);
-
-      ScaffoldMessenger.of(context).showSnackBar(
-        SnackBar(
-          content: Text('Failed to update profile: $e'),
-          backgroundColor: _kRed,
-          behavior: SnackBarBehavior.floating,
-        ),
-      );
+      setState(() {
+        _isSaving = false;
+        _nameError = 'Could not update your name. Please try again.';
+      });
     }
   }
 
@@ -500,11 +561,29 @@ class _ProfileDialogState extends State<ProfileDialog> {
                   value: widget.email.isNotEmpty ? widget.email : '—',
                 ),
                 const SizedBox(height: 14),
-                _ProfileRow(
+                               _ProfileRow(
                   icon: Icons.phone_outlined,
                   label: 'Phone',
                   value: _phoneController.text.isNotEmpty ? _phoneController.text : '—',
                 ),
+                // Super Admin only: change your own name.
+                if (_canChangeName) ...[
+                  const SizedBox(height: 16),
+                  SizedBox(
+                    width: double.infinity,
+                    child: OutlinedButton.icon(
+                      onPressed: () => setState(() => _isEditing = true),
+                      icon: const Icon(Icons.edit_outlined, size: 16),
+                      label: const Text('Change your name', style: TextStyle(fontSize: 13)),
+                      style: OutlinedButton.styleFrom(
+                        foregroundColor: _kMidText,
+                        side: BorderSide(color: Colors.grey.shade300),
+                        padding: const EdgeInsets.symmetric(vertical: 12),
+                        shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(8)),
+                      ),
+                    ),
+                  ),
+                ],
                 const SizedBox(height: 20),
               ] else ...[
                 Align(
@@ -515,23 +594,43 @@ class _ProfileDialogState extends State<ProfileDialog> {
                   ),
                 ),
                 const SizedBox(height: 12),
-                TextField(
+                               TextField(
                   controller: _firstNameController,
                   style: const TextStyle(fontSize: 13, color: _kMidText),
                   decoration: _fieldDecoration('First name'),
+                  inputFormatters: [
+                    FilteringTextInputFormatter.deny(RegExp(r'[0-9]')),
+                    LengthLimitingTextInputFormatter(50),
+                  ],
+                  onChanged: (_) {
+                    if (_nameError != null) setState(() => _nameError = null);
+                  },
                 ),
                 const SizedBox(height: 12),
                 TextField(
                   controller: _lastNameController,
                   style: const TextStyle(fontSize: 13, color: _kMidText),
                   decoration: _fieldDecoration('Last name'),
+                  inputFormatters: [
+                    FilteringTextInputFormatter.deny(RegExp(r'[0-9]')),
+                    LengthLimitingTextInputFormatter(50),
+                  ],
+                  onChanged: (_) {
+                    if (_nameError != null) setState(() => _nameError = null);
+                  },
                 ),
-                const SizedBox(height: 12),
-                TextField(
-                  controller: _phoneController,
-                  style: const TextStyle(fontSize: 13, color: _kMidText),
-                  decoration: _fieldDecoration('Phone'),
-                  keyboardType: TextInputType.phone,
+                if (_nameError != null) ...[
+                  const SizedBox(height: 10),
+                  Align(
+                    alignment: Alignment.centerLeft,
+                    child: Text(_nameError!, style: const TextStyle(fontSize: 12, color: _kRed)),
+                  ),
+                ],
+                const SizedBox(height: 14),
+                _ProfileRow(
+                  icon: Icons.phone_outlined,
+                  label: 'Phone',
+                  value: _phoneController.text.isNotEmpty ? _phoneController.text : '—',
                 ),
                 const SizedBox(height: 14),
                 _ProfileRow(
@@ -563,11 +662,11 @@ class _ProfileDialogState extends State<ProfileDialog> {
                         onPressed: _isSaving
                             ? null
                             : () {
-                                setState(() {
+                                                                setState(() {
                                   _isEditing = false;
-                                  _firstNameController.text = widget.firstName;
-                                  _lastNameController.text = widget.lastName;
-                                  _phoneController.text = widget.phone;
+                                  _nameError = null;
+                                  _firstNameController.text = _savedFirstName;
+                                  _lastNameController.text = _savedLastName;
                                 });
                               },
                         child: const Text('Cancel'),

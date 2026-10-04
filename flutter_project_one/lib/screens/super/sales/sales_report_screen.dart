@@ -23,15 +23,9 @@ import '../../../services/super/sales/sales_report_service.dart';
 // Has search, filter by growth direction, and export.
 // ================================================
 
-enum SalesReportPeriodType { month, year, custom }
 
-  List<DateTime> _availableMonths = [];
+enum ReportPeriod { today, yesterday, thisWeek, thisMonth, thisYear, custom }
 
-  // AUDIT ADD: Phase 2 — period-type selector (Month/Year/Custom)
-  SalesReportPeriodType _periodType = SalesReportPeriodType.month;
-  int? _selectedYear;
-  DateTimeRange? _selectedCustomRange;
-  
 class SalesReportScreen extends ConsumerStatefulWidget {
   const SalesReportScreen({super.key});
 
@@ -40,11 +34,100 @@ class SalesReportScreen extends ConsumerStatefulWidget {
 }
 
 class _SalesReportScreenState extends ConsumerState<SalesReportScreen> {
+  List<DateTime> _availableMonths = [];
+
+  // AUDIT REPLACE: one unified period system — replaces the old
+  // separate Month/Year/Custom dropdown, the standalone "All Months"
+  // table, and the old Growth-only Filter in one coherent flow.
+  ReportPeriod _reportPeriod = ReportPeriod.thisMonth;
+  DateTimeRange? _customRange;
+  bool _showFilterPanel = false;
+
+  bool _isLoadingPeriod = false;
+  String? _periodError;
+  double _periodProductSales = 0;
+  double _periodCogs = 0;
+  double _periodGrossProfit = 0;
+  int _periodTotalOrders = 0;
+  int _periodTotalQuantity = 0;
+  List<DailySalesSummary> _periodDailyRows = [];
+  List<MonthlyReport> _periodMonthlyRows = [];
+  bool get _isYearGranularity => _reportPeriod == ReportPeriod.thisYear;
+
+
+  (DateTime, DateTime) _resolvePeriodRange() {
+    final DateTime now = DateTime.now();
+    final DateTime today = DateTime(now.year, now.month, now.day);
+    switch (_reportPeriod) {
+      case ReportPeriod.today:
+        return (today, today);
+      case ReportPeriod.yesterday:
+        final DateTime y = today.subtract(const Duration(days: 1));
+        return (y, y);
+      case ReportPeriod.thisWeek:
+        final DateTime weekStart = today.subtract(Duration(days: today.weekday - 1));
+        return (weekStart, today);
+      case ReportPeriod.thisMonth:
+        return (DateTime(now.year, now.month, 1), today);
+      case ReportPeriod.thisYear:
+        return (DateTime(now.year, 1, 1), DateTime(now.year, 12, 31));
+      case ReportPeriod.custom:
+        if (_customRange == null) return (today, today);
+        return (_customRange!.start, _customRange!.end);
+    }
+  }
+
+  Future<void> _loadReportPeriod() async {
+    setState(() {
+      _isLoadingPeriod = true;
+      _periodError = null;
+    });
+
+    try {
+      if (_isYearGranularity) {
+        final int year = DateTime.now().year;
+        final List<MonthlyReport> months =
+            _allReports.where((r) => r.monthStart.year == year).toList()
+              ..sort((a, b) => a.monthStart.compareTo(b.monthStart));
+        if (!mounted) return;
+        setState(() {
+          _periodMonthlyRows = months;
+          _periodProductSales = months.fold(0, (sum, m) => sum + m.totalSales);
+          _periodCogs = months.fold(0, (sum, m) => sum + m.cogs);
+          _periodGrossProfit = months.fold(0, (sum, m) => sum + m.grossProfit);
+          _periodTotalOrders = months.fold(0, (sum, m) => sum + m.totalOrders);
+          _periodTotalQuantity = months.fold(0, (sum, m) => sum + m.totalQuantitySold);
+          _isLoadingPeriod = false;
+        });
+        return;
+      }
+
+      final (DateTime start, DateTime end) = _resolvePeriodRange();
+      final CustomRangeSummary summary = await _reportService.getCustomRangeSummary(start, end);
+      final List<DailySalesSummary> daily = await _reportService.getDailyBreakdownForRange(start, end);
+      if (!mounted) return;
+      setState(() {
+        _periodProductSales = summary.totalSales;
+        _periodCogs = summary.cogs;
+        _periodGrossProfit = summary.grossProfit;
+        _periodTotalOrders = summary.totalOrders;
+        _periodTotalQuantity = summary.totalQuantitySold;
+        _periodDailyRows = daily;
+        _isLoadingPeriod = false;
+      });
+    } catch (e) {
+      if (!mounted) return;
+      setState(() {
+        _periodError = 'Failed to load this period.';
+        _isLoadingPeriod = false;
+      });
+    }
+  }
+
 
   final SalesReportService _reportService = SalesReportService();
   final TextEditingController _searchController = TextEditingController();
 
-  bool _showFilterPanel = false;
   String? _selectedFilter;
 
     List<MonthlyReport> _allReports = [];
@@ -81,7 +164,6 @@ class _SalesReportScreenState extends ConsumerState<SalesReportScreen> {
   // placed through the current month, regardless of whether that
   // month has any qualifying sales. Loaded independently of
   // _allReports, which only reflects months WITH sales.
-  List<DateTime> _availableMonths = [];
 
   static const List<String> _monthNames = [
     'Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun',
@@ -95,7 +177,6 @@ class _SalesReportScreenState extends ConsumerState<SalesReportScreen> {
   void initState() {
     super.initState();
     _loadReports();
-    _loadAvailableMonths();
   }
 
   Future<void> _loadAvailableMonths() async {
@@ -199,7 +280,7 @@ class _SalesReportScreenState extends ConsumerState<SalesReportScreen> {
         _allReports = reports;
         _isLoading = false;
       });
-      _applyFilters();
+      _loadReportPeriod();
     } catch (e) {
   }
   }
@@ -331,6 +412,202 @@ class _SalesReportScreenState extends ConsumerState<SalesReportScreen> {
     );
   }
 
+
+  Widget _buildUnifiedReportSection() {
+    const Map<ReportPeriod, String> labels = {
+      ReportPeriod.today: 'Today',
+      ReportPeriod.yesterday: 'Yesterday',
+      ReportPeriod.thisWeek: 'This Week',
+      ReportPeriod.thisMonth: 'This Month',
+      ReportPeriod.thisYear: 'This Year',
+      ReportPeriod.custom: 'Custom Range',
+    };
+
+    final (DateTime start, DateTime end) = _resolvePeriodRange();
+    final bool singleDay = start.year == end.year && start.month == end.month && start.day == end.day;
+
+    return Column(
+      crossAxisAlignment: CrossAxisAlignment.start,
+      children: [
+        Text(
+          _isYearGranularity ? '${DateTime.now().year} Summary' : labels[_reportPeriod]!,
+          style: const TextStyle(fontSize: 18, fontWeight: FontWeight.bold, color: Color(0xFF111827)),
+        ),
+        const SizedBox(height: 16),
+
+        if (_isLoadingPeriod)
+          const Padding(
+            padding: EdgeInsets.symmetric(vertical: 32),
+            child: Center(child: CircularProgressIndicator()),
+          )
+        else if (_periodError != null)
+          Padding(
+            padding: const EdgeInsets.symmetric(vertical: 24),
+            child: Text(_periodError!, style: const TextStyle(fontSize: 13, color: Color(0xFF6B7280))),
+          )
+        else
+          LayoutBuilder(builder: (context, constraints) {
+            final bool isNarrow = constraints.maxWidth < 720;
+            final List<Widget> cards = [
+              _buildMetricCard(
+                icon: Icons.payments_outlined,
+                iconBg: const Color(0xFFDCFCE7),
+                iconColor: const Color(0xFF16A34A),
+                title: 'Product Sales',
+                valueText: _formatCurrency(_periodProductSales),
+              ),
+              _buildMetricCard(
+                icon: Icons.receipt_long_outlined,
+                iconBg: const Color(0xFFDBEAFE),
+                iconColor: const Color(0xFF2563EB),
+                title: 'Total Orders',
+                valueText: _periodTotalOrders.toString(),
+              ),
+              _buildMetricCard(
+                icon: Icons.inventory_2_outlined,
+                iconBg: const Color(0xFFFEF3C7),
+                iconColor: const Color(0xFFD97706),
+                title: 'Total Quantity Sold',
+                valueText: _periodTotalQuantity.toString(),
+              ),
+              _buildMetricCard(
+                icon: Icons.trending_up,
+                iconBg: const Color(0xFFEDE9FE),
+                iconColor: const Color(0xFF7C3AED),
+                title: 'Gross Profit',
+                valueText: _formatCurrency(_periodGrossProfit),
+              ),
+            ];
+            return isNarrow
+                ? Column(children: cards.map((c) => Padding(padding: const EdgeInsets.only(bottom: 12), child: c)).toList())
+                : Row(children: cards.map((c) => Expanded(child: Padding(padding: const EdgeInsets.only(right: 12), child: c))).toList());
+          }),
+
+        const SizedBox(height: 20),
+
+        Row(
+          crossAxisAlignment: CrossAxisAlignment.center,
+          children: [
+            CommonSearchBar(
+              controller: _searchController,
+              hintText: 'Search report...',
+              onChanged: (value) => setState(() {}),
+            ),
+            const SizedBox(width: 8),
+            FilterButton(
+              isOpen: _showFilterPanel,
+              onTap: () => setState(() => _showFilterPanel = !_showFilterPanel),
+              selectedValues: {'Period': labels[_reportPeriod]},
+              onValueChanged: (String section, String? value) async {
+                if (value == 'custom') {
+                  final DateTimeRange? picked = await _showCompactDateRangeDialog(initialRange: _customRange);
+                  if (picked != null) {
+                    setState(() {
+                      _reportPeriod = ReportPeriod.custom;
+                      _customRange = picked;
+                    });
+                  }
+                } else {
+                  final ReportPeriod selected = ReportPeriod.values.firstWhere(
+                    (p) => p.name == value,
+                    orElse: () => ReportPeriod.thisMonth,
+                  );
+                  setState(() => _reportPeriod = selected);
+                }
+              },
+              onClear: () => setState(() => _reportPeriod = ReportPeriod.thisMonth),
+              onApply: () {
+                setState(() => _showFilterPanel = false);
+                _loadReportPeriod();
+              },
+              sections: [
+                FilterSection(
+                  title: 'Period',
+                  options: ReportPeriod.values.map((p) => FilterOption(label: labels[p]!, value: p.name)).toList(),
+                ),
+              ],
+            ),
+            const Spacer(),
+            if (!_isYearGranularity && !_isLoadingPeriod)
+              TextButton.icon(
+                onPressed: () async {
+                  final List<DayTransaction> transactions =
+                      await _reportService.getRangeTransactions(start, end);
+                  if (!mounted) return;
+                  _showTransactionDrillDown(
+                    title: singleDay ? _formatShortDate(start) : '${_formatShortDate(start)} – ${_formatShortDate(end)}',
+                    subtitle: 'Transactions behind this period\'s Sales Report figures',
+                    transactions: transactions,
+                    showDatePerRow: !singleDay,
+                  );
+                },
+                icon: const Icon(Icons.receipt_long_outlined, size: 16, color: Color(0xFF2563EB)),
+                label: const Text('View Transactions', style: TextStyle(fontSize: 13, color: Color(0xFF2563EB), fontWeight: FontWeight.w500)),
+              ),
+            ExportButton(
+              onExport: _exportToCsv,
+              onFormatSelected: (format) {
+                if (format == 'excel') { _exportToExcel(); } else { _exportToCsv(); }
+              },
+            ),
+          ],
+        ),
+        const SizedBox(height: 16),
+
+        if (!_isLoadingPeriod && _periodError == null)
+          _isYearGranularity
+              ? (_periodMonthlyRows.isEmpty
+                  ? const Padding(
+                      padding: EdgeInsets.symmetric(vertical: 24),
+                      child: Text('No sales data available yet.', style: TextStyle(fontSize: 13, color: Color(0xFF6B7280))))
+                                    : CommonTable(
+                      headers: const ['Month', 'Product Sales', 'COGS', 'Gross Profit', 'Best Seller', 'Growth %', ''],
+                      rows: _periodMonthlyRows.map((m) {
+                        return <Widget>[
+                          Text(m.month, style: const TextStyle(fontSize: 13, color: Color(0xFF111827))),
+                          _buildAmountText(_formatCurrency(m.totalSales)),
+                          _buildAmountText(_formatCurrency(m.cogs), color: const Color(0xFFDC2626)),
+                          _buildAmountText(_formatCurrency(m.grossProfit), color: const Color(0xFF16A34A)),
+                          Text(m.bestSeller, style: const TextStyle(fontSize: 13, color: Color(0xFF111827))),
+                          _buildGrowthBadge(m.growthPercent),
+                          TextButton.icon(
+                            onPressed: () => _showMonthOrDayDetails(period: m.monthStart, isMonth: true),
+                            icon: const Icon(Icons.visibility_outlined, size: 14, color: Color(0xFF2563EB)),
+                            label: const Text('View Details', style: TextStyle(fontSize: 12, color: Color(0xFF2563EB))),
+                          ),
+                        ];
+                      }).toList(),
+                    ))
+              : (_periodDailyRows.isEmpty
+                  ? const Padding(
+                      padding: EdgeInsets.symmetric(vertical: 24),
+                      child: Text('No sales data available for this period.', style: TextStyle(fontSize: 13, color: Color(0xFF6B7280))))
+                                  : CommonTable(
+                      headers: const ['Date', 'Product Sales', 'Orders', 'Quantity Sold', 'Gross Profit', ''],
+                      rows: _periodDailyRows.map((d) {
+                        return <Widget>[
+                          InkWell(
+                            onTap: () => _showDayDrillDown(d.date),
+                            child: Text(
+                              _formatShortDate(d.date),
+                              style: const TextStyle(fontSize: 13, color: Color(0xFF2563EB), decoration: TextDecoration.underline),
+                            ),
+                          ),
+                          _buildAmountText(_formatCurrency(d.totalSales)),
+                          Text(d.totalOrders.toString(), style: const TextStyle(fontSize: 13, color: Color(0xFF111827))),
+                          Text(d.totalQuantitySold.toString(), style: const TextStyle(fontSize: 13, color: Color(0xFF111827))),
+                          _buildAmountText(_formatCurrency(d.grossProfit), color: const Color(0xFF16A34A)),
+                          TextButton.icon(
+                            onPressed: () => _showMonthOrDayDetails(period: d.date, isMonth: false),
+                            icon: const Icon(Icons.visibility_outlined, size: 14, color: Color(0xFF2563EB)),
+                            label: const Text('View Details', style: TextStyle(fontSize: 12, color: Color(0xFF2563EB))),
+                          ),
+                        ];
+                      }).toList(),
+                    )),
+      ],
+    );
+  }
 // ================================================
   // EXPORT
   // ================================================
@@ -407,81 +684,10 @@ class _SalesReportScreenState extends ConsumerState<SalesReportScreen> {
     return tableRows;
   }
 
-    Widget _buildPeriodSelector() {
-    String label;
-    switch (_periodType) {
-      case SalesReportPeriodType.month:
-        label = _selectedMonth != null ? _formatMonthLabel(_selectedMonth!) : 'Select month';
-        break;
-      case SalesReportPeriodType.year:
-        label = _selectedYear != null ? '$_selectedYear' : 'Select year';
-        break;
-      case SalesReportPeriodType.custom:
-        label = _selectedCustomRange != null
-            ? '${_formatShortDate(_selectedCustomRange!.start)} – ${_formatShortDate(_selectedCustomRange!.end)}'
-            : 'Select range';
-        break;
-    }
-
-    return PopupMenuButton<String>(
-      offset: const Offset(0, 40),
-      shape: RoundedRectangleBorder(
-        borderRadius: BorderRadius.circular(8),
-        side: const BorderSide(color: Color(0xFFE5E7EB)),
-      ),
-      itemBuilder: (context) => [
-        const PopupMenuItem(value: 'month', child: Text('Month')),
-        const PopupMenuItem(value: 'year', child: Text('Year')),
-        const PopupMenuItem(value: 'custom', child: Text('Custom Range')),
-      ],
-      onSelected: (value) async {
-        if (value == 'month') {
-          setState(() => _periodType = SalesReportPeriodType.month);
-        } else if (value == 'year') {
-          final int initialYear = _selectedYear ?? DateTime.now().year;
-          setState(() {
-            _periodType = SalesReportPeriodType.year;
-            _selectedYear = initialYear;
-          });
-          _onYearChanged(initialYear);
-        } else if (value == 'custom') {
-          final DateTimeRange? picked = await _showCompactDateRangeDialog(
-            initialRange: _selectedCustomRange,
-          );
-          if (picked != null) {
-            setState(() {
-              _periodType = SalesReportPeriodType.custom;
-              _selectedCustomRange = picked;
-            });
-            _onCustomRangeChanged(picked);
-          }
-        }
-      },
-      child: Container(
-        padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 8),
-        decoration: BoxDecoration(
-          color: const Color(0xFFF9FAFB),
-          borderRadius: BorderRadius.circular(8),
-          border: Border.all(color: const Color(0xFFE5E7EB)),
-        ),
-        child: Row(
-          mainAxisSize: MainAxisSize.min,
-          children: [
-            Text(label, style: const TextStyle(fontSize: 13, color: Color(0xFF111827))),
-            const SizedBox(width: 4),
-            const Icon(Icons.keyboard_arrow_down, size: 16, color: Color(0xFF6B7280)),
-          ],
-        ),
-      ),
-    );
-  }
 
   String _formatShortDate(DateTime d) =>
       '${_monthNames[d.month - 1]} ${d.day}, ${d.year}';
 
-        // AUDIT ADD: replaces Flutter's built-in showDateRangePicker, which
-  // is always full-screen by design — this is a small, compact dialog
-  // matching the existing app's visual style instead.
   Future<DateTimeRange?> _showCompactDateRangeDialog({DateTimeRange? initialRange}) async {
     DateTime? start = initialRange?.start;
     DateTime? end = initialRange?.end;
@@ -539,7 +745,8 @@ class _SalesReportScreenState extends ConsumerState<SalesReportScreen> {
               );
             }
 
-            return Dialog(
+                        return Dialog(
+              backgroundColor: Colors.white,
               shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
               child: Container(
                 width: 320,
@@ -584,352 +791,6 @@ class _SalesReportScreenState extends ConsumerState<SalesReportScreen> {
     );
   }
 
-  // ================================================
-  // YEAR VIEW — Phase 3
-  // ================================================
-  Widget _buildYearView() {
-    final double totalSales = _yearMonths.fold(0, (sum, m) => sum + m.totalSales);
-    final double totalCogs = _yearMonths.fold(0, (sum, m) => sum + m.cogs);
-    final double totalGrossProfit = _yearMonths.fold(0, (sum, m) => sum + m.grossProfit);
-    final int totalOrders = _yearMonths.fold(0, (sum, m) => sum + m.totalOrders);
-    final int totalQuantity = _yearMonths.fold(0, (sum, m) => sum + m.totalQuantitySold);
-
-    return Container(
-      width: double.infinity,
-      padding: const EdgeInsets.all(24),
-      decoration: BoxDecoration(
-        color: Colors.white,
-        borderRadius: BorderRadius.circular(12),
-        border: Border.all(color: const Color(0xFFE5E7EB)),
-      ),
-      child: Column(
-        crossAxisAlignment: CrossAxisAlignment.start,
-        children: [
-          Row(
-            children: [
-              Text(
-                '${_selectedYear ?? DateTime.now().year} Summary',
-                style: const TextStyle(
-                  fontSize: 16,
-                  fontWeight: FontWeight.bold,
-                  color: Color(0xFF111827),
-                ),
-              ),
-              const Spacer(),
-              _buildPeriodSelector(),
-            ],
-          ),
-          const SizedBox(height: 20),
-
-          if (_isLoadingYear)
-            const Padding(
-              padding: EdgeInsets.symmetric(vertical: 32),
-              child: Center(child: CircularProgressIndicator()),
-            )
-          else if (_yearMonths.isEmpty)
-            const Padding(
-              padding: EdgeInsets.symmetric(vertical: 24),
-              child: Center(
-                child: Text('No sales recorded for this year.',
-                    style: TextStyle(fontSize: 13, color: Color(0xFF6B7280))),
-              ),
-            )
-          else ...[
-            LayoutBuilder(builder: (context, constraints) {
-              final bool isNarrow = constraints.maxWidth < 720;
-              final List<Widget> cards = [
-                _buildMetricCard(
-                  icon: Icons.payments_outlined,
-                  iconBg: const Color(0xFFDCFCE7),
-                  iconColor: const Color(0xFF16A34A),
-                  title: 'Product Sales',
-                  valueText: _formatCurrency(totalSales),
-                ),
-                _buildMetricCard(
-                  icon: Icons.receipt_long_outlined,
-                  iconBg: const Color(0xFFDBEAFE),
-                  iconColor: const Color(0xFF2563EB),
-                  title: 'Total Orders',
-                  valueText: totalOrders.toString(),
-                ),
-                _buildMetricCard(
-                  icon: Icons.inventory_2_outlined,
-                  iconBg: const Color(0xFFFEF3C7),
-                  iconColor: const Color(0xFFD97706),
-                  title: 'Total Quantity Sold',
-                  valueText: totalQuantity.toString(),
-                ),
-                _buildMetricCard(
-                  icon: Icons.trending_up,
-                  iconBg: const Color(0xFFEDE9FE),
-                  iconColor: const Color(0xFF7C3AED),
-                  title: 'Gross Profit',
-                  valueText: _formatCurrency(totalGrossProfit),
-                ),
-              ];
-              return isNarrow
-                  ? Column(children: cards.map((c) => Padding(
-                      padding: const EdgeInsets.only(bottom: 12), child: c)).toList())
-                  : Row(children: cards.map((c) => Expanded(
-                      child: Padding(padding: const EdgeInsets.only(right: 12), child: c))).toList());
-            }),
-            const SizedBox(height: 24),
-            CommonTable(
-              headers: const [
-                'Month', 'Product Sales', 'COGS', 'Gross Profit', 'Best Seller', 'Growth %',
-              ],
-              rows: _yearMonths.map((m) {
-                return <Widget>[
-                  Text(
-                    m.month,
-                    style: const TextStyle(fontSize: 13, color: Color(0xFF111827)),
-                  ),
-                  _buildAmountText(_formatCurrency(m.totalSales)),
-                  _buildAmountText(
-                    _formatCurrency(m.cogs),
-                    color: const Color(0xFFDC2626),
-                  ),
-                  _buildAmountText(
-                    _formatCurrency(m.grossProfit),
-                    color: const Color(0xFF16A34A),
-                  ),
-                  Text(
-                    m.bestSeller,
-                    style: const TextStyle(fontSize: 13, color: Color(0xFF111827)),
-                  ),
-                  _buildGrowthBadge(m.growthPercent),
-                ];
-              }).toList(),
-            ),
-          ],
-        ],
-      ),
-    );
-  }
-
-  // ================================================
-  // CUSTOM RANGE VIEW — Phase 5
-  // ================================================
-  Widget _buildCustomRangeView() {
-    return Container(
-      width: double.infinity,
-      padding: const EdgeInsets.all(24),
-      decoration: BoxDecoration(
-        color: Colors.white,
-        borderRadius: BorderRadius.circular(12),
-        border: Border.all(color: const Color(0xFFE5E7EB)),
-      ),
-      child: Column(
-        crossAxisAlignment: CrossAxisAlignment.start,
-        children: [
-          Row(
-            children: [
-              const Text(
-                'Custom Range Summary',
-                style: TextStyle(
-                  fontSize: 16,
-                  fontWeight: FontWeight.bold,
-                  color: Color(0xFF111827),
-                ),
-              ),
-              const Spacer(),
-              _buildPeriodSelector(),
-            ],
-          ),
-          const SizedBox(height: 20),
-
-          if (_isLoadingCustomRange)
-            const Padding(
-              padding: EdgeInsets.symmetric(vertical: 32),
-              child: Center(child: CircularProgressIndicator()),
-            )
-          else if (_customRangeError != null)
-            Padding(
-              padding: const EdgeInsets.symmetric(vertical: 24),
-              child: Text(_customRangeError!,
-                  style: const TextStyle(fontSize: 13, color: Color(0xFF6B7280))),
-            )
-          else if (_customRangeSummary == null)
-            const Padding(
-              padding: EdgeInsets.symmetric(vertical: 24),
-              child: Text('Select a date range to view its summary.',
-                  style: TextStyle(fontSize: 13, color: Color(0xFF6B7280))),
-            )
-          else
-            LayoutBuilder(builder: (context, constraints) {
-              final bool isNarrow = constraints.maxWidth < 720;
-              final CustomRangeSummary s = _customRangeSummary!;
-              final List<Widget> cards = [
-                _buildMetricCard(
-                  icon: Icons.payments_outlined,
-                  iconBg: const Color(0xFFDCFCE7),
-                  iconColor: const Color(0xFF16A34A),
-                  title: 'Product Sales',
-                  valueText: _formatCurrency(s.totalSales),
-                ),
-                _buildMetricCard(
-                  icon: Icons.receipt_long_outlined,
-                  iconBg: const Color(0xFFDBEAFE),
-                  iconColor: const Color(0xFF2563EB),
-                  title: 'Total Orders',
-                  valueText: s.totalOrders.toString(),
-                ),
-                _buildMetricCard(
-                  icon: Icons.inventory_2_outlined,
-                  iconBg: const Color(0xFFFEF3C7),
-                  iconColor: const Color(0xFFD97706),
-                  title: 'Total Quantity Sold',
-                  valueText: s.totalQuantitySold.toString(),
-                ),
-                _buildMetricCard(
-                  icon: Icons.trending_up,
-                  iconBg: const Color(0xFFEDE9FE),
-                  iconColor: const Color(0xFF7C3AED),
-                  title: 'Gross Profit',
-                  valueText: _formatCurrency(s.grossProfit),
-                ),
-              ];
-              return isNarrow
-                  ? Column(children: cards.map((c) => Padding(
-                      padding: const EdgeInsets.only(bottom: 12), child: c)).toList())
-                  : Row(children: cards.map((c) => Expanded(
-                      child: Padding(padding: const EdgeInsets.only(right: 12), child: c))).toList());
-            }),
-        ],
-      ),
-    );
-  }
-
-  // ================================================
-  // BUILD
-  // ================================================
-    // ================================================
-  // MONTH DETAIL SECTION — period selector, key metrics,
-  // Top 5, view details
-  // ================================================
-  Widget _buildMonthDetailSection() {
-    // AUDIT ADD: Phase 3/5 — dispatch to the Year or Custom Range
-    // view when selected. The existing month-view Container/Column
-    // below is completely untouched when _periodType is month.
-    if (_periodType == SalesReportPeriodType.year) {
-      return _buildYearView();
-    }
-    if (_periodType == SalesReportPeriodType.custom) {
-      return _buildCustomRangeView();
-    }
-
-    return Container(
-      width: double.infinity,
-      padding: const EdgeInsets.all(24),
-      decoration: BoxDecoration(
-        color: Colors.white,
-        borderRadius: BorderRadius.circular(12),
-        border: Border.all(color: const Color(0xFFE5E7EB)),
-      ),
-      child: Column(
-        crossAxisAlignment: CrossAxisAlignment.start,
-        children: [
-          // ── Period selector ──
-          Row(
-            children: [
-              const Text(
-                'Monthly Performance',
-                style: TextStyle(
-                  fontSize: 16,
-                  fontWeight: FontWeight.bold,
-                  color: Color(0xFF111827),
-                ),
-              ),
-              const Spacer(),
-              _buildPeriodSelector(),
-            ],
-          ),
-          const SizedBox(height: 20),
-
-          if (_isLoadingMonthDetail)            const Padding(
-              padding: EdgeInsets.symmetric(vertical: 32),
-              child: Center(child: CircularProgressIndicator()),
-            )
-          else if (_monthDetailError != null)
-            Padding(
-              padding: const EdgeInsets.symmetric(vertical: 24),
-              child: Column(
-                children: [
-                  Text(_monthDetailError!,
-                      style: const TextStyle(
-                          fontSize: 13, color: Color(0xFF6B7280))),
-                  const SizedBox(height: 8),
-                  TextButton(
-                    onPressed: () => _selectedMonth != null
-                        ? _onMonthChanged(_selectedMonth!)
-                        : null,
-                    child: const Text('Retry'),
-                  ),
-                ],
-              ),
-            )
-                  else if (_monthDetail == null)
-            const Padding(
-              padding: EdgeInsets.symmetric(vertical: 24),
-              child: Text(
-                'No sales data available yet.',
-                style: TextStyle(fontSize: 13, color: Color(0xFF6B7280)),
-              ),
-            )
-          else ...[
-            _buildMonthMetrics(_monthDetail!),
-            const SizedBox(height: 24),
-            _buildTopProductsSection(_monthDetail!),
-            if (_dailyBreakdown.isNotEmpty) ...[
-              const SizedBox(height: 24),
-              Text(
-                'Sales Breakdown — ${_formatMonthLabel(_selectedMonth!)}',
-                style: const TextStyle(
-                  fontSize: 15,
-                  fontWeight: FontWeight.bold,
-                  color: Color(0xFF111827),
-                ),
-              ),
-              const SizedBox(height: 12),
-                           CommonTable(
-                headers: const [
-                  'Date', 'Product Sales', 'Orders', 'Quantity Sold', 'Gross Profit',
-                ],
-                rows: _dailyBreakdown.map((d) {
-                  return <Widget>[
-                    InkWell(
-                      onTap: () => _showDayDrillDown(d.date),
-                      child: Text(
-                        _formatShortDate(d.date),
-                        style: const TextStyle(
-                          fontSize: 13,
-                          color: Color(0xFF2563EB),
-                          decoration: TextDecoration.underline,
-                        ),
-                      ),
-                    ),
-                    _buildAmountText(_formatCurrency(d.totalSales)),
-                    Text(
-                      d.totalOrders.toString(),
-                      style: const TextStyle(fontSize: 13, color: Color(0xFF111827)),
-                    ),
-                    Text(
-                      d.totalQuantitySold.toString(),
-                      style: const TextStyle(fontSize: 13, color: Color(0xFF111827)),
-                    ),
-                    _buildAmountText(
-                      _formatCurrency(d.grossProfit),
-                      color: const Color(0xFF16A34A),
-                    ),
-                  ];
-                }).toList(),
-              ),
-            ],
-          ],
-        ],
-      ),
-    );
-  }
 
   Widget _buildMonthMetrics(MonthSalesDetail detail) {
     return LayoutBuilder(builder: (context, constraints) {
@@ -994,40 +855,84 @@ class _SalesReportScreenState extends ConsumerState<SalesReportScreen> {
     final List<DayTransaction> transactions =
         await _reportService.getDayTransactions(day);
     if (!mounted) return;
+    _showTransactionDrillDown(
+      title: _formatShortDate(day),
+      subtitle: 'Transactions behind this day\'s Sales Report figures',
+      transactions: transactions,
+      showDatePerRow: false,
+    );
+  }
 
+  // AUDIT ADD: shared, polished read-only drill-down, used by both
+  // the Month view's per-day click and Custom Range's "View
+  // Transactions" button — one dialog implementation, not two.
+  void _showTransactionDrillDown({
+    required String title,
+    required String subtitle,
+    required List<DayTransaction> transactions,
+    required bool showDatePerRow,
+  }) {
     showDialog(
       context: context,
       builder: (context) {
-        return Dialog(
+               return Dialog(
+          backgroundColor: Colors.white,
           shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
           child: Container(
-            width: 600,
-            constraints: const BoxConstraints(maxHeight: 600),
+            width: 640,
+            constraints: const BoxConstraints(maxHeight: 640),
             padding: const EdgeInsets.all(24),
             child: Column(
               crossAxisAlignment: CrossAxisAlignment.start,
               mainAxisSize: MainAxisSize.min,
               children: [
                 Text(
-                  _formatShortDate(day),
-                  style: const TextStyle(fontSize: 18, fontWeight: FontWeight.bold),
+                  title,
+                  style: const TextStyle(
+                    fontSize: 18,
+                    fontWeight: FontWeight.bold,
+                    color: Color(0xFF111827),
+                  ),
                 ),
+                const SizedBox(height: 4),
+                Text(
+                  subtitle,
+                  style: const TextStyle(fontSize: 12, color: Color(0xFF6B7280)),
+                ),
+                const SizedBox(height: 16),
+                const Divider(height: 1, color: Color(0xFFE5E7EB)),
                 const SizedBox(height: 16),
                 Flexible(
                   child: transactions.isEmpty
-                      ? const Text('No transactions this day.')
-                      : CommonTable(
-                          headers: const ['Order ID', 'Date & Time', 'Total', 'Payment Method', 'Type', 'Status'],
-                          rows: transactions.map((t) {
-                            return <Widget>[
-                              Text('#${t.orderId}'),
-                              Text(_formatShortDate(t.dateTime)),
-                              _buildAmountText(_formatCurrency(t.totalAmount)),
-                              Text(t.paymentMethod),
-                              Text(t.orderType),
-                              Text(t.orderStatus),
-                            ];
-                          }).toList(),
+                      ? const Padding(
+                          padding: EdgeInsets.symmetric(vertical: 24),
+                          child: Text(
+                            'No transactions in this period.',
+                            style: TextStyle(fontSize: 13, color: Color(0xFF6B7280)),
+                          ),
+                        )
+                      : SingleChildScrollView(
+                          child: CommonTable(
+                            headers: const ['Order ID', 'Date & Time', 'Total', 'Payment Method', 'Type', 'Status'],
+                            rows: transactions.map((t) {
+                              return <Widget>[
+                                Text('#${t.orderId}', style: const TextStyle(fontSize: 13, color: Color(0xFF111827))),
+                                // Full date+time shown for multi-day ranges, so
+                                // transactions from different days stay clearly
+                                // distinguishable; day-only drill-down keeps
+                                // showing just the time, since the date is
+                                // already the dialog's own title.
+                                Text(
+                                  showDatePerRow ? _formatDateTime(t.dateTime) : _formatTimeOnly(t.dateTime),
+                                  style: const TextStyle(fontSize: 13, color: Color(0xFF111827)),
+                                ),
+                                _buildAmountText(_formatCurrency(t.totalAmount)),
+                                Text(t.paymentMethod, style: const TextStyle(fontSize: 13, color: Color(0xFF111827))),
+                                Text(t.orderType, style: const TextStyle(fontSize: 13, color: Color(0xFF111827))),
+                                Text(t.orderStatus, style: const TextStyle(fontSize: 13, color: Color(0xFF111827))),
+                              ];
+                            }).toList(),
+                          ),
                         ),
                 ),
                 const SizedBox(height: 16),
@@ -1035,6 +940,7 @@ class _SalesReportScreenState extends ConsumerState<SalesReportScreen> {
                   alignment: Alignment.centerRight,
                   child: TextButton(
                     onPressed: () => Navigator.of(context).pop(),
+                    style: TextButton.styleFrom(foregroundColor: const Color(0xFF374151)),
                     child: const Text('Close'),
                   ),
                 ),
@@ -1046,6 +952,14 @@ class _SalesReportScreenState extends ConsumerState<SalesReportScreen> {
     );
   }
 
+  String _formatTimeOnly(DateTime d) {
+    final int hour12 = d.hour % 12 == 0 ? 12 : d.hour % 12;
+    final String minute = d.minute.toString().padLeft(2, '0');
+    final String amPm = d.hour < 12 ? 'AM' : 'PM';
+    return '$hour12:$minute $amPm';
+  }
+
+  String _formatDateTime(DateTime d) => '${_formatShortDate(d)}, ${_formatTimeOnly(d)}';
   Widget _buildMetricCard({
     required IconData icon,
     required Color iconBg,
@@ -1241,6 +1155,104 @@ class _SalesReportScreenState extends ConsumerState<SalesReportScreen> {
     );
   }
 
+    Future<void> _showMonthOrDayDetails({required DateTime period, required bool isMonth}) async {
+    final MonthSalesDetail detail = isMonth
+        ? await _reportService.getMonthSalesDetail(period)
+        : await _reportService.getDaySalesDetail(period);
+    if (!mounted) return;
+
+    showDialog(
+      context: context,
+      builder: (context) {
+        return Dialog(
+          backgroundColor: Colors.white,
+          shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
+          child: Container(
+            width: 600,
+            constraints: const BoxConstraints(maxHeight: 640),
+            padding: const EdgeInsets.all(24),
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              mainAxisSize: MainAxisSize.min,
+              children: [
+                Text(
+                  isMonth ? _formatMonthLabel(period) : _formatShortDate(period),
+                  style: const TextStyle(fontSize: 18, fontWeight: FontWeight.bold, color: Color(0xFF111827)),
+                ),
+                const SizedBox(height: 16),
+                Row(
+                  children: [
+                    Expanded(child: _buildSmallStat('Product Sales', _formatCurrency(detail.totalSales))),
+                    Expanded(child: _buildSmallStat('Orders', detail.totalOrders.toString())),
+                    Expanded(child: _buildSmallStat('Qty Sold', detail.totalQuantitySold.toString())),
+                  ],
+                ),
+                const SizedBox(height: 20),
+                const Divider(height: 1, color: Color(0xFFE5E7EB)),
+                const SizedBox(height: 16),
+                const Text('Top 5 Products', style: TextStyle(fontSize: 14, fontWeight: FontWeight.bold, color: Color(0xFF111827))),
+                const SizedBox(height: 12),
+                Flexible(
+                  child: detail.products.isEmpty
+                      ? const Padding(
+                          padding: EdgeInsets.symmetric(vertical: 16),
+                          child: Text('No products sold in this period.', style: TextStyle(fontSize: 13, color: Color(0xFF6B7280))),
+                        )
+                      : SingleChildScrollView(
+                          child: Column(
+                            children: detail.products.take(5).map((p) {
+                              return Padding(
+                                padding: const EdgeInsets.symmetric(vertical: 6),
+                                child: Row(
+                                  children: [
+                                    ClipRRect(
+                                      borderRadius: BorderRadius.circular(6),
+                                      child: p.imageUrl != null
+                                          ? Image.network(p.imageUrl!, width: 36, height: 36, fit: BoxFit.cover)
+                                          : Container(width: 36, height: 36, color: const Color(0xFFF3F4F6)),
+                                    ),
+                                    const SizedBox(width: 12),
+                                    Expanded(
+                                      child: Text(p.productName, style: const TextStyle(fontSize: 13, color: Color(0xFF111827))),
+                                    ),
+                                    Text('${p.quantitySold} sold', style: const TextStyle(fontSize: 12, color: Color(0xFF6B7280))),
+                                    const SizedBox(width: 12),
+                                    _buildAmountText(_formatCurrency(p.salesAmount)),
+                                  ],
+                                ),
+                              );
+                            }).toList(),
+                          ),
+                        ),
+                ),
+                const SizedBox(height: 16),
+                Align(
+                  alignment: Alignment.centerRight,
+                  child: TextButton(
+                    onPressed: () => Navigator.of(context).pop(),
+                    style: TextButton.styleFrom(foregroundColor: const Color(0xFF374151)),
+                    child: const Text('Close'),
+                  ),
+                ),
+              ],
+            ),
+          ),
+        );
+      },
+    );
+  }
+
+  Widget _buildSmallStat(String label, String value) {
+    return Column(
+      crossAxisAlignment: CrossAxisAlignment.start,
+      children: [
+        Text(label, style: const TextStyle(fontSize: 11, color: Color(0xFF6B7280))),
+        const SizedBox(height: 2),
+        Text(value, style: const TextStyle(fontSize: 14, fontWeight: FontWeight.w600, color: Color(0xFF111827))),
+      ],
+    );
+  }
+
   // ================================================
   // BUILD
   // ================================================
@@ -1277,122 +1289,7 @@ class _SalesReportScreenState extends ConsumerState<SalesReportScreen> {
               // Top 5 → view details. The existing all-months table
               // below is untouched — this section filters nothing on
               // it, it's a separate, focused view. ──
-              _buildMonthDetailSection(),
-
-              const SizedBox(height: 32),
-              const Text(
-                'All Months',
-                style: TextStyle(
-                  fontSize: 16,
-                  fontWeight: FontWeight.bold,
-                  color: Color(0xFF111827),
-                ),
-              ),
-              const SizedBox(height: 16),
-
-              Row(
-                crossAxisAlignment: CrossAxisAlignment.center,
-                children: [
-                  CommonSearchBar(
-                    controller: _searchController,
-                    hintText: 'Search report...',
-                    onChanged: (value) => _applyFilters(),
-                  ),
-                  const SizedBox(width: 8),
-                  FilterButton(
-                    isOpen: _showFilterPanel,
-                    onTap: () =>
-                        setState(() => _showFilterPanel = !_showFilterPanel),
-                    selectedValues: {
-                      'Growth': _selectedFilter,
-                    },
-                    onValueChanged: (String section, String? value) {
-                      if (section == 'Growth') setState(() => _selectedFilter = value);
-                    },
-                    onClear: _clearFilters,
-                    onApply: () {
-                      _applyFilters();
-                      setState(() => _showFilterPanel = false);
-                    },
-                    sections: [
-                      FilterSection(
-                        title: 'Growth',
-                        options: [
-                          FilterOption(label: 'Positive', value: 'Positive'),
-                          FilterOption(label: 'Negative', value: 'Negative'),
-                        ],
-                      ),
-                    ],
-                  ),
-                  const Spacer(),
-                  ExportButton(
-                    onExport: _exportToCsv,
-                    onFormatSelected: (format) {
-                      if (format == 'excel') {
-                        _exportToExcel();
-                      } else {
-                        _exportToCsv();
-                      }
-                    },
-                  ),
-                ],
-              ),
-
-                           const SizedBox(height: 16),
-
-              if (_isLoading)
-                const Padding(
-                  padding: EdgeInsets.symmetric(vertical: 48),
-                  child: Center(child: CircularProgressIndicator()),
-                )
-              else if (_errorMessage != null)
-                Padding(
-                  padding: const EdgeInsets.symmetric(vertical: 48),
-                  child: Center(
-                    child: Column(
-                      mainAxisSize: MainAxisSize.min,
-                      children: [
-                        Text(
-                          _errorMessage!,
-                          style: const TextStyle(
-                            fontSize: 14,
-                            color: Color(0xFF6B7280),
-                          ),
-                        ),
-                        const SizedBox(height: 12),
-                        ElevatedButton(
-                          onPressed: _loadReports,
-                          child: const Text('Retry'),
-                        ),
-                      ],
-                    ),
-                  ),
-                )
-              else if (_filteredReports.isEmpty)
-                const Padding(
-                  padding: EdgeInsets.symmetric(vertical: 48),
-                  child: Center(
-                    child: Text(
-                      'No sales data available yet.',
-                      style: TextStyle(
-                        fontSize: 14,
-                        color: Color(0xFF6B7280),
-                      ),
-                    ),
-                  ),
-                )
-              else
-                                CommonTable(
-                  headers: const [
-                    'Month',
-                    'Product Sales',
-                    'COGS',
-                    'Gross Profit',
-                    'Best Seller',
-                    'Growth %',
-                  ],
-                  rows: _buildRows(),
-                ),
+              _buildUnifiedReportSection(),
             ],
           ),
         ),

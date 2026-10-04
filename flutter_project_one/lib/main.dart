@@ -118,7 +118,29 @@ void main() async {
             final aal = await Supabase.instance.client.auth.mfa
                 .getAuthenticatorAssuranceLevel();
             if (aal.currentLevel != AuthenticatorAssuranceLevels.aal2) {
-              startScreen = MfaChallengeScreen(role: role, onVerified: () {});
+                            startScreen = MfaChallengeScreen(
+                role: role,
+                onVerified: () {
+                  // AUDIT FIX: this was a genuinely empty no-op callback —
+                  // completing MFA at cold-start did nothing at all,
+                  // leaving the app stuck on a stale screen until a full
+                  // logout/login cycle ran through the OTHER, correctly-
+                  // wired path in _listenForAuthEvents() below.
+                  // Uses appNavigatorKey (the public, top-level key),
+                  // not _navigatorKey — that one is a private field of
+                  // _MyAppState, not visible from this top-level main().
+                  appNavigatorKey.currentState?.pushAndRemoveUntil(
+                    MaterialPageRoute(
+                      builder: (_) => role == 'Admin'
+                          ? const AdminLayout()
+                          : role == 'Cashier'
+                          ? const CashierLayout()
+                          : const SuperLayout(),
+                    ),
+                    (route) => false,
+                  );
+                },
+              );
             } else {
               startScreen = role == 'Admin'
                   ? const AdminLayout()
