@@ -6,7 +6,7 @@ import 'package:flutter_colorpicker/flutter_colorpicker.dart';
 import 'package:file_picker/file_picker.dart';
 import 'package:supabase_flutter/supabase_flutter.dart';
 import 'package:flutter_project_one/widgets/common/dialog/confirm_dialog.dart';
-import 'package:flutter_project_one/services/admin/inventory/inventory_service.dart';
+import 'package:flutter_project_one/widgets/common/dialog/app_toast.dart';import 'package:flutter_project_one/services/admin/inventory/inventory_service.dart';
 import 'dart:typed_data';
 import 'package:crop_your_image/crop_your_image.dart';
 // ================================================
@@ -317,11 +317,10 @@ class _AddProductDialogState extends ConsumerState<AddProductDialog> {
 
       if (remaining <= 0) {
         if (mounted) {
-          ScaffoldMessenger.of(context).showSnackBar(
-            const SnackBar(
-              content: Text('Maximum 4 images per variant.'),
-              backgroundColor: Colors.orange,
-            ),
+          AppToast.warning(
+            context,
+            'Each color can have up to 4 images.',
+            title: 'Image limit reached',
           );
         }
         return;
@@ -364,15 +363,12 @@ class _AddProductDialogState extends ConsumerState<AddProductDialog> {
       // (images stay optional), but the admin now genuinely knows
       // an image they picked didn't make it in.
       if (failedCount > 0 && mounted) {
-        ScaffoldMessenger.of(context).showSnackBar(
-          SnackBar(
-            content: Text(
-              failedCount == 1
-                  ? '1 image could not be processed and was skipped.'
-                  : '$failedCount images could not be processed and were skipped.',
-            ),
-            backgroundColor: Colors.orange,
-          ),
+        AppToast.warning(
+          context,
+          failedCount == 1
+              ? '1 image could not be processed and was skipped.'
+              : '$failedCount images could not be processed and were skipped.',
+          title: 'Some images skipped',
         );
       }
 
@@ -384,11 +380,10 @@ class _AddProductDialogState extends ConsumerState<AddProductDialog> {
     } catch (error) {
       print('_pickImages error: $error');
       if (mounted) {
-        ScaffoldMessenger.of(context).showSnackBar(
-          const SnackBar(
-            content: Text('Failed to pick images. Please try again.'),
-            backgroundColor: Colors.red,
-          ),
+        AppToast.error(
+          context,
+          'We could not load your images. Please try again.',
+          title: 'Images not added',
         );
       }
     }
@@ -538,11 +533,11 @@ class _AddProductDialogState extends ConsumerState<AddProductDialog> {
       if (colorKey.isEmpty) continue;
       if (seenColors.contains(colorKey)) {
         if (mounted) {
-          ScaffoldMessenger.of(context).showSnackBar(SnackBar(
-            content: Text(
-                'Two variants both use the color "$colorKey". Each color must be unique within a product.'),
-            backgroundColor: Colors.red,
-          ));
+          AppToast.error(
+            context,
+            'Two variants both use the color "$colorKey". Each color must be unique within a product.',
+            title: 'Duplicate color',
+          );
         }
         return;
       }
@@ -560,11 +555,11 @@ class _AddProductDialogState extends ConsumerState<AddProductDialog> {
         if (sizeKey.isEmpty) continue;
         if (seenSizes.contains(sizeKey)) {
           if (mounted) {
-            ScaffoldMessenger.of(context).showSnackBar(SnackBar(
-              content: Text(
-                  'The size "${row.sizeController.text.trim()}" is entered twice for color "$colorLabel". Each size should only appear once per color.'),
-              backgroundColor: Colors.red,
-            ));
+            AppToast.error(
+              context,
+              'The size "${row.sizeController.text.trim()}" is entered twice for color "$colorLabel". Each size should only appear once per color.',
+              title: 'Duplicate size',
+            );
           }
           return;
         }
@@ -644,12 +639,7 @@ class _AddProductDialogState extends ConsumerState<AddProductDialog> {
 
       if (error != null) {
         if (mounted) {
-          ScaffoldMessenger.of(context).showSnackBar(
-            SnackBar(
-              content: Text(error),
-              backgroundColor: Colors.red,
-            ),
-          );
+          AppToast.error(context, error, title: 'Could not save product');
         }
         return;
       }
@@ -704,23 +694,18 @@ class _AddProductDialogState extends ConsumerState<AddProductDialog> {
         // (images remain optional by design) — but the admin is now
         // told the truth about what happened.
         if (totalImageFailures > 0) {
-          ScaffoldMessenger.of(context).showSnackBar(
-            SnackBar(
-              content: Text(
-                'Product created, but $totalImageFailures image(s) failed '
-                'to upload. You can add them later from Edit Product.',
-              ),
-              backgroundColor: Colors.orange,
-              duration: const Duration(seconds: 5),
-            ),
+          AppToast.warning(
+            context,
+            'The product was created, but $totalImageFailures image(s) failed to upload. You can add them later from Edit Product.',
+            title: 'Some images failed',
+            duration: const Duration(seconds: 8),
           );
         } else {
-          ScaffoldMessenger.of(context).showSnackBar(
-          const SnackBar(
-            content: Text('Product published successfully!'),
-            backgroundColor: Color(0xFF16A34A),
-          ),
-        );
+          AppToast.success(
+            context,
+            'The product is now in your inventory.',
+            title: 'Product published',
+          );
       }
 
       }
@@ -728,11 +713,10 @@ class _AddProductDialogState extends ConsumerState<AddProductDialog> {
     } catch (error) {
       print('_saveProduct error: $error');
       if (mounted) {
-        ScaffoldMessenger.of(context).showSnackBar(
-          const SnackBar(
-            content: Text('Failed to save product. Please try again.'),
-            backgroundColor: Colors.red,
-          ),
+        AppToast.error(
+          context,
+          'Something went wrong while saving. Please try again.',
+          title: 'Could not save product',
         );
       }
     } finally {

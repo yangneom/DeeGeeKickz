@@ -1,6 +1,9 @@
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
+import 'package:supabase_flutter/supabase_flutter.dart' show AuthException;
 import '../../providers/auth/auth_provider.dart';
+import '../../core/utils/form_validators.dart';
+import '../../widgets/common/forms/auth_form_fields.dart';
 import 'reset_password_otp_screen.dart';
 
 class ForgotPasswordScreen extends ConsumerStatefulWidget {
@@ -14,6 +17,9 @@ class _ForgotPasswordScreenState extends ConsumerState<ForgotPasswordScreen> {
   final TextEditingController _emailController = TextEditingController();
   final GlobalKey<FormState> _formKey = GlobalKey<FormState>();
 
+  // True after the first failed submit; from then on the field re-checks
+  // itself as the user edits it.
+  bool _showErrors = false;
   bool _isSubmitting = false;
   String? _errorMessage;
 
@@ -23,9 +29,28 @@ class _ForgotPasswordScreenState extends ConsumerState<ForgotPasswordScreen> {
     super.dispose();
   }
 
+  // Turns whatever was thrown into something a customer can act on.
+  // Before, the raw exception text (for example
+  // "AuthApiException(message: ..., statusCode: 429 ...)") was shown.
+  String _friendlyError(Object error) {
+    if (error is AuthException) {
+      final String message = error.message.toLowerCase();
+      if (error.statusCode == '429' ||
+          message.contains('rate limit') ||
+          message.contains('security purposes')) {
+        return 'Too many requests. Please wait a few minutes and try again.';
+      }
+    }
+    return 'We couldn\'t send the code. Please check your connection and try again.';
+  }
+
   Future<void> _handleSendCode() async {
     if (_isSubmitting) return;
-    if (!_formKey.currentState!.validate()) return;
+
+    if (!_formKey.currentState!.validate()) {
+      setState(() => _showErrors = true);
+      return;
+    }
 
     setState(() {
       _isSubmitting = true;
@@ -34,7 +59,7 @@ class _ForgotPasswordScreenState extends ConsumerState<ForgotPasswordScreen> {
 
     final String email = _emailController.text.trim();
 
-        try {
+    try {
       await ref.read(authServiceProvider).sendPasswordResetEmail(email);
       if (mounted) {
         Navigator.of(context).push(
@@ -42,10 +67,9 @@ class _ForgotPasswordScreenState extends ConsumerState<ForgotPasswordScreen> {
             builder: (_) => ResetPasswordOtpScreen(email: email),
           ),
         );
-        
       }
     } catch (e) {
-      setState(() => _errorMessage = e.toString().replaceFirst('Exception: ', ''));
+      if (mounted) setState(() => _errorMessage = _friendlyError(e));
     } finally {
       if (mounted) setState(() => _isSubmitting = false);
     }
@@ -59,140 +83,87 @@ class _ForgotPasswordScreenState extends ConsumerState<ForgotPasswordScreen> {
 
     return Scaffold(
       backgroundColor: Colors.white,
-      body: SingleChildScrollView(
-        child: ConstrainedBox(
-          constraints: BoxConstraints(minHeight: screenHeight),
-          child: IntrinsicHeight(
-            child: Center(
-              child: Padding(
-                padding: const EdgeInsets.symmetric(horizontal: 24, vertical: 40),
-                child: Column(
-                  mainAxisAlignment: MainAxisAlignment.center,
-                  children: [
-                    Form(
-                      key: _formKey,
-                      child: SizedBox(
-                        width: formWidth,
-                        child: Column(
-                          crossAxisAlignment: CrossAxisAlignment.start,
-                          children: [
-                            GestureDetector(
-                              onTap: () => Navigator.of(context).pop(),
-                              child: const Row(
-                                children: [
-                                  Icon(Icons.arrow_back, size: 16, color: Colors.grey),
-                                  SizedBox(width: 6),
-                                  Text(
-                                    'Back to Login',
-                                    style: TextStyle(fontSize: 13, color: Colors.grey),
-                                  ),
-                                ],
-                              ),
-                            ),
-                            const SizedBox(height: 24),
+      body: SafeArea(
+        child: SingleChildScrollView(
+          child: ConstrainedBox(
+            constraints: BoxConstraints(minHeight: screenHeight),
+            child: IntrinsicHeight(
+              child: Center(
+                child: Padding(
+                  padding: const EdgeInsets.symmetric(horizontal: 24, vertical: 40),
+                  child: Column(
+                    mainAxisAlignment: MainAxisAlignment.center,
+                    children: [
+                      Form(
+                        key: _formKey,
+                        autovalidateMode: _showErrors
+                            ? AutovalidateMode.onUserInteraction
+                            : AutovalidateMode.disabled,
+                        child: SizedBox(
+                          width: formWidth,
+                          child: Column(
+                            crossAxisAlignment: CrossAxisAlignment.start,
+                            children: [
 
-                            const Text(
-                              'Forgot your password?',
-                              style: TextStyle(
-                                fontSize: 22,
-                                fontWeight: FontWeight.bold,
-                                color: Colors.black,
-                              ),
-                            ),
-                            const SizedBox(height: 8),
-                            const Text(
-                              'Enter your account email and we\'ll send you a '
-                              'verification code to reset your password.',
-                              style: TextStyle(fontSize: 14, color: Colors.grey),
-                            ),
-                            const SizedBox(height: 30),
-
-                            const Text(
-                              'Email',
-                              style: TextStyle(
-                                fontSize: 14,
-                                fontWeight: FontWeight.w500,
-                                color: Colors.black,
-                              ),
-                            ),
-                            const SizedBox(height: 8),
-                            TextFormField(
-                              controller: _emailController,
-                              keyboardType: TextInputType.emailAddress,
-                              decoration: InputDecoration(
-                                hintText: 'Enter your Email Address',
-                                border: OutlineInputBorder(
-                                  borderRadius: BorderRadius.circular(8),
-                                ),
-                                contentPadding: const EdgeInsets.symmetric(
-                                  horizontal: 16,
-                                  vertical: 14,
-                                ),
-                              ),
-                              validator: (value) {
-                                if (value == null || value.isEmpty) {
-                                  return 'Please enter your email';
-                                }
-                                if (!value.contains('@')) {
-                                  return 'Please enter a valid email';
-                                }
-                                return null;
-                              },
-                            ),
-
-                            const SizedBox(height: 30),
-
-                            if (_errorMessage != null)
-                              Container(
-                                width: double.infinity,
-                                padding: const EdgeInsets.all(12),
-                                margin: const EdgeInsets.only(bottom: 16),
-                                decoration: BoxDecoration(
-                                  color: Colors.red.shade50,
-                                  borderRadius: BorderRadius.circular(8),
-                                  border: Border.all(color: Colors.red.shade200),
-                                ),
-                                child: Text(
-                                  _errorMessage!,
-                                  style: const TextStyle(color: Colors.red, fontSize: 13),
-                                ),
+                              // ── BACK ──
+                              AuthBackButton(
+                                label: 'Back to Login',
+                                onPressed: () => Navigator.of(context).pop(),
                               ),
 
-                            SizedBox(
-                              width: double.infinity,
-                              height: 50,
-                              child: ElevatedButton(
-                                onPressed: _isSubmitting ? null : _handleSendCode,
-                                style: ElevatedButton.styleFrom(
-                                  backgroundColor: Colors.black,
-                                  foregroundColor: Colors.white,
-                                  shape: RoundedRectangleBorder(
-                                    borderRadius: BorderRadius.circular(8),
-                                  ),
+                              const SizedBox(height: 16),
+
+                              const Text(
+                                'Forgot your password?',
+                                style: TextStyle(
+                                  fontSize: 22,
+                                  fontWeight: FontWeight.bold,
+                                  color: Colors.black,
                                 ),
-                                child: _isSubmitting
-                                    ? const SizedBox(
-                                        height: 20,
-                                        width: 20,
-                                        child: CircularProgressIndicator(
-                                          color: Colors.white,
-                                          strokeWidth: 2,
-                                        ),
-                                      )
-                                    : const Text(
-                                        'Send Code',
-                                        style: TextStyle(
-                                          fontSize: 16,
-                                          fontWeight: FontWeight.bold,
-                                        ),
-                                      ),
                               ),
-                            ),
-                          ],
+                              const SizedBox(height: 8),
+                              const Text(
+                                'Enter your account email and we\'ll send you a '
+                                'verification code to reset your password.',
+                                style: TextStyle(fontSize: 14, color: Color(0xFF6B7280)),
+                              ),
+                              const SizedBox(height: 30),
+
+                              // ── EMAIL ──
+                              AuthTextField(
+                                label: 'Email Address',
+                                hint: 'Enter your email address',
+                                controller: _emailController,
+                                keyboardType: TextInputType.emailAddress,
+                                textInputAction: TextInputAction.done,
+                                autofillHints: const [AutofillHints.email],
+                                // Enter sends the code.
+                                onFieldSubmitted: (_) => _handleSendCode(),
+                                // The same email rule as login and sign-up
+                                // (this screen used to only check for an "@").
+                                validator: FormValidators.email,
+                              ),
+
+                              const SizedBox(height: 30),
+
+                              // ── WHOLE-FORM ERROR ──
+                              if (_errorMessage != null) ...[
+                                AuthFormError(message: _errorMessage!),
+                                const SizedBox(height: 16),
+                              ],
+
+                              // ── SEND CODE ──
+                              AuthPrimaryButton(
+                                label: 'Send Code',
+                                isLoading: _isSubmitting,
+                                onPressed: _handleSendCode,
+                              ),
+                            ],
+                          ),
                         ),
                       ),
-                    ),
-                  ],
+                    ],
+                  ),
                 ),
               ),
             ),

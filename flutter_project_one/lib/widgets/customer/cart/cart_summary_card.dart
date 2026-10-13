@@ -2,6 +2,7 @@ import 'package:flutter/material.dart';
 import '../../../screens/customer/checkout/checkout_screen.dart';
 import 'package:supabase_flutter/supabase_flutter.dart';
 import '../../../screens/auth/login_screen.dart';
+import '../../common/dialog/app_toast.dart';
 
 /// Order summary sidebar card — matches HTML mockup.
 /// Shows subtotal, a "calculated at checkout" shipping note, and
@@ -145,11 +146,10 @@ class CartSummaryCard extends StatelessWidget {
             child: _CheckoutButton(
               onTap: () {
                 if (isCartEmpty) {
-                  ScaffoldMessenger.of(context).showSnackBar(
-                    const SnackBar(
-                      content: Text('Your bag is empty. Add an item before checking out.'),
-                      backgroundColor: Colors.red,
-                    ),
+                  AppToast.warning(
+                    context,
+                    'Add an item to your bag before checking out.',
+                    title: 'Your bag is empty',
                   );
                   return;
                 }

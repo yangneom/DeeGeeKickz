@@ -5,7 +5,7 @@ import 'add_banner_dialog.dart';
 import 'edit_banner_dialog.dart';
 import '../../../models/promotion_banner_model.dart';
 import '../../../services/admin/promotionDiscount/banner_service.dart';
-
+import '../../common/dialog/app_toast.dart'; 
 class BannersTable extends StatefulWidget {
   const BannersTable({super.key});
 
@@ -71,11 +71,10 @@ class _BannersTableState extends State<BannersTable> {
 
     if (!mounted) return;
     if (error != null) {
-      ScaffoldMessenger.of(context).showSnackBar(
-        SnackBar(
-          content: Text('Failed to delete banner: $error'),
-          backgroundColor: const Color(0xFFDC2626),
-        ),
+      AppToast.error(
+        context,
+        'We could not delete the banner. Please try again.',
+        title: 'Banner not deleted',
       );
       return;
     }

@@ -4,7 +4,7 @@ import '../../../models/notification_model.dart';
 import '../../../providers/product/product_provider.dart';
 import '../../../services/customer/review/review_service.dart';
 import '../../../screens/customer/product_detail/product_detail.dart';
-
+import '../../common/dialog/app_toast.dart';
 /// Notification card for [NotificationType.newFeedback] on the
 /// customer side — fires when an admin replies to the customer's
 /// own review. Fetches the review (to get its product), then the
@@ -34,11 +34,10 @@ class _NotificationTileReviewReplyState
     widget.onMarkRead();
     if (feedbackId == null) {
       if (mounted) {
-        ScaffoldMessenger.of(context).showSnackBar(
-          const SnackBar(
-            content: Text('This notification is too old to link directly, check your reviews on the product page.'),
-            backgroundColor: Colors.black,
-          ),
+        AppToast.info(
+          context,
+          'This notification is too old to link directly. Check your reviews on the product page.',
+          title: 'Can\'t open review',
         );
       }
       return;
@@ -52,11 +51,10 @@ class _NotificationTileReviewReplyState
 
       if (!mounted) return;
       if (review == null) {
-        ScaffoldMessenger.of(context).showSnackBar(
-          const SnackBar(
-            content: Text('Could not load this review. It may have been removed.'),
-            backgroundColor: Colors.red,
-          ),
+        AppToast.error(
+          context,
+          'We could not load this review. It may have been removed.',
+          title: 'Review unavailable',
         );
         return;
       }
@@ -69,11 +67,10 @@ class _NotificationTileReviewReplyState
 
       if (!mounted) return;
       if (product == null) {
-        ScaffoldMessenger.of(context).showSnackBar(
-          const SnackBar(
-            content: Text('This product is no longer available.'),
-            backgroundColor: Colors.red,
-          ),
+        AppToast.error(
+          context,
+          'This product is no longer available.',
+          title: 'Product unavailable',
         );
         return;
       }

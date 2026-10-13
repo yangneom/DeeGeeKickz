@@ -8,6 +8,7 @@ import '../../../widgets/common/buttons/filter_panel.dart';
 import '../../../widgets/super/admin_management/customer_edit_dialog.dart';
 import '../../../widgets/super/admin_management/customer_disabled_dialog.dart';
 import '../../../providers/super/customer_account_provider.dart';
+import '../../../widgets/common/dialog/app_toast.dart';
 
 // ================================================
 // CUSTOMER MANAGEMENT SCREEN
@@ -129,31 +130,13 @@ class _CustomerManagementScreenState
   // ================================================
   // HANDLE ACTIVATE
   // ================================================
+  // Called only from the Suspended / Banned dialog, which shows the success
+  // or failure toast and removes the row only if this succeeds. Errors must
+  // propagate, so they are not caught here.
   Future<void> _handleActivate(CustomerAccount customer) async {
-    try {
-      await ref
-          .read(customerAccountsProvider.notifier)
-          .enableAccount(customer.id);
-      if (mounted) {
-        ScaffoldMessenger.of(context).showSnackBar(
-          SnackBar(
-            content: Text('${customer.fullName} enabled successfully.'),
-            backgroundColor: const Color(0xFF16A34A),
-            behavior: SnackBarBehavior.floating,
-          ),
-        );
-      }
-    } catch (e) {
-      if (mounted) {
-        ScaffoldMessenger.of(context).showSnackBar(
-          SnackBar(
-            content: Text('Failed to enable ${customer.fullName}. Please try again.'),
-            backgroundColor: const Color(0xFFEF4444),
-            behavior: SnackBarBehavior.floating,
-          ),
-        );
-      }
-    }
+    await ref
+        .read(customerAccountsProvider.notifier)
+        .enableAccount(customer.id);
   }
   Widget _buildPresenceCell(CustomerAccount customer) {
     if (customer.isOnline) {

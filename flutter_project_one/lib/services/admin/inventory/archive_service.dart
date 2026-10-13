@@ -83,7 +83,7 @@ class ArchiveService {
 
       if (error.code == '23505' &&
           error.message.contains('product_active_name_unique')) {
-        return 'Can\'t restore "$productName" — an active product with this name already exists. Rename or archive the other one first.';
+        return 'Can\'t restore "$productName"  an active product with this name already exists. Rename or discontinue the other one first.';
       }
 
       return 'Failed to restore product. Please try again.';

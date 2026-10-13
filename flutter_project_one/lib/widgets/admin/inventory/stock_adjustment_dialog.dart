@@ -1,6 +1,7 @@
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import 'package:flutter_project_one/widgets/common/dialog/confirm_dialog.dart';
+import 'package:flutter_project_one/widgets/common/dialog/app_toast.dart';
 import '../../../models/product.dart';
 import '../../../services/admin/inventory/inventory_service.dart';
 import '../../../services/admin/inventory/stock_service.dart';
@@ -243,15 +244,9 @@ class _StockAdjustmentDialogState extends State<StockAdjustmentDialog> {
     if (_selectedVariant == null || _selectedSize == null) return;
 
     int qty = _getAdjustmentQty();
-    if (qty <= 0) {
-      ScaffoldMessenger.of(context).showSnackBar(
-        const SnackBar(
-          content: Text('Please enter a quantity greater than 0.'),
-          backgroundColor: Color(0xFFDC2626),
-        ),
-      );
-      return;
-    }
+    // The Save button is disabled until a quantity above 0 is entered, so
+    // this is only a safety net and needs no notification.
+    if (qty <= 0) return;
 
     String action = _isAddStock ? 'Add' : 'Remove';
     int newStock = _getNewStockPreview();
@@ -282,19 +277,16 @@ class _StockAdjustmentDialogState extends State<StockAdjustmentDialog> {
     setState(() => _isSaving = false);
 
     if (error != null) {
-      ScaffoldMessenger.of(context).showSnackBar(
-        SnackBar(content: Text(error), backgroundColor: const Color(0xFFDC2626)),
-      );
+      AppToast.error(context, error, title: 'Could not adjust stock');
       return;
     }
 
-    Navigator.of(context).pop(true);
-    ScaffoldMessenger.of(context).showSnackBar(
-      const SnackBar(
-        content: Text('Stock adjustment saved successfully!'),
-        backgroundColor: Color(0xFF16A34A),
-      ),
+    AppToast.success(
+      context,
+      'The stock quantity has been updated.',
+      title: 'Stock adjusted',
     );
+    Navigator.of(context).pop(true);
   }
 
   // ================================================

@@ -4,6 +4,7 @@ import 'package:flutter/material.dart';
 import 'package:crop_your_image/crop_your_image.dart';
 import '../../../models/promotion_banner_model.dart';
 import '../../../services/admin/promotionDiscount/banner_service.dart';
+import '../../common/dialog/app_toast.dart';
 
 // ================================================
 // EDIT BANNER DIALOG
@@ -98,11 +99,10 @@ class _EditBannerDialogState extends State<EditBannerDialog> {
         break;
       case CropFailure(:final cause):
         setState(() => _isCropping = false);
-        ScaffoldMessenger.of(context).showSnackBar(
-          SnackBar(
-            content: Text('Could not crop image: $cause'),
-            backgroundColor: const Color(0xFFDC2626),
-          ),
+        AppToast.error(
+          context,
+          'We could not crop that image. Please try a different one.',
+          title: 'Crop failed',
         );
         break;
     }
@@ -126,11 +126,10 @@ class _EditBannerDialogState extends State<EditBannerDialog> {
     setState(() => _isSaving = false);
 
     if (error != null) {
-      ScaffoldMessenger.of(context).showSnackBar(
-        SnackBar(
-          content: Text('Failed to save changes: $error'),
-          backgroundColor: const Color(0xFFDC2626),
-        ),
+      AppToast.error(
+        context,
+        'We could not save the banner. Please try again.',
+        title: 'Save failed',
       );
       return;
     }
@@ -192,7 +191,7 @@ class _EditBannerDialogState extends State<EditBannerDialog> {
               const Padding(
                 padding: EdgeInsets.only(top: 6),
                 child: Text(
-                  'Image is cropped to fit the banner ratio (16:5).',
+                  'Image is cropped to the banner ratio (21:9).',
                   style: TextStyle(
                     fontSize: 11,
                     color: Color(0xFF9CA3AF),
@@ -302,7 +301,7 @@ class _EditBannerDialogState extends State<EditBannerDialog> {
             child: Crop(
               controller: _cropController,
               image: _pickedBytes!,
-              aspectRatio: 16 / 5,
+              aspectRatio: 21 / 9,
               baseColor: const Color(0xFF111827),
               maskColor: Colors.black.withOpacity(0.55),
               onCropped: _handleCropResult,
@@ -372,7 +371,7 @@ class _EditBannerDialogState extends State<EditBannerDialog> {
         ClipRRect(
           borderRadius: BorderRadius.circular(8),
           child: AspectRatio(
-            aspectRatio: 16 / 5,
+            aspectRatio: 21 / 9,
             child: _newCroppedBytes != null
                 ? Image.memory(
                     _newCroppedBytes!,

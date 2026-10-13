@@ -13,17 +13,13 @@ import '../../screens/auth/otp_screen.dart';
 import '../../screens/auth/register_screen.dart';
 import '../../screens/auth/forgot_password_screen.dart';
 
-
 // Import AdminLayout for role-based navigation
 import '../../screens/admin/admin_layout.dart';
 
 // ✅ Import CashierLayout — now built!
 import '../../screens/cashier/cashier_layout.dart';
 
-// TODO: Import CustomerLayout when built
-// import '../../screens/customer/customer_layout.dart';
-
-import '../../screens/super/super_layout.dart'; // ← ADD THIS
+import '../../screens/super/super_layout.dart';
 
 import '../../screens/customer/homescreen/home_screen.dart';
 
@@ -34,8 +30,29 @@ import 'package:connectivity_plus/connectivity_plus.dart';
 import '../../screens/auth/mfa_challenge_screen.dart';
 import '../../main.dart';
 
+// Shared auth look + shared validation rules
+import '../../core/utils/form_validators.dart';
+import '../../widgets/common/forms/auth_form_fields.dart';
+
 // ================================================
 // LOGIN FORM WIDGET
+//
+// Standardised on the shared auth components (AuthTextField,
+// AuthPasswordField, AuthFormError, AuthPrimaryButton), so the field look,
+// the error style and the button are the same as every other auth form.
+//
+// Behaviour notes:
+//   - Field problems appear UNDER the field. They first appear when the
+//     user presses Login, and from then on update as the user corrects
+//     the value (not while typing the very first time).
+//   - A whole-form problem (wrong credentials, no internet, unsupported
+//     account type) appears in the red box above the button.
+//   - Enter submits from the password field; Enter in the email field
+//     moves to the password field.
+//   - The password is NEVER trimmed or altered. There is no length rule
+//     here: strength rules belong to sign-up and password change, and
+//     checking them at login only locks out people whose password
+//     predates a rule.
 // ================================================
 class LoginForm extends ConsumerStatefulWidget {
   const LoginForm({super.key});
@@ -48,25 +65,36 @@ class _LoginFormState extends ConsumerState<LoginForm> {
 
   final TextEditingController _emailController = TextEditingController();
   final TextEditingController _passwordController = TextEditingController();
-
-  bool _isPasswordVisible = false;
+  final FocusNode _passwordFocus = FocusNode();
 
   final GlobalKey<FormState> _formKey = GlobalKey<FormState>();
+
+  // Becomes true after the first failed submit; from then on the fields
+  // re-check themselves as the user edits them.
+  bool _showErrors = false;
 
   @override
   void dispose() {
     _emailController.dispose();
     _passwordController.dispose();
+    _passwordFocus.dispose();
     super.dispose();
   }
 
   // ================================================
   // HANDLE LOGIN FUNCTION
   // ================================================
-    Future<void> _handleLogin() async {
+  Future<void> _handleLogin() async {
 
-    bool formIsValid = _formKey.currentState!.validate();
-    if (formIsValid == false) return;
+    // A second request (Enter key or a fast double tap) while one is
+    // already running is ignored.
+    if (ref.read(isLoadingProvider)) return;
+
+    final bool formIsValid = _formKey.currentState!.validate();
+    if (!formIsValid) {
+      setState(() => _showErrors = true);
+      return;
+    }
 
     // Captured ONCE, up front — these notifier references stay valid
     // even after this widget is disposed by navigation, unlike calling
@@ -78,7 +106,7 @@ class _LoginFormState extends ConsumerState<LoginForm> {
     final loadingNotifier = ref.read(isLoadingProvider.notifier);
     final errorNotifier = ref.read(errorMessageProvider.notifier);
 
-       loadingNotifier.setLoading(true);
+    loadingNotifier.setLoading(true);
     errorNotifier.setError(null);
 
     try {
@@ -97,13 +125,15 @@ class _LoginFormState extends ConsumerState<LoginForm> {
 
       final authService = ref.read(authServiceProvider);
 
-     final String? errorMessage = await authService.login(
-        email: _emailController.text,
+      final String? errorMessage = await authService.login(
+        // The email is trimmed (a stray space from copy/paste must not
+        // make a correct login fail). The password is sent exactly as typed.
+        email: _emailController.text.trim(),
         password: _passwordController.text,
       );
 
       if (errorMessage == AuthService.unconfirmedEmailMarker) {
-        ref.read(errorMessageProvider.notifier).setError(
+        errorNotifier.setError(
           'This account was never fully verified. Please sign up again '
           'with the same email to resend your verification code.',
         );
@@ -119,7 +149,7 @@ class _LoginFormState extends ConsumerState<LoginForm> {
         final phone = meta?['phone'] as String? ?? '';
 
         if (currentUser == null || phone.isEmpty) {
-          ref.read(errorMessageProvider.notifier).setError(
+          errorNotifier.setError(
             'Your signup wasn\'t finished and we couldn\'t recover your '
             'details. Please sign up again.',
           );
@@ -147,18 +177,19 @@ class _LoginFormState extends ConsumerState<LoginForm> {
       }
 
       if (errorMessage != null) {
-        ref.read(errorMessageProvider.notifier).setError(errorMessage);
+        errorNotifier.setError(errorMessage);
         return;
       }
-final String? role = await authService.getUserRole();
 
-            // Staff roles (Admin/Cashier/Super Admin) are web-only — the
+      final String? role = await authService.getUserRole();
+
+      // Staff roles (Admin/Cashier/Super Admin) are web-only — the
       // mobile app is Customer-only by design. Block here rather than
       // letting them reach a staff layout that assumes web-only
       // features (CSV/Excel export, etc.) are available.
       if (!kIsWeb && role != 'Customer' && role != null) {
         await authService.logout();
-        ref.read(errorMessageProvider.notifier).setError(
+        errorNotifier.setError(
           'This account type isn\'t supported on the mobile app. '
           'Please use the web version to log in as $role.',
         );
@@ -180,7 +211,7 @@ final String? role = await authService.getUserRole();
           mounted &&
           MediaQuery.of(context).size.width < 768) {
         await authService.logout();
-        ref.read(errorMessageProvider.notifier).setError(
+        errorNotifier.setError(
           'The staff portal requires a desktop or laptop screen. '
           'Please log in as $role from a larger device.',
         );
@@ -207,7 +238,7 @@ final String? role = await authService.getUserRole();
           return;
         }
 
-              isOwnLoginInProgress = false;
+        isOwnLoginInProgress = false;
         if (mounted) {
           Navigator.pushReplacement(
             context,
@@ -236,87 +267,35 @@ final String? role = await authService.getUserRole();
           );
         }
 
-     } else if (role == 'Customer') {
-       await ref.read(customerCartProvider.notifier).mergeGuestCartIntoAccount(); // ← add this line
-        Navigator.pushReplacement(
-          context,
-          MaterialPageRoute(
-            builder: (_) => const HomeScreen(),
-          ),
-        );
+      } else if (role == 'Customer') {
+        await ref.read(customerCartProvider.notifier).mergeGuestCartIntoAccount();
+        if (mounted) {
+          Navigator.pushReplacement(
+            context,
+            MaterialPageRoute(
+              builder: (_) => const HomeScreen(),
+            ),
+          );
+        }
 
-      } else { 
-        ref.read(errorMessageProvider.notifier).setError(
+      } else {
+        errorNotifier.setError(
           'Unknown role: $role. Please contact support.',
         );
-}
-        } catch (error) {
+      }
+    } catch (error) {
       // Network-specific failures are now caught inside
       // authService.login() itself and returned as a real error
       // message above — this remains a genuine last-resort catch
       // for anything else unexpected.
-      ref.read(errorMessageProvider.notifier).setError(
+      errorNotifier.setError(
         'Something went wrong. Please try again.',
       );
 
-       } finally {
+    } finally {
 
       loadingNotifier.setLoading(false);
 
-    }
-  }
-
-  // ================================================
-  // BUILD
-  // ================================================
-  // ================================================
-  // FORGOT PASSWORD
-  // ================================================
-  Future<void> _handleForgotPassword() async {
-    final TextEditingController resetEmailController =
-        TextEditingController(text: _emailController.text);
-
-    final String? email = await showDialog<String>(
-      context: context,
-      builder: (dialogContext) {
-        return AlertDialog(
-          title: const Text('Reset Password'),
-          content: TextField(
-            controller: resetEmailController,
-            keyboardType: TextInputType.emailAddress,
-            decoration: const InputDecoration(
-              hintText: 'Enter your account email',
-            ),
-          ),
-          actions: [
-            TextButton(
-              onPressed: () => Navigator.of(dialogContext).pop(),
-              child: const Text('Cancel'),
-            ),
-            TextButton(
-              onPressed: () => Navigator.of(dialogContext).pop(resetEmailController.text.trim()),
-              child: const Text('Send Reset Link'),
-            ),
-          ],
-        );
-      },
-    );
-
-    if (email == null || email.isEmpty || !mounted) return;
-
-    try {
-      await ref.read(authServiceProvider).sendPasswordResetEmail(email);
-      if (mounted) {
-        ScaffoldMessenger.of(context).showSnackBar(
-          SnackBar(content: Text('If an account exists for $email, a reset link has been sent.')),
-        );
-      }
-    } catch (e) {
-      if (mounted) {
-        ScaffoldMessenger.of(context).showSnackBar(
-          const SnackBar(content: Text('Something went wrong. Please try again.')),
-        );
-      }
     }
   }
 
@@ -340,254 +319,171 @@ final String? role = await authService.getUserRole();
 
     return Form(
       key: _formKey,
+      // Quiet until the first submit; after that, fields update as they
+      // are corrected.
+      autovalidateMode: _showErrors
+          ? AutovalidateMode.onUserInteraction
+          : AutovalidateMode.disabled,
       child: SizedBox(
         width: formWidth,
-        child: Column(
-          crossAxisAlignment: CrossAxisAlignment.start,
-          children: [
+        // Lets browsers and password managers fill the email + password.
+        child: AutofillGroup(
+          child: Column(
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: [
 
-            // ── LOGO ──
-            Center(
-              child: Image.asset(
-                'assets/images/logo.jpg',
-                height: 100,
-                width: 100,
-              ),
-            ),
-
-            const SizedBox(height: 20),
-
-            // ── TITLE ──
-            const Center(
-              child: Text(
-                'Log in to Your Account',
-                style: TextStyle(
-                  fontSize: 22,
-                  fontWeight: FontWeight.bold,
-                  color: Colors.black,
+              // ── LOGO ──
+              Center(
+                child: Image.asset(
+                  'assets/images/logo.jpg',
+                  height: 100,
+                  width: 100,
                 ),
               ),
-            ),
 
-            const SizedBox(height: 8),
+              const SizedBox(height: 20),
 
-            // ── SUBTITLE ──
-            const Center(
-              child: Text(
-                'Enter your credentials to continue',
-                style: TextStyle(fontSize: 14, color: Colors.grey),
-              ),
-            ),
-
-            const SizedBox(height: 30),
-
-            // ── EMAIL LABEL ──
-            const Text(
-              'Email Address',
-              style: TextStyle(
-                fontSize: 14,
-                fontWeight: FontWeight.w500,
-                color: Colors.black,
-              ),
-            ),
-
-            const SizedBox(height: 8),
-
-            // ── EMAIL FIELD ──
-            TextFormField(
-              controller: _emailController,
-              keyboardType: TextInputType.emailAddress,
-              decoration: InputDecoration(
-                hintText: 'Enter your email',
-                border: OutlineInputBorder(
-                  borderRadius: BorderRadius.circular(8),
-                ),
-                contentPadding: const EdgeInsets.symmetric(
-                  horizontal: 16,
-                  vertical: 14,
-                ),
-              ),
-                            validator: (String? value) {
-                if (value == null || value.isEmpty) {
-                  return 'Please enter your email';
-                }
-                final RegExp emailRegex = RegExp(r'^[^\s@]+@[^\s@]+\.[^\s@]+$');
-                if (!emailRegex.hasMatch(value.trim())) {
-                  return 'Please enter a valid email';
-                }
-                return null;
-              },
-            ),
-
-            const SizedBox(height: 16),
-
-            // ── PASSWORD LABEL ──
-            const Text(
-              'Password',
-              style: TextStyle(
-                fontSize: 14,
-                fontWeight: FontWeight.w500,
-                color: Colors.black,
-              ),
-            ),
-
-            const SizedBox(height: 8),
-
-            // ── PASSWORD FIELD ──
-            TextFormField(
-              controller: _passwordController,
-              obscureText: !_isPasswordVisible,
-              decoration: InputDecoration(
-                hintText: 'Enter your password',
-                border: OutlineInputBorder(
-                  borderRadius: BorderRadius.circular(8),
-                ),
-                contentPadding: const EdgeInsets.symmetric(
-                  horizontal: 16,
-                  vertical: 14,
-                ),
-                suffixIcon: IconButton(
-                  icon: Icon(
-                    _isPasswordVisible
-                        ? Icons.visibility
-                        : Icons.visibility_off,
-                  ),
-                  onPressed: () {
-                    setState(() {
-                      _isPasswordVisible = !_isPasswordVisible;
-                    });
-                  },
-                ),
-              ),
-                            validator: (String? value) {
-                if (value == null || value.isEmpty) {
-                  return 'Please enter your password';
-                }
-                if (value.length < 8) {
-                  return 'Password must be at least 8 characters';
-                }
-                return null;
-              },
-            ),
-
-            const SizedBox(height: 12),
-
-            // ── REMEMBER ME + FORGOT PASSWORD ──
-            // ── FORGOT PASSWORD ──
-            Align(
-              alignment: Alignment.centerRight,
-              child: GestureDetector(
-                onTap: () {
-                  Navigator.of(context).push(
-                    MaterialPageRoute(builder: (_) => const ForgotPasswordScreen()),
-                  );
-                },
-                child: const Text(
-                  'Forgot Password?',
-                  style: TextStyle(
-                    fontSize: 13,
-                    color: Colors.black,
-                    fontWeight: FontWeight.w500,
-                  ),
-                ),
-              ),
-            ),
-
-            const SizedBox(height: 16),
-
-            // ── ERROR MESSAGE ──
-            if (errorMessage != null)
-              Container(
-                width: double.infinity,
-                padding: const EdgeInsets.all(12),
-                decoration: BoxDecoration(
-                  color: Colors.red.shade50,
-                  borderRadius: BorderRadius.circular(8),
-                  border: Border.all(color: Colors.red.shade200),
-                ),
+              // ── TITLE ──
+              const Center(
                 child: Text(
-                  errorMessage,
-                  style: const TextStyle(color: Colors.red, fontSize: 13),
-                ),
-              ),
-
-            if (errorMessage != null) const SizedBox(height: 16),
-
-            // ── LOGIN BUTTON ──
-            SizedBox(
-              width: double.infinity,
-              height: 50,
-              child: ElevatedButton(
-                onPressed: isLoading ? null : _handleLogin,
-                style: ElevatedButton.styleFrom(
-                  backgroundColor: Colors.black,
-                  foregroundColor: Colors.white,
-                  shape: RoundedRectangleBorder(
-                    borderRadius: BorderRadius.circular(8),
+                  'Log in to Your Account',
+                  style: TextStyle(
+                    fontSize: 22,
+                    fontWeight: FontWeight.bold,
+                    color: Colors.black,
                   ),
                 ),
-                child: isLoading
-                    ? const SizedBox(
-                        height: 20,
-                        width: 20,
-                        child: CircularProgressIndicator(
-                          color: Colors.white,
-                          strokeWidth: 2,
-                        ),
-                      )
-                    : const Text(
-                        'Login',
-                        style: TextStyle(
-                          fontSize: 16,
-                          fontWeight: FontWeight.bold,
-                        ),
-                      ),
               ),
-            ),
 
-            const SizedBox(height: 20),
+              const SizedBox(height: 8),
 
-            // ── OR DIVIDER ──
-            const Center(
-              child: Text(
-                'OR',
-                style: TextStyle(fontSize: 13, color: Colors.grey),
+              // ── SUBTITLE ──
+              const Center(
+                child: Text(
+                  'Enter your credentials to continue',
+                  style: TextStyle(fontSize: 14, color: Color(0xFF6B7280)),
+                ),
               ),
-            ),
 
-            const SizedBox(height: 20),
+              const SizedBox(height: 30),
 
-            // ── SIGN UP LINK ──
-            Center(
-              child: GestureDetector(
-                onTap: () {
-                  Navigator.push(
-                    context,
-                    MaterialPageRoute(
-                      builder: (context) => const RegisterScreen(),
+              // ── EMAIL ──
+              AuthTextField(
+                label: 'Email Address',
+                hint: 'Enter your email',
+                controller: _emailController,
+                keyboardType: TextInputType.emailAddress,
+                textInputAction: TextInputAction.next,
+                autofillHints: const [AutofillHints.username],
+                onFieldSubmitted: (_) => _passwordFocus.requestFocus(),
+                validator: FormValidators.email,
+              ),
+
+              const SizedBox(height: 16),
+
+              // ── PASSWORD ──
+              AuthPasswordField(
+                label: 'Password',
+                hint: 'Enter your password',
+                controller: _passwordController,
+                focusNode: _passwordFocus,
+                textInputAction: TextInputAction.done,
+                // Enter submits the form.
+                onFieldSubmitted: (_) => _handleLogin(),
+                // Not trimmed: a password may legitimately contain spaces.
+                validator: (String? value) =>
+                    FormValidators.requiredField(value, 'Password', trim: false),
+              ),
+
+              const SizedBox(height: 8),
+
+              // ── FORGOT PASSWORD ──
+              Align(
+                alignment: Alignment.centerRight,
+                child: TextButton(
+                  onPressed: () {
+                    Navigator.of(context).push(
+                      MaterialPageRoute(builder: (_) => const ForgotPasswordScreen()),
+                    );
+                  },
+                  style: TextButton.styleFrom(
+                    foregroundColor: Colors.black,
+                    minimumSize: const Size(0, 36),
+                    padding: const EdgeInsets.symmetric(horizontal: 4),
+                  ),
+                  child: const Text(
+                    'Forgot Password?',
+                    style: TextStyle(
+                      fontSize: 13,
+                      fontWeight: FontWeight.w500,
                     ),
-                  );
-                },
-                child: RichText(
-                  text: const TextSpan(
-                    text: "Don't have an account? ",
-                    style: TextStyle(fontSize: 14, color: Colors.black),
-                    children: [
-                      TextSpan(
-                        text: 'Sign Up',
-                        style: TextStyle(
-                          fontSize: 14,
-                          fontWeight: FontWeight.bold,
-                          color: Colors.black,
-                          decoration: TextDecoration.underline,
-                        ),
-                      ),
-                    ],
                   ),
                 ),
               ),
-            ),
-          ],
+
+              const SizedBox(height: 8),
+
+              // ── WHOLE-FORM ERROR (wrong credentials, no internet, ...) ──
+              if (errorMessage != null) ...[
+                AuthFormError(message: errorMessage),
+                const SizedBox(height: 16),
+              ],
+
+              // ── LOGIN BUTTON ──
+              AuthPrimaryButton(
+                label: 'Login',
+                isLoading: isLoading,
+                onPressed: _handleLogin,
+              ),
+
+              const SizedBox(height: 20),
+
+              // ── OR DIVIDER ──
+              const Center(
+                child: Text(
+                  'OR',
+                  style: TextStyle(fontSize: 13, color: Color(0xFF6B7280)),
+                ),
+              ),
+
+              const SizedBox(height: 12),
+
+              // ── SIGN UP LINK ──
+              Center(
+                child: TextButton(
+                  onPressed: () {
+                    Navigator.push(
+                      context,
+                      MaterialPageRoute(
+                        builder: (context) => const RegisterScreen(),
+                      ),
+                    );
+                  },
+                  style: TextButton.styleFrom(
+                    foregroundColor: Colors.black,
+                    minimumSize: const Size(0, 40),
+                  ),
+                  child: const Text.rich(
+                    TextSpan(
+                      text: "Don't have an account? ",
+                      style: TextStyle(fontSize: 14, color: Colors.black),
+                      children: [
+                        TextSpan(
+                          text: 'Sign Up',
+                          style: TextStyle(
+                            fontSize: 14,
+                            fontWeight: FontWeight.bold,
+                            color: Colors.black,
+                            decoration: TextDecoration.underline,
+                          ),
+                        ),
+                      ],
+                    ),
+                  ),
+                ),
+              ),
+            ],
+          ),
         ),
       ),
     );

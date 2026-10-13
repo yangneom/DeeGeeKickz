@@ -17,8 +17,7 @@ import '../../../services/cashier/onlinepayment/cashier_online_payment_service.d
 import '../../../widgets/cashier/receipt/qr_payment_dialog.dart';
 import '../../../widgets/common/dialog/confirm_dialog.dart';
 import '../../../widgets/cashier/receipt/reference_number_dialog.dart';
-import '../../../models/order.dart';
-import '../../../services/customer/receipt/receipt_pdf_service.dart';
+import '../../../widgets/common/dialog/app_toast.dart';
 
 // ================================================
 // CASHIER SCREEN
@@ -219,11 +218,10 @@ void _addToCart({
 
     // BLOCK if requested exceeds available (unreserved) stock
     if (requestedQty > availableStock) {
-      ScaffoldMessenger.of(context).showSnackBar(
-        SnackBar(
-          content: Text('Only $availableStock items available'),
-          backgroundColor: Colors.red,
-        ),
+      AppToast.warning(
+        context,
+        'Only $availableStock available for this size.',
+        title: 'Stock limit reached',
       );
       return;
     }
@@ -298,11 +296,10 @@ void _addToCart({
     final int nextQty = cartItem.quantity + delta;
 
     if (nextQty > availableStock) {
-      ScaffoldMessenger.of(context).showSnackBar(
-        SnackBar(
-          content: Text('Only $availableStock items available'),
-          backgroundColor: Colors.red,
-        ),
+      AppToast.warning(
+        context,
+        'Only $availableStock available for this size.',
+        title: 'Stock limit reached',
       );
       return;
     }
@@ -325,7 +322,11 @@ void _addToCart({
     final String raw = error.toString();
     final RegExp pattern = RegExp(r'message:\s*(.+?),\s*code:');
     final Match? match = pattern.firstMatch(raw);
-    return match != null ? match.group(1)!.trim() : raw;
+        // If the real message can't be extracted, say something readable
+    // instead of showing a raw exception dump to the cashier.
+    return match != null
+        ? match.group(1)!.trim()
+        : 'Something went wrong while saving the sale. Please try again.';
   }
 
   // ================================================
@@ -484,12 +485,11 @@ void _addToCart({
         // cashier see what they were trying to sell and adjust the
         // quantity, rather than starting over from scratch.
         if (mounted) {
-          ScaffoldMessenger.of(context).showSnackBar(
-            SnackBar(
-              content: Text(_friendlyErrorMessage(e)),
-              backgroundColor: Colors.red,
-              duration: const Duration(seconds: 6),
-            ),
+          AppToast.error(
+            context,
+            _friendlyErrorMessage(e),
+            title: 'Sale not completed',
+            duration: const Duration(seconds: 8),
           );
         }
       } finally {
@@ -515,12 +515,11 @@ void _addToCart({
       if (mounted) showReceiptDialog(context: context, sale: sale);
     } catch (e) {
       if (mounted) {
-        ScaffoldMessenger.of(context).showSnackBar(
-          SnackBar(
-            content: Text(_friendlyErrorMessage(e)),
-            backgroundColor: Colors.red,
-            duration: const Duration(seconds: 6),
-          ),
+        AppToast.error(
+          context,
+          _friendlyErrorMessage(e),
+          title: 'Sale not completed',
+          duration: const Duration(seconds: 8),
         );
       }
     } finally {

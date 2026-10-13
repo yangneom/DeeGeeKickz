@@ -4,102 +4,66 @@ import 'package:flutter/material.dart';
 // Riverpod import
 import 'package:flutter_riverpod/flutter_riverpod.dart';
 
-// Import our RegisterForm widget that we just built in Step 1
+// The form itself
 import '../../services/auth/register_form.dart';
-import 'privacy_policy_screen.dart';
-import 'terms_of_use_screen.dart';
+import '../../widgets/common/forms/auth_form_fields.dart';
 
 // ================================================
 // REGISTER SCREEN
 //
-// This is the SCREEN that holds the register form
-// It is just a container — same as login_screen.dart
+// Just the container for the sign-up form — same idea as
+// login_screen.dart. It is responsible for:
+//   - the white background
+//   - the Back button
+//   - centering the form and making it scrollable on small screens
 //
-// The screen is responsible for:
-//   - The white background color
-//   - Centering the form
-//   - Making it scrollable on small screens
-//
-// The actual form fields and buttons are
-// inside RegisterForm widget (Step 1)
+// The fields and buttons live in RegisterForm.
 // ================================================
-
-// ConsumerWidget means this widget can
-// read Riverpod providers if needed
 class RegisterScreen extends ConsumerWidget {
   const RegisterScreen({super.key});
 
   @override
   Widget build(BuildContext context, WidgetRef ref) {
 
-    // Get the screen height
-    // We use this to make sure the form
-    // is always at least as tall as the screen
+    // We use the screen height to make sure the form is always at least
+    // as tall as the screen (keeps it centered when the content is short).
     final double screenHeight = MediaQuery.of(context).size.height;
 
     return Scaffold(
-
-      // White background
       backgroundColor: Colors.white,
 
-      // SingleChildScrollView makes the screen scrollable
-      // Important for small phones when keyboard appears
+      // Scrollable, which matters on small phones when the keyboard opens.
       body: SafeArea(
         child: SingleChildScrollView(
           child: ConstrainedBox(
-
-            // Make sure content is at least as tall as the screen
-            // This keeps the form centered even if content is short
-            constraints: BoxConstraints(
-              minHeight: screenHeight,
-            ),
-
+            constraints: BoxConstraints(minHeight: screenHeight),
             child: IntrinsicHeight(
               child: Column(
                 crossAxisAlignment: CrossAxisAlignment.start,
                 children: [
 
-                  // ── BACK BUTTON — same style as TermsOfUseScreen ──
+                  // ── BACK BUTTON ──
+                  // A real button now: reachable with the keyboard and
+                  // announced by screen readers.
                   Padding(
-                    padding: const EdgeInsets.fromLTRB(24, 16, 24, 0),
-                    child: GestureDetector(
-                      onTap: () => Navigator.of(context).pop(),
-                      child: Row(
-                        mainAxisSize: MainAxisSize.min,
-                        children: const [
-                          Icon(Icons.arrow_back, size: 18, color: Color(0xFF6B7280)),
-                          SizedBox(width: 6),
-                          Text(
-                            'Back',
-                            style: TextStyle(
-                              fontSize: 13,
-                              fontWeight: FontWeight.w500,
-                              color: Color(0xFF6B7280),
-                            ),
-                          ),
-                        ],
-                      ),
+                    padding: const EdgeInsets.fromLTRB(16, 8, 24, 0),
+                    child: AuthBackButton(
+                      label: 'Back',
+                      onPressed: () => Navigator.of(context).pop(),
                     ),
                   ),
 
                   Expanded(
                     child: Center(
-                      // Padding around the whole form
                       child: Padding(
                         padding: const EdgeInsets.symmetric(
                           horizontal: 24,
                           vertical: 24,
                         ),
-
                         child: Column(
                           mainAxisAlignment: MainAxisAlignment.center,
-                          children: [
-
-                            // This is where our RegisterForm widget goes
-                            // All the fields and buttons are inside here
-                            // This is the ONLY difference from login_screen.dart
-                            const RegisterForm(),
-
+                          children: const [
+                            RegisterForm(),
                           ],
                         ),
                       ),

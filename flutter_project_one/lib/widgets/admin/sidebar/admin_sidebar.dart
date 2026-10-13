@@ -4,6 +4,7 @@ import '../../../providers/auth/auth_provider.dart';
 import '../../../providers/customer/customer_cart_provider.dart';
 import '../../../screens/auth/login_screen.dart';
 import '../../common/dialog/logout_confirm.dart';
+import '../../common/dialog/app_toast.dart';
 // ================================================
 // ADMIN SIDEBAR
 //
@@ -55,8 +56,10 @@ Future<void> _handleLogout() async {
     } catch (error) {
       print('Logout error: $error');
       if (mounted) {
-        ScaffoldMessenger.of(context).showSnackBar(
-          const SnackBar(content: Text('Logout failed. Please try again.')),
+        AppToast.error(
+          context,
+          'We could not log you out. Please try again.',
+          title: 'Logout failed',
         );
       }
     }

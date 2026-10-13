@@ -142,7 +142,8 @@ class InventoryService {
       if (error.code == '22001') {
         return 'One of the fields you entered is too long. Please shorten it and try again.';
       }
-      if (error.message.contains('not found')) {
+      if (error.message.contains('not found') ||
+          error.message.startsWith('Retail price')) {
         return error.message;
       }
 
@@ -209,7 +210,8 @@ class InventoryService {
       if (error.code == '22001') {
         return 'One of the fields you entered is too long. Please shorten it and try again.';
       }
-      if (error.message.contains('not found')) {
+      if (error.message.contains('not found') ||
+          error.message.startsWith('Retail price')) {
         return error.message;
       }
 
@@ -252,11 +254,12 @@ class InventoryService {
       return null;
     } on PostgrestException catch (error) {
       if (error.code == 'P1007') {
-        return error.message;
+        return 'This product can\'t be discontinued yet because it still has '
+            'open orders (including unpaid ones). Finish or cancel those orders first.';
       }
-      return 'Failed to archive product. Please try again.';
+            return 'We could not discontinue this product. Please try again.';
     } catch (error) {
-      return 'Failed to archive product. Please try again.';
+            return 'We could not discontinue this product. Please try again.';
     }
   }
 

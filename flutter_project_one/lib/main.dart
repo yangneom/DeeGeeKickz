@@ -1,4 +1,5 @@
 import 'package:flutter/material.dart';
+import 'widgets/common/dialog/app_toast.dart';
 import 'package:flutter/foundation.dart';
 import 'package:supabase_flutter/supabase_flutter.dart';
 import 'url_strategy_stub.dart'
@@ -502,7 +503,11 @@ class _MyAppState extends ConsumerState<MyApp> {
             '/login': (context) => const LoginScreen(),
             '/set-password': (context) => const SetPasswordScreen(),
           },
-          home: widget.startScreen,
+                  home: widget.startScreen,
+          // Toasts live ABOVE the navigator, so they always sit on top of
+          // pages AND dialogs/modals, and survive page changes.
+          builder: (context, appChild) =>
+              AppToastLayer(child: appChild ?? const SizedBox.shrink()),
         );
       },
     );

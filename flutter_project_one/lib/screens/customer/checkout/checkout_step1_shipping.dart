@@ -8,7 +8,7 @@ import '../../../widgets/customer/checkout/checkout_order_summary.dart';
 import '../../../widgets/customer/checkout/checkout_address_selector.dart';
 import '../../../widgets/customer/profile/address_bottom_sheet.dart';
 import '../../../widgets/common/dialog/confirm_dialog.dart';
-
+import '../../../widgets/common/dialog/app_toast.dart';
 class CheckoutStep1Shipping extends StatefulWidget {
   final String initialStreet;
   final String initialCity;
@@ -232,9 +232,7 @@ Future<void> _editAddress(CustomerAddress address) async {
 
     if (errorMessage != null) {
       setState(() => _isSavingAddress = false);
-      ScaffoldMessenger.of(context).showSnackBar(
-        SnackBar(content: Text(errorMessage), backgroundColor: Colors.black),
-      );
+      AppToast.error(context, errorMessage, title: 'Could not update address');
       return;
     }
     await _loadAddresses();
@@ -274,9 +272,7 @@ Future<void> _addNew() async {
 
     if (errorMessage != null) {
       setState(() => _isSavingAddress = false);
-      ScaffoldMessenger.of(context).showSnackBar(
-        SnackBar(content: Text(errorMessage), backgroundColor: Colors.black),
-      );
+      AppToast.error(context, errorMessage, title: 'Could not add address');
       return;
     }
 
@@ -309,12 +305,7 @@ setState(() => _isSavingAddress = true);
     setState(() => _isSavingAddress = false);
 
     if (errorMessage != null) {
-      ScaffoldMessenger.of(context).showSnackBar(
-        SnackBar(
-          content: Text(errorMessage),
-          backgroundColor: Colors.black,
-        ),
-      );
+      AppToast.error(context, errorMessage, title: 'Could not delete address');
       return;
     }
 
@@ -335,27 +326,19 @@ setState(() => _isSavingAddress = true);
 
   void _handleContinue() {
     if (_selectedAddress == null) {
-      ScaffoldMessenger.of(context).showSnackBar(
-        const SnackBar(
-          content: Text(
-            'Please select or add a shipping address.',
-            style: TextStyle(fontFamily: 'Inter'),
-          ),
-          backgroundColor: Colors.black,
-        ),
+      AppToast.warning(
+        context,
+        'Please select or add a shipping address.',
+        title: 'Address needed',
       );
       return;
     }
 
     if (_isLoadingQuote) {
-      ScaffoldMessenger.of(context).showSnackBar(
-        const SnackBar(
-          content: Text(
-            'Please wait — calculating your shipping fee.',
-            style: TextStyle(fontFamily: 'Inter'),
-          ),
-          backgroundColor: Colors.black,
-        ),
+      AppToast.info(
+        context,
+        'Please wait while we calculate your shipping fee.',
+        title: 'Calculating shipping',
       );
       return;
     }
@@ -364,20 +347,15 @@ setState(() => _isSavingAddress = true);
     // let the customer proceed to Review/Payment with no confirmed
     // shipping fee.
     if (_quoteErrorMessage != null) {
-      ScaffoldMessenger.of(context).showSnackBar(
-        SnackBar(
-          content: Text(
-            _isAddressProblem
-                ? 'Please fix your shipping address before continuing.'
-                : 'Please retry calculating shipping before continuing.',
-            style: const TextStyle(fontFamily: 'Inter'),
-          ),
-          backgroundColor: Colors.black,
-        ),
+      AppToast.warning(
+        context,
+        _isAddressProblem
+            ? 'Please fix your shipping address before continuing.'
+            : 'Please retry calculating shipping before continuing.',
+        title: 'Shipping not ready',
       );
       return;
     }
-
     widget.onContinue(
       addressId: _selectedAddress!.id.isEmpty ? null : _selectedAddress!.id,
       street:   _selectedAddress!.street,
@@ -662,6 +640,9 @@ class _ContinueButtonState extends State<_ContinueButton> {
             }
           : null,
       onTapCancel: widget.enabled ? () => setState(() => _pressed = false) : null,
+      // When the button is greyed out, a tap explains WHY (a toast from
+      // _handleContinue) instead of doing nothing at all.
+      onTap: widget.enabled ? null : widget.onTap,
       child: AnimatedScale(
         scale: _pressed ? 0.98 : 1.0,
         duration: const Duration(milliseconds: 80),

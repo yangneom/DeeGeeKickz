@@ -6,6 +6,7 @@ import '../customer/homescreen/home_screen.dart';
 import '../../providers/customer/customer_cart_provider.dart';
 import 'login_screen.dart';
 import '../../widgets/common/dialog/confirm_dialog.dart';
+import '../../widgets/common/dialog/app_toast.dart';
 
 enum _OtpStep { email, phone }
 
@@ -282,8 +283,10 @@ class _OtpVerificationScreenState extends ConsumerState<OtpVerificationScreen> {
     _startTimer();
 
     if (mounted) {
-      ScaffoldMessenger.of(context).showSnackBar(
-        SnackBar(content: Text('A new code was sent to $newPhone.')),
+      AppToast.success(
+        context,
+        'A new code was sent to $newPhone.',
+        title: 'Code sent',
       );
     }
   }
@@ -411,8 +414,10 @@ class _OtpVerificationScreenState extends ConsumerState<OtpVerificationScreen> {
     _startTimer();
 
     if (mounted) {
-      ScaffoldMessenger.of(context).showSnackBar(
-        SnackBar(content: Text('A new code was sent to $newEmail.')),
+      AppToast.success(
+        context,
+        'A new code was sent to $newEmail.',
+        title: 'Code sent',
       );
     }
   }
@@ -463,8 +468,10 @@ class _OtpVerificationScreenState extends ConsumerState<OtpVerificationScreen> {
 
     _startTimer();
     if (mounted) {
-      ScaffoldMessenger.of(context).showSnackBar(
-        SnackBar(content: Text('A new code was sent to your ${_step == _OtpStep.email ? "email" : "phone"}.')),
+      AppToast.success(
+        context,
+        'A new code was sent to your ${_step == _OtpStep.email ? "email" : "phone"}.',
+        title: 'Code sent',
       );
     }
   }

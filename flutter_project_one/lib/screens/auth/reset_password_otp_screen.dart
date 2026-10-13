@@ -5,6 +5,7 @@ import '../../providers/auth/auth_provider.dart';
 import '../../widgets/auth/reset_password_form.dart';
 import 'login_screen.dart';
 import '../../main.dart';
+import '../../widgets/common/dialog/app_toast.dart';
 
 class ResetPasswordOtpScreen extends ConsumerStatefulWidget {
   final String email;
@@ -84,8 +85,10 @@ class _ResetPasswordOtpScreenState extends ConsumerState<ResetPasswordOtpScreen>
       await ref.read(authServiceProvider).sendPasswordResetEmail(widget.email);
       _startTimer();
       if (mounted) {
-        ScaffoldMessenger.of(context).showSnackBar(
-          const SnackBar(content: Text('A new code was sent to your email.')),
+        AppToast.success(
+          context,
+          'A new code was sent to your email.',
+          title: 'Code sent',
         );
       }
     } catch (_) {
@@ -96,8 +99,10 @@ class _ResetPasswordOtpScreenState extends ConsumerState<ResetPasswordOtpScreen>
   void _handlePasswordSaved() {
     isCustomerPasswordResetFlow = false;
     if (mounted) {
-      ScaffoldMessenger.of(context).showSnackBar(
-        const SnackBar(content: Text('Password updated. Please log in with your new password.')),
+      AppToast.success(
+        context,
+        'Please log in with your new password.',
+        title: 'Password updated',
       );
       Navigator.of(context).pushAndRemoveUntil(
         MaterialPageRoute(builder: (_) => const LoginScreen()),

@@ -14,6 +14,7 @@ import '../../../screens/customer/checkout/checkout_screen.dart';
 import '../../../providers/customer/chat_provider.dart';
 import '../../../providers/auth/auth_provider.dart';
 import '../../../screens/customer/try_on/try_on_screen.dart';
+import '../../common/dialog/app_toast.dart';
 /// Product info panel backed by the real [Product] model.
 /// Color picker → variant images update gallery via callback (future).
 /// Size picker → shows only sizes with available stock.
@@ -124,15 +125,19 @@ Discount? get _discount {
  
   void _onBuyNow() {
     if (_selectedSize == null) {
-      ScaffoldMessenger.of(context).showSnackBar(
-        const SnackBar(content: Text('Please select a size')),
+      AppToast.warning(
+        context,
+        'Please choose a size before continuing.',
+        title: 'Size needed',
       );
       return;
     }
 
     if (_availableQtyForSize == 0) {
-      ScaffoldMessenger.of(context).showSnackBar(
-        const SnackBar(content: Text('This size is out of stock')),
+      AppToast.warning(
+        context,
+        'This size is out of stock. Please choose another size.',
+        title: 'Out of stock',
       );
       return;
     }
@@ -174,10 +179,10 @@ Discount? get _discount {
     final status = await Permission.camera.request();
     if (!status.isGranted) {
       if (!mounted) return;
-      ScaffoldMessenger.of(context).showSnackBar(
-        const SnackBar(
-          content: Text('Camera permission is required to use Try On'),
-        ),
+      AppToast.warning(
+        context,
+        'Please allow camera access to use Try On.',
+        title: 'Camera access needed',
       );
       return;
     }
@@ -195,15 +200,19 @@ Discount? get _discount {
 
   void _onAddToBag() {
     if (_selectedSize == null) {
-      ScaffoldMessenger.of(context).showSnackBar(
-        const SnackBar(content: Text('Please select a size')),
+      AppToast.warning(
+        context,
+        'Please choose a size before continuing.',
+        title: 'Size needed',
       );
       return;
     }
  
     if (_availableQtyForSize == 0) {
-      ScaffoldMessenger.of(context).showSnackBar(
-        const SnackBar(content: Text('This size is out of stock')),
+      AppToast.warning(
+        context,
+        'This size is out of stock. Please choose another size.',
+        title: 'Out of stock',
       );
       return;
     }
@@ -232,11 +241,10 @@ Discount? get _discount {
  
     ref.read(customerCartProvider.notifier).addItem(cartItem);
  
-    ScaffoldMessenger.of(context).showSnackBar(
-      SnackBar(
-        content: Text(
-            '${widget.product.productName} added to bag'),
-      ),
+    AppToast.success(
+      context,
+      '${widget.product.productName} was added to your bag.',
+      title: 'Added to bag',
     );
   }
  

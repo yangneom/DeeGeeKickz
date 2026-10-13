@@ -7,7 +7,7 @@ import '../../../providers/auth/auth_provider.dart';
 import '../../../screens/auth/login_screen.dart';
 import '../../../widgets/common/nav/bottom_nav_bar.dart';
 import '../../../widgets/customer/product_detail/write_review_form.dart';
-
+import '../../../widgets/common/dialog/app_toast.dart';
 class WriteReviewScreen extends ConsumerWidget {
   final int productId;
   final String productName;
@@ -48,55 +48,24 @@ class WriteReviewScreen extends ConsumerWidget {
     if (!context.mounted) return;
 
     if (state.errorMessage != null) {
-      ScaffoldMessenger.of(context).showSnackBar(
-        SnackBar(
-          content: Text(
-            state.errorMessage!.toUpperCase(),
-            style: const TextStyle(
-              fontFamily: 'Inter',
-              fontSize: 12,
-              fontWeight: FontWeight.w600,
-              letterSpacing: 1,
-              color: Colors.white,
-            ),
-          ),
-          backgroundColor: const Color(0xFFBA1A1A),
-          duration: const Duration(seconds: 3),
-          behavior: SnackBarBehavior.floating,
-          margin: const EdgeInsets.all(16),
-        ),
+      AppToast.error(
+        context,
+        state.errorMessage!,
+        title: 'Could not submit review',
       );
       ref.read(reviewSubmitProvider.notifier).clearError();
       return;
     }
 
-    Navigator.of(context).pop();
-
-    ScaffoldMessenger.of(context).showSnackBar(
-      SnackBar(
-        content: Row(
-          children: const [
-            Icon(Icons.check_circle_outline,
-                color: Colors.white, size: 18),
-            SizedBox(width: 10),
-            Text(
-              'REVIEW SUBMITTED, THANK YOU!',
-              style: TextStyle(
-                fontFamily: 'Inter',
-                fontSize: 12,
-                fontWeight: FontWeight.w600,
-                letterSpacing: 1,
-                color: Colors.white,
-              ),
-            ),
-          ],
-        ),
-        backgroundColor: Colors.black,
-        duration: const Duration(seconds: 3),
-        behavior: SnackBarBehavior.floating,
-        margin: const EdgeInsets.all(16),
-      ),
+    // Shown BEFORE leaving this screen. The toast lives above the
+    // navigator, so it stays on screen after the page closes.
+    AppToast.success(
+      context,
+      'Thank you for sharing your feedback.',
+      title: 'Review submitted',
     );
+
+    Navigator.of(context).pop();
   }
 
   @override

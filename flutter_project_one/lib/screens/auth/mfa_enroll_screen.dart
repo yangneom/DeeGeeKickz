@@ -1,6 +1,7 @@
 import 'package:flutter/material.dart';
 import 'package:supabase_flutter/supabase_flutter.dart';
 import '../../screens/auth/login_screen.dart';
+import '../../widgets/common/dialog/app_toast.dart';
 import 'package:flutter/services.dart';
 
 class MfaEnrollScreen extends StatefulWidget {
@@ -85,11 +86,10 @@ class _MfaEnrollScreenState extends State<MfaEnrollScreen> {
 
       if (!mounted) return;
 
-      ScaffoldMessenger.of(context).showSnackBar(
-        const SnackBar(
-          content: Text('Two-factor authentication enabled successfully.'),
-          backgroundColor: Colors.black,
-        ),
+      AppToast.success(
+        context,
+        'You have been signed out. Please log in again to continue.',
+        title: 'Two-factor authentication enabled',
       );
 
       await supabase.auth.signOut();
@@ -353,9 +353,7 @@ class RecoveryCodesDialog extends StatelessWidget {
                         child: OutlinedButton.icon(
                           onPressed: () {
                             Clipboard.setData(ClipboardData(text: codes.join('\n')));
-                            ScaffoldMessenger.of(context).showSnackBar(
-                              const SnackBar(content: Text('Recovery codes copied to clipboard.')),
-                            );
+                            AppToast.success(context, 'Recovery codes copied to clipboard.');
                           },
                           icon: const Icon(Icons.copy, size: 16),
                           label: const Text('Copy All Codes', style: TextStyle(fontSize: 13)),

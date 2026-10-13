@@ -2,6 +2,7 @@ import 'package:flutter/material.dart';
 import '../../../models/customer_address.dart';
 import '../../../services/customer/address/address_service.dart';
 import 'address_bottom_sheet.dart';
+import '../../common/dialog/app_toast.dart';
 
 /// "Saved Addresses" card — lists all [CustomerAddress] entries.
 /// Edit icon and "Add New" both open [AddressBottomSheet].
@@ -64,9 +65,7 @@ class _ProfileAddressSectionState extends State<ProfileAddressSection> {
     if (errorMessage == null) {
       widget.onChanged?.call();
     } else {
-      ScaffoldMessenger.of(context).showSnackBar(
-        SnackBar(content: Text(errorMessage), backgroundColor: Colors.black),
-      );
+      AppToast.error(context, errorMessage, title: 'Could not save address');
     }
   }
 
@@ -94,9 +93,7 @@ class _ProfileAddressSectionState extends State<ProfileAddressSection> {
     if (errorMessage == null) {
       widget.onChanged?.call();
     } else {
-      ScaffoldMessenger.of(context).showSnackBar(
-        SnackBar(content: Text(errorMessage), backgroundColor: Colors.black),
-      );
+      AppToast.error(context, errorMessage, title: 'Could not save address');
     }
   }
 
@@ -151,12 +148,7 @@ class _ProfileAddressSectionState extends State<ProfileAddressSection> {
     if (errorMessage == null) {
       widget.onChanged?.call();
     } else {
-      ScaffoldMessenger.of(context).showSnackBar(
-        SnackBar(
-          content: Text(errorMessage),
-          backgroundColor: Colors.black,
-        ),
-      );
+      AppToast.error(context, errorMessage, title: 'Could not delete address');
     }
   }
 

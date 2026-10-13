@@ -1,5 +1,6 @@
 import 'package:flutter/material.dart';
 import 'package:flutter_project_one/widgets/common/dialog/confirm_dialog.dart';
+import 'package:flutter_project_one/widgets/common/dialog/app_toast.dart';
 import 'package:flutter_project_one/widgets/common/tables/expandable_product_table.dart';
 import 'package:flutter_project_one/models/product.dart';
 import '../../../services/admin/inventory/archive_service.dart';
@@ -74,9 +75,7 @@ class _ArchivedItemsDialogState extends ConsumerState<ArchivedItemsDialog> {
 
     if (error != null) {
       if (mounted) {
-        ScaffoldMessenger.of(context).showSnackBar(
-          SnackBar(content: Text(error), backgroundColor: Colors.red),
-        );
+        AppToast.error(context, error, title: 'Could not restore product');
       }
       return;
     }
@@ -90,11 +89,10 @@ class _ArchivedItemsDialogState extends ConsumerState<ArchivedItemsDialog> {
     await _loadArchived();
 
     if (mounted) {
-      ScaffoldMessenger.of(context).showSnackBar(
-        SnackBar(
-          content: Text('${product.productName} has been restored!'),
-          backgroundColor: const Color(0xFF16A34A),
-        ),
+      AppToast.success(
+        context,
+        '${product.productName} is back in your active inventory.',
+        title: 'Product restored',
       );
     }
   }

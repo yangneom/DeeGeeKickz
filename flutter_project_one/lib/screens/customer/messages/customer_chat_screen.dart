@@ -10,6 +10,7 @@ import '../../../models/product.dart' as db_product;
 import '../../../widgets/common/nav/app_top_bar.dart';
 import '../../../widgets/common/nav/app_drawer.dart';
 import '../../../widgets/common/nav/bottom_nav_bar.dart';
+import '../../../widgets/common/dialog/app_toast.dart';
 
 class CustomerChatScreen extends ConsumerStatefulWidget {
   const CustomerChatScreen({super.key});
@@ -78,11 +79,10 @@ class _CustomerChatScreenState extends ConsumerState<CustomerChatScreen> {
       if (mounted) {
         setState(() => _isUploadingImage = false);
         if (!success) {
-          ScaffoldMessenger.of(context).showSnackBar(
-            const SnackBar(
-              content: Text('Failed to send image. Please try again.'),
-              backgroundColor: Colors.red,
-            ),
+          AppToast.error(
+            context,
+            'We could not send your image. Please try again.',
+            title: 'Image not sent',
           );
         } else {
           _scrollToBottom();
@@ -92,11 +92,10 @@ class _CustomerChatScreenState extends ConsumerState<CustomerChatScreen> {
       print('_onPickImage error: $error');
       if (mounted) {
         setState(() => _isUploadingImage = false);
-        ScaffoldMessenger.of(context).showSnackBar(
-          const SnackBar(
-            content: Text('Failed to pick image. Please try again.'),
-            backgroundColor: Colors.red,
-          ),
+        AppToast.error(
+          context,
+          'We could not open your photos. Please try again.',
+          title: 'Image not selected',
         );
       }
     }

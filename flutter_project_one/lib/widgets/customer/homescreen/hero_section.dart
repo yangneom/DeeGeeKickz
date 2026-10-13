@@ -1,32 +1,29 @@
 import 'dart:async';
+import 'dart:ui' show ImageFilter;
 import 'package:flutter/material.dart';
 import '../../../models/promotion_banner_model.dart';
 import '../../../services/admin/promotionDiscount/banner_service.dart';
 
 /// Hero / banner section.
 ///
-/// Background image now rotates through the Active banners uploaded
+/// Background image rotates through the Active banners uploaded
 /// in the admin "Promotion & Discounts" screen (auto-advancing, like
 /// a slider). Falls back to the original static hero image if there
 /// are zero Active banners, so the homepage never renders blank.
 ///
-/// Foreground copy ("NEW SEASON ARRIVAL" / "ENGINEERED FOR SPEED")
-/// stays static — PromotionBanner has no per-banner title/subtitle
-/// fields, only image + status, so only the background rotates.
+/// The promo text and the shoes are part of the banner image itself,
+/// so the image must never be cropped. Each banner is drawn WHOLE
+/// (BoxFit.contain). Banners are cropped to 21:9 by the admin dialogs,
+/// so in a 21:9 box they fill it exactly: no bands, no grey. A banner
+/// with a different shape (e.g. an older 16:5 one saved by the Edit
+/// dialog before it was fixed to 21:9) is still shown whole, with the
+/// leftover space filled by a blurred, UNdimmed copy of itself.
 ///
-/// Matches HTML:
-/// <section class="relative w-full h-[85vh] overflow-hidden bg-primary
-///   flex items-center justify-start">
-///   <img class="... opacity-80 grayscale mix-blend-luminosity" .../>
-///   <div class="relative z-10 ... max-w-2xl text-on-primary">
-///     <p>NEW SEASON ARRIVAL</p>
-///     <h2>ENGINEERED FOR SPEED</h2>
-///     <p>Discover the next generation...</p>
-///   </div>
-/// </section>
-///
-/// Headline font size: 32px (text-headline-lg-mobile) on mobile,
-/// 80px (text-display-lg) on md and up.
+/// Layouts:
+///   - phone (< 768px): a rounded card inset by the page's side
+///     padding, 21:9. (Before: a full-bleed 4:3 box with BoxFit.cover,
+///     which cut off ~43% of a 21:9 banner, including the left text.)
+///   - tablet / desktop: full-width 21:9, as before.
 class HeroSection extends StatefulWidget {
   const HeroSection({super.key});
 
@@ -42,6 +39,17 @@ class _HeroSectionState extends State<HeroSection> {
 
   static const double _mdBreakpoint = 768;
   static const Duration _slideDuration = Duration(seconds: 6);
+
+  // Phone card layout. Change these to line the card up with the other
+  // homepage sections (Shop by Brand etc.) if their padding differs.
+  static const double _phoneSidePadding = 16;
+  static const double _phoneTopPadding = 12;
+  static const double _phoneBottomPadding = 16;
+  static const double _phoneCardRadius = 12;
+  // Same shape as the uploaded banners (the admin dialogs crop to 21:9),
+  // so a banner fills the card exactly: no bands above or below.
+  static const double _phoneAspectRatio = 21 / 9;
+  static const double _wideAspectRatio = 21 / 9;
 
   final BannerService _bannerService = BannerService();
   final PageController _pageController = PageController();
@@ -71,7 +79,7 @@ class _HeroSectionState extends State<HeroSection> {
       _banners = result;
       _isLoading = false;
     });
-if (_banners.length > 1) {
+    if (_banners.length > 1) {
       _startAutoPlay();
     } else {
       // Fewer than 2 banners now (e.g. re-fetch shrank the list) —
@@ -102,32 +110,53 @@ if (_banners.length > 1) {
       );
     });
   }
-  Widget _buildGrayscaleImage(String url) {
-    // Renders the banner exactly as uploaded — no grayscale filter,
-    // no opacity reduction. Previously forced every uploaded banner
-    // through a grayscale + 80% opacity effect regardless of what
-    // the admin actually uploaded.
-    return Image.network(
-      url,
-      fit: BoxFit.cover,
-      errorBuilder: (_, __, ___) => Container(color: Colors.black),
+
+  // ================================================
+  // BANNER IMAGE — never cropped
+  //
+  // Layer 1: the same image, scaled to FILL the box, blurred and
+  //          darkened — only visible where the banner doesn't reach.
+  // Layer 2: the banner itself, scaled to FIT inside the box (whole
+  //          image visible, aspect ratio preserved, never stretched).
+  //
+  // Both layers use the same URL, so the image is downloaded once
+  // (Flutter's image cache serves the second request).
+  // ================================================
+  Widget _buildBannerImage(String url) {
+    return Stack(
+      fit: StackFit.expand,
+      children: [
+        ImageFiltered(
+          imageFilter: ImageFilter.blur(sigmaX: 24, sigmaY: 24),
+          child: Image.network(
+            url,
+            fit: BoxFit.cover,
+            errorBuilder: (_, __, ___) => Container(color: Colors.black),
+          ),
+        ),
+        Image.network(
+          url,
+          fit: BoxFit.contain,
+          errorBuilder: (_, __, ___) => Container(color: Colors.black),
+        ),
+      ],
     );
   }
 
-  Widget _buildBackground() {
+  Widget _buildBackground({required bool isPhone}) {
     // Still loading banners on first frame — show fallback so nothing pops in.
     if (_isLoading) {
-      return _buildGrayscaleImage(_fallbackImageUrl);
+      return _buildBannerImage(_fallbackImageUrl);
     }
 
     // No Active banners uploaded — use the original static image.
     if (_banners.isEmpty) {
-      return _buildGrayscaleImage(_fallbackImageUrl);
+      return _buildBannerImage(_fallbackImageUrl);
     }
 
     // Single Active banner — no need for a PageView/carousel.
     if (_banners.length == 1) {
-      return _buildGrayscaleImage(_banners.first.imageUrl);
+      return _buildBannerImage(_banners.first.imageUrl);
     }
 
     // Multiple Active banners — auto-advancing carousel.
@@ -139,12 +168,13 @@ if (_banners.length > 1) {
           itemCount: _banners.length,
           onPageChanged: (int page) => setState(() => _currentPage = page),
           itemBuilder: (context, index) {
-            return _buildGrayscaleImage(_banners[index].imageUrl);
+            return _buildBannerImage(_banners[index].imageUrl);
           },
         ),
         // Slide indicator dots
         Positioned(
-          bottom: 20,
+          // phone: close to the card's bottom edge
+          bottom: isPhone ? 8 : 20,
           left: 0,
           right: 0,
           child: Row(
@@ -159,8 +189,15 @@ if (_banners.length > 1) {
                 decoration: BoxDecoration(
                   color: isActive
                       ? Colors.white
-                      : Colors.white.withOpacity(0.4),
+                      : Colors.white.withOpacity(0.6),
                   borderRadius: BorderRadius.circular(3),
+                  // soft shadow keeps the dots readable on light banners
+                  boxShadow: [
+                    BoxShadow(
+                      color: Colors.black.withOpacity(0.35),
+                      blurRadius: 4,
+                    ),
+                  ],
                 ),
               );
             }),
@@ -173,28 +210,37 @@ if (_banners.length > 1) {
   @override
   Widget build(BuildContext context) {
     final double screenWidth = MediaQuery.of(context).size.width;
-    final bool isDesktop = screenWidth >= _mdBreakpoint;
+    final bool isPhone = screenWidth < _mdBreakpoint;
 
-    // Aspect-ratio based instead of a raw viewport-height percentage —
-    // scales with the banner's own visual proportions instead of an
-    // arbitrary number that produced the same oversized 85vh banner
-    // on every mobile device regardless of orientation. Desktop gets
-    // a wide, prominent presentation; mobile gets a much shorter,
-    // still-visible one, matching how promotional banners are
-    // typically composed for each format.
-    final double aspectRatio = isDesktop ? 21 / 9 : 4 / 3;
-
-    return AspectRatio(
-      aspectRatio: aspectRatio,
+    final Widget hero = AspectRatio(
+      aspectRatio: isPhone ? _phoneAspectRatio : _wideAspectRatio,
       child: Container(
         width: double.infinity,
         color: Colors.black,
         child: Stack(
           fit: StackFit.expand,
           children: [
-            _buildBackground(),
+            _buildBackground(isPhone: isPhone),
           ],
         ),
+      ),
+    );
+
+    // Tablet / desktop: full-width hero, unchanged.
+    if (!isPhone) return hero;
+
+    // Phone: a rounded card inside the page's side padding, so it lines
+    // up with the other homepage sections instead of running edge to edge.
+    return Padding(
+      padding: const EdgeInsets.fromLTRB(
+        _phoneSidePadding,
+        _phoneTopPadding,
+        _phoneSidePadding,
+        _phoneBottomPadding,
+      ),
+      child: ClipRRect(
+        borderRadius: BorderRadius.circular(_phoneCardRadius),
+        child: hero,
       ),
     );
   }

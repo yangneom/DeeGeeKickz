@@ -6,6 +6,7 @@ import '../../../providers/auth/auth_provider.dart';
 import '../../../services/auth/auth_service.dart';
 import 'confirm_dialog.dart';
 import '../../../screens/auth/mfa_enroll_screen.dart' show RecoveryCodesDialog;
+import 'app_toast.dart';
 
 const _kBlue = Color(0xFF2563EB);
 const _kBlueBg = Color(0xFFEFF6FF);
@@ -188,12 +189,10 @@ class _ProfileDialogState extends State<ProfileDialog> {
         _isSaving = false;
       });
 
-      ScaffoldMessenger.of(context).showSnackBar(
-        const SnackBar(
-          content: Text('Name updated'),
-          backgroundColor: _kDarkText,
-          behavior: SnackBarBehavior.floating,
-        ),
+      AppToast.success(
+        context,
+        'Your name has been updated.',
+        title: 'Name updated',
       );
     } catch (_) {
       if (!mounted) return;
@@ -489,12 +488,10 @@ class _ProfileDialogState extends State<ProfileDialog> {
     } catch (e) {
       if (!mounted) return;
       setState(() => _regeneratingCodes = false);
-      ScaffoldMessenger.of(context).showSnackBar(
-        SnackBar(
-          content: Text(e.toString().replaceFirst('Exception: ', '')),
-          backgroundColor: _kRed,
-          behavior: SnackBarBehavior.floating,
-        ),
+      AppToast.error(
+        context,
+        'We could not create new recovery codes. Please try again.',
+        title: 'Recovery codes not changed',
       );
     }
   }

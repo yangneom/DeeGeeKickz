@@ -10,6 +10,7 @@ import '../../../widgets/super/admin_management/admin_disabled_dialog.dart';
 import '../../../widgets/super/admin_management/admin_add_dialog.dart';
 import '../../../providers/admin_provider/admin_account_provider.dart';
 import '../../../models/admin_account.dart';
+import '../../../widgets/common/dialog/app_toast.dart';
 
 class AdminManagementScreen extends ConsumerStatefulWidget {
   const AdminManagementScreen({super.key});
@@ -81,8 +82,21 @@ class _AdminManagementScreenState
     );
   }
 
-  void _applyFilters() {
-    setState(() {});
+  // Turns a thrown error into readable text. If it looks technical
+  // (a raw exception dump), use the plain fallback instead.
+  String _readableError(Object e, String fallback) {
+    final String text = e.toString().replaceFirst('Exception: ', '').trim();
+    final String lower = text.toLowerCase();
+    final bool technical = text.isEmpty ||
+        lower.contains('exception') ||
+        lower.contains('postgrest') ||
+        lower.contains('stacktrace') ||
+        text.length > 160;
+    return technical ? fallback : text;
+  }
+
+  void _applyFilters() {   
+     setState(() {});
   }
 
   List<AdminAccount> _filteredAccounts(List<AdminAccount> accounts) {
@@ -177,22 +191,18 @@ class _AdminManagementScreenState
       // second network round-trip, removed.
       await ref.read(adminAccountsProvider.notifier).disableAccount(account.id);
       if (mounted) {
-        ScaffoldMessenger.of(context).showSnackBar(
-          SnackBar(
-            content: Text('${account.firstName} ${account.lastName} disabled successfully.'),
-            backgroundColor: const Color(0xFF16A34A),
-            behavior: SnackBarBehavior.floating,
-          ),
+        AppToast.success(
+          context,
+          '${account.firstName} ${account.lastName} can no longer log in. You can re-enable them from Disabled Account.',
+          title: 'Account disabled',
         );
       }
     } catch (e) {
       if (mounted) {
-        ScaffoldMessenger.of(context).showSnackBar(
-          SnackBar(
-            content: Text(e.toString().replaceFirst('Exception: ', '')),
-            backgroundColor: const Color(0xFFEF4444),
-            behavior: SnackBarBehavior.floating,
-          ),
+        AppToast.error(
+          context,
+          _readableError(e, 'Something went wrong. Please try again.'),
+          title: 'Action failed',
         );
       }
     }
@@ -219,51 +229,30 @@ class _AdminManagementScreenState
     try {
       await ref.read(adminAccountsProvider.notifier).resetMfa(account.id);
       if (mounted) {
-        ScaffoldMessenger.of(context).showSnackBar(
-          SnackBar(
-            content: Text('2FA reset for ${account.firstName} ${account.lastName}.'),
-            backgroundColor: const Color(0xFF16A34A),
-            behavior: SnackBarBehavior.floating,
-          ),
+        AppToast.success(
+          context,
+          '${account.firstName} ${account.lastName} will set up two-factor authentication again on their next login.',
+          title: '2FA reset',
         );
       }
     } catch (e) {
       if (mounted) {
-        ScaffoldMessenger.of(context).showSnackBar(
-          SnackBar(
-            content: Text(e.toString().replaceFirst('Exception: ', '')),
-            backgroundColor: const Color(0xFFEF4444),
-            behavior: SnackBarBehavior.floating,
-          ),
+        AppToast.error(
+          context,
+          _readableError(e, 'Something went wrong. Please try again.'),
+          title: 'Action failed',
         );
       }
     }
   }
 
+  // Called only from the Disabled Accounts dialog. That dialog shows the
+  // success or failure toast and removes the row ONLY if this succeeds, so
+  // errors must be allowed to propagate (they used to be swallowed here,
+  // which made a failed enable look like a success).
   Future<void> _handleEnable(AdminAccount account) async {
-    try {
-      // enableAccount() already refreshes the list internally.
-      await ref.read(adminAccountsProvider.notifier).enableAccount(account.id);
-      if (mounted) {
-        ScaffoldMessenger.of(context).showSnackBar(
-          SnackBar(
-            content: Text('${account.firstName} ${account.lastName} enabled successfully.'),
-            backgroundColor: const Color(0xFF16A34A),
-            behavior: SnackBarBehavior.floating,
-          ),
-        );
-      }
-    } catch (e) {
-      if (mounted) {
-        ScaffoldMessenger.of(context).showSnackBar(
-          SnackBar(
-            content: Text(e.toString().replaceFirst('Exception: ', '')),
-            backgroundColor: const Color(0xFFEF4444),
-            behavior: SnackBarBehavior.floating,
-          ),
-        );
-      }
-    }
+    // enableAccount() already refreshes the list internally.
+    await ref.read(adminAccountsProvider.notifier).enableAccount(account.id);
   }
 
   List<List<Widget>> _buildRows(List<AdminAccount> accounts) {

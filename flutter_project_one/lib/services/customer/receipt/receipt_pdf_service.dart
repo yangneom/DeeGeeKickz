@@ -5,7 +5,7 @@ import 'package:supabase_flutter/supabase_flutter.dart';
 import '../../../models/order.dart';
 import 'dart:typed_data';
 import '../payment/payment_service.dart';
-
+import 'dart:math' show Random;
 // ================================================
 // RECEIPT PDF SERVICE
 //
@@ -64,7 +64,7 @@ class ReceiptPdfService {
     try {
       final pw.Document pdf   = await _buildPdf(order, isInStore: isInStore);
       final Uint8List bytes = Uint8List.fromList(await pdf.save());
-      final String      path  = 'receipts/${order.orderId}.pdf';
+      final String      path  = 'receipts/${order.orderId}-${_randomToken()}.pdf';
 
       await _supabase.storage
           .from('receipts')
@@ -337,6 +337,17 @@ class ReceiptPdfService {
     );
 
     return pdf;
+  }
+
+  // Unguessable file name. Receipts can be opened by anyone who has the exact
+  // link, so the name must not be just the order number (anyone could count
+  // 1, 2, 3... and download every receipt).
+  String _randomToken() {
+    final Random rng = Random.secure();
+    return List.generate(
+      16,
+      (_) => rng.nextInt(256).toRadixString(16).padLeft(2, '0'),
+    ).join();
   }
 
   pw.Widget _row(String label, String value, pw.Font font) {

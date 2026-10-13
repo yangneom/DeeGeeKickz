@@ -8,6 +8,7 @@ import '../../../widgets/customer/checkout/checkout_payment_selector.dart';
 import '../../../widgets/customer/checkout/checkout_order_summary.dart';
 import '../../../widgets/customer/checkout/card_payment_dialog.dart';
 import '../../../widgets/common/dialog/confirm_dialog.dart';
+import '../../../widgets/common/dialog/app_toast.dart';
 import '../orders/order_history_screen.dart';
 import '../../auth/login_screen.dart';
 import '../../../main.dart';
@@ -101,63 +102,37 @@ class _CheckoutStep3PaymentState
         await _handleCard(orderId);
       }
 
-    } on ArchivedProductException catch (e) {
+       } on ArchivedProductException catch (e) {
       if (mounted) {
-        ScaffoldMessenger.of(context).showSnackBar(
-          SnackBar(
-            content: Text(e.message),
-            backgroundColor: const Color(0xFFDC2626),
-          ),
-        );
+        AppToast.error(context, e.message, title: 'Item unavailable');
       }
     } on PaymentGatewayException catch (e) {
       if (mounted) {
-        ScaffoldMessenger.of(context).showSnackBar(
-          SnackBar(
-            content: Text(e.message),
-            backgroundColor: const Color(0xFFDC2626),
-          ),
-        );
+        AppToast.error(context, e.message, title: 'Payment problem');
       }
     } on InsufficientStockException catch (e) {
       if (mounted) {
-        ScaffoldMessenger.of(context).showSnackBar(
-          SnackBar(
-            content: Text(e.message),
-            backgroundColor: const Color(0xFFDC2626),
-          ),
-        );
+        AppToast.error(context, e.message, title: 'Not enough stock');
       }
     } on SessionExpiredException catch (e) {
       if (mounted) {
-        ScaffoldMessenger.of(context).showSnackBar(
-          SnackBar(
-            content: Text(e.message),
-            backgroundColor: const Color(0xFFDC2626),
-          ),
-        );
+        AppToast.warning(context, e.message, title: 'Session expired');
       }
-            appNavigatorKey.currentState?.pushAndRemoveUntil(
+      appNavigatorKey.currentState?.pushAndRemoveUntil(
         MaterialPageRoute(builder: (_) => const LoginScreen()),
         (route) => false,
       );
-           } on TooManyAttemptsException catch (e) {
+    } on TooManyAttemptsException catch (e) {
       if (mounted) {
-        ScaffoldMessenger.of(context).showSnackBar(
-          SnackBar(
-            content: Text(e.message),
-            backgroundColor: const Color(0xFFDC2626),
-          ),
-        );
+        AppToast.warning(context, e.message, title: 'Too many attempts');
       }
     } on AccountSuspendedException catch (e) {
       if (mounted) {
-        ScaffoldMessenger.of(context).showSnackBar(
-          SnackBar(
-            content: Text(e.message),
-            backgroundColor: const Color(0xFFDC2626),
-            duration: const Duration(seconds: 6),
-          ),
+        AppToast.error(
+          context,
+          e.message,
+          title: 'Account suspended',
+          duration: const Duration(seconds: 8),
         );
       }
       await Supabase.instance.client.auth.signOut();
@@ -167,48 +142,45 @@ class _CheckoutStep3PaymentState
       );
     } catch (e) {
       if (mounted) {
-        ScaffoldMessenger.of(context).showSnackBar(
-          const SnackBar(
-            content: Text(
-                'Something went wrong. Please try again.'),
-            backgroundColor: Color(0xFFDC2626),
-          ),
-        );
+        AppToast.error(context, 'Something went wrong. Please try again.');
       }
+    
     } finally {
       if (mounted) setState(() => _isProcessing = false);
     }
   }
 
   // ================================================
-  // SAFE SNACKBAR
-  // Best-effort only — a courtesy toast must never be allowed to
-  // throw and abort whatever comes after it (confirmed in testing:
-  // the order succeeded, but a crash here repeatedly prevented
-  // navigation to Order History right after, on every single order).
+  // SAFE TOAST
+  // Best-effort only — a courtesy notification must never be allowed to
+  // throw and abort whatever comes after it (the order already succeeded;
+  // a failure here once blocked navigation to Order History).
   // ================================================
-  void _showSafeSnackBar(String message, {Color? backgroundColor, Duration? duration}) {
+  void _showSafeToast(
+    AppToastType type,
+    String message, {
+    String? title,
+    Duration? duration,
+  }) {
     try {
       final BuildContext? ctx = appNavigatorKey.currentContext;
       if (ctx == null || !ctx.mounted) return;
-      ScaffoldMessenger.of(ctx).showSnackBar(
-        SnackBar(
-          content: Text(message),
-          backgroundColor: backgroundColor,
-          duration: duration ?? const Duration(seconds: 4),
-        ),
-      );
-    } catch (e) {
+      AppToast.show(ctx, type, message, title: title, duration: duration);
+    } catch (_) {
+      // never let a notification break checkout
     }
   }
 
+    
   Future<void> _handleCod(int orderId) async {
     await PaymentService().setCodPending(orderId: orderId);
 
     _goToOrderHistory();
 
-    _showSafeSnackBar(
-      'Order placed! Admin will verify your address and confirm your order.',
+    _showSafeToast(
+      AppToastType.success,
+      'Admin will verify your address and confirm your order.',
+      title: 'Order placed',
     );
   }
 
@@ -233,9 +205,11 @@ class _CheckoutStep3PaymentState
 
     _goToOrderHistory();
 
-    _showSafeSnackBar(
-      'Complete your GCash payment. Your order will appear once payment is confirmed.',
-      duration: const Duration(seconds: 5),
+    _showSafeToast(
+      AppToastType.info,
+      'Your order will appear once payment is confirmed.',
+      title: 'Complete your GCash payment',
+      duration: const Duration(seconds: 6),
     );
   }
 
@@ -260,17 +234,18 @@ class _CheckoutStep3PaymentState
     if (paid == true) {
       _goToOrderHistory();
 
-      _showSafeSnackBar(
-        'Payment successful! Your order is being reviewed by our team.',
-        backgroundColor: const Color(0xFF16A34A),
+      _showSafeToast(
+        AppToastType.success,
+        'Your order is being reviewed by our team.',
+        title: 'Payment successful',
       );
     }
   }
 
   void _goToOrderHistory() {
-    // Deferred one frame — navigating away immediately in the same
-    // synchronous call as showSnackBar() tears down the Scaffold
-    // mid-animation, before the SnackBar has a chance to settle.
+    // Deferred one frame so the toast is registered before the page
+    // changes. (The toast lives above the navigator, so it survives the
+    // navigation.)
     WidgetsBinding.instance.addPostFrameCallback((_) {
       appNavigatorKey.currentState?.pushAndRemoveUntil(
         MaterialPageRoute(builder: (_) => const OrderHistoryScreen()),

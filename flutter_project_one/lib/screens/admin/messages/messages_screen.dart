@@ -9,6 +9,7 @@ import '../../../providers/product/product_provider.dart';
 import '../../../models/chat_message_model.dart';
 import '../../../models/product.dart' as db_product;
 import 'dart:async';
+import '../../../widgets/common/dialog/app_toast.dart';
 
 void _showCustomerInfoDialog(BuildContext context, Conversation conversation) {
   showDialog(
@@ -137,11 +138,10 @@ class _MessagesScreenState extends ConsumerState<MessagesScreen> {
       if (mounted) {
         setState(() => _isUploadingImage = false);
         if (!success) {
-          ScaffoldMessenger.of(context).showSnackBar(
-            const SnackBar(
-              content: Text('Failed to send image. Please try again.'),
-              backgroundColor: Colors.red,
-            ),
+          AppToast.error(
+            context,
+            'We could not send the image. Please try again.',
+            title: 'Image not sent',
           );
         } else {
           _scrollToBottom();
@@ -149,7 +149,14 @@ class _MessagesScreenState extends ConsumerState<MessagesScreen> {
       }
     } catch (error) {
       print('_onPickImage error: $error');
-      if (mounted) setState(() => _isUploadingImage = false);
+      if (mounted) {
+        setState(() => _isUploadingImage = false);
+        AppToast.error(
+          context,
+          'We could not open your photos. Please try again.',
+          title: 'Image not selected',
+        );
+      }
     }
   }
   @override

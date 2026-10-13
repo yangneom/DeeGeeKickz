@@ -1,6 +1,7 @@
 import 'package:flutter/material.dart';
 import 'package:supabase_flutter/supabase_flutter.dart';
 import '../../screens/auth/mfa_enroll_screen.dart';
+import '../common/dialog/app_toast.dart';
 
 // ================================================
 // SET PASSWORD FORM
@@ -89,18 +90,10 @@ void dispose() {
         return;
       }
 
-      ScaffoldMessenger.of(context).showSnackBar(
-        const SnackBar(
-          content: Text(
-            'Password set successfully. Please log in.',
-            style: TextStyle(
-              fontSize: 13,
-              fontWeight: FontWeight.w600,
-            ),
-          ),
-          backgroundColor: Colors.black,
-          duration: Duration(seconds: 2),
-        ),
+      AppToast.success(
+        context,
+        'Please log in with your new password.',
+        title: 'Password set',
       );
 
       await supabase.auth.signOut();

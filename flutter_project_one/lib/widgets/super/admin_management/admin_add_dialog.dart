@@ -1,5 +1,6 @@
 import 'package:flutter/material.dart';
 import '../../common/dialog/confirm_dialog.dart';
+import '../../common/dialog/app_toast.dart';
 // ================================================
 // ADMIN ADD DIALOG
 //
@@ -148,13 +149,12 @@ Future<void> _handleAdd() async {
       );
 
       if (mounted) {
-        Navigator.pop(context);
-        ScaffoldMessenger.of(context).showSnackBar(
-          SnackBar(
-            content: Text('$firstName $lastName was added as $_selectedRole.'),
-            backgroundColor: const Color(0xFF16A34A),
-          ),
+        AppToast.success(
+          context,
+          '$firstName $lastName was added as $_selectedRole.',
+          title: 'Account created',
         );
+        Navigator.pop(context);
       }
     } catch (e) {
       if (mounted) {

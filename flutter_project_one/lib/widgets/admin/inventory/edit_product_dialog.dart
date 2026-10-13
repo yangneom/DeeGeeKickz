@@ -9,6 +9,7 @@ import 'package:flutter_colorpicker/flutter_colorpicker.dart';
 import 'package:file_picker/file_picker.dart';
 import 'package:supabase_flutter/supabase_flutter.dart';
 import 'package:flutter_project_one/widgets/common/dialog/confirm_dialog.dart';
+import 'package:flutter_project_one/widgets/common/dialog/app_toast.dart';
 import 'package:flutter_project_one/services/admin/inventory/inventory_service.dart';
 
 // ===============================================
@@ -389,10 +390,11 @@ class _EditProductDialogState extends ConsumerState<EditProductDialog> {
 
       if (remaining <= 0) {
         if (mounted) {
-          ScaffoldMessenger.of(context).showSnackBar(const SnackBar(
-            content: Text('Maximum 4 images per variant.'),
-            backgroundColor: Colors.orange,
-          ));
+          AppToast.warning(
+            context,
+            'Each color can have up to 4 images.',
+            title: 'Image limit reached',
+          );
         }
         return;
       }
@@ -429,15 +431,12 @@ class _EditProductDialogState extends ConsumerState<EditProductDialog> {
       }
 
       if (failedCount > 0 && mounted) {
-        ScaffoldMessenger.of(context).showSnackBar(
-          SnackBar(
-            content: Text(
-              failedCount == 1
-                  ? '1 image could not be processed and was skipped.'
-                  : '$failedCount images could not be processed and were skipped.',
-            ),
-            backgroundColor: Colors.orange,
-          ),
+        AppToast.warning(
+          context,
+          failedCount == 1
+              ? '1 image could not be processed and was skipped.'
+              : '$failedCount images could not be processed and were skipped.',
+          title: 'Some images skipped',
         );
       }
 
@@ -621,11 +620,11 @@ class _EditProductDialogState extends ConsumerState<EditProductDialog> {
       if (colorKey.isEmpty) continue;
       if (seenColors.contains(colorKey)) {
         if (mounted) {
-          ScaffoldMessenger.of(context).showSnackBar(SnackBar(
-            content: Text(
-                'Two variants both use the color "$colorKey". Each color must be unique within a product.'),
-            backgroundColor: Colors.red,
-          ));
+          AppToast.error(
+            context,
+            'Two variants both use the color "$colorKey". Each color must be unique within a product.',
+            title: 'Duplicate color',
+          );
         }
         return;
       }
@@ -640,11 +639,11 @@ class _EditProductDialogState extends ConsumerState<EditProductDialog> {
         if (sizeKey.isEmpty) continue;
         if (seenSizes.contains(sizeKey)) {
           if (mounted) {
-            ScaffoldMessenger.of(context).showSnackBar(SnackBar(
-              content: Text(
-                  'The size "${row.sizeController.text.trim()}" is entered twice for color "$colorLabel". Each size should only appear once per color.'),
-              backgroundColor: Colors.red,
-            ));
+            AppToast.error(
+              context,
+              'The size "${row.sizeController.text.trim()}" is entered twice for color "$colorLabel". Each size should only appear once per color.',
+              title: 'Duplicate size',
+            );
           }
           return;
         }
@@ -708,10 +707,7 @@ class _EditProductDialogState extends ConsumerState<EditProductDialog> {
 
       if (error != null) {
         if (mounted) {
-          ScaffoldMessenger.of(context).showSnackBar(SnackBar(
-            content: Text(error),
-            backgroundColor: Colors.red,
-          ));
+          AppToast.error(context, error, title: 'Could not save changes');
         }
         return;
       }
@@ -786,33 +782,28 @@ class _EditProductDialogState extends ConsumerState<EditProductDialog> {
         Navigator.pop(context);
 
         if (allFailedFileNames.isNotEmpty) {
-          ScaffoldMessenger.of(context).showSnackBar(
-            SnackBar(
-              content: Text(
-                'Product updated, but some image(s) failed to upload. '
-                'You can try adding them again from Edit Product.',
-              ),
-              backgroundColor: Colors.orange,
-              duration: const Duration(seconds: 5),
-            ),
+          AppToast.warning(
+            context,
+            'The product was updated, but some image(s) failed to upload. You can try adding them again from Edit Product.',
+            title: 'Some images failed',
+            duration: const Duration(seconds: 8),
           );
         } else {
-          ScaffoldMessenger.of(context).showSnackBar(
-            const SnackBar(
-              content: Text('Product updated successfully!'),
-              backgroundColor: Color(0xFF16A34A),
-            ),
+          AppToast.success(
+            context,
+            'Your changes have been saved.',
+            title: 'Product updated',
           );
         }
       }
     } catch (error) {
       print('_saveProduct error: $error');
       if (mounted) {
-        ScaffoldMessenger.of(context).showSnackBar(const SnackBar(
-          content:
-              Text('Failed to save product. Please try again.'),
-          backgroundColor: Colors.red,
-        ));
+        AppToast.error(
+          context,
+          'Something went wrong while saving. Please try again.',
+          title: 'Could not save changes',
+        );
       }
     } finally {
       if (mounted) setState(() => _isLoading = false);
@@ -1560,9 +1551,7 @@ class _EditProductDialogState extends ConsumerState<EditProductDialog> {
                   mainAxisAlignment: MainAxisAlignment.end,
                   children: [
                     OutlinedButton(
-                      onPressed: _isLoading
-                          ? null
-                          : () => Navigator.pop(context),
+                      onPressed: _isLoading ? null : _handleCancel,
                       style: OutlinedButton.styleFrom(
                         foregroundColor:
                             const Color(0xFF374151),

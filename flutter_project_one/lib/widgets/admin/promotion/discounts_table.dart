@@ -5,7 +5,7 @@ import 'create_discount_dialog.dart';
 import 'edit_discount_dialog.dart';
 import '../../../models/discount_model.dart';
 import '../../../services/admin/promotionDiscount/discount_service.dart';
-
+import '../../common/dialog/app_toast.dart';
 class DiscountsTable extends StatefulWidget {
   const DiscountsTable({super.key});
 
@@ -100,11 +100,10 @@ class _DiscountsTableState extends State<DiscountsTable> {
 
     if (!mounted) return;
     if (error != null) {
-      ScaffoldMessenger.of(context).showSnackBar(
-        SnackBar(
-          content: Text('Failed to delete discount: $error'),
-          backgroundColor: const Color(0xFFDC2626),
-        ),
+      AppToast.error(
+        context,
+        'We could not delete the discount. Please try again.',
+        title: 'Discount not deleted',
       );
       return;
     }

@@ -5,6 +5,7 @@ import 'package:pdf/pdf.dart';
 import 'package:pdf/widgets.dart' as pw;
 import 'package:printing/printing.dart';
 import '../../../models/sale.dart';
+import '../../common/dialog/app_toast.dart';
 // ================================================
 // RECEIPT DIALOG
 //
@@ -452,18 +453,17 @@ class _ReceiptDialogState extends State<ReceiptDialog> {
     await Future.delayed(Duration.zero);
 
     try {
-      final pw.Document pdf = await _generatePdf();();
+            final pw.Document pdf = await _generatePdf();
       await Printing.layoutPdf(
         onLayout: (PdfPageFormat format) async => pdf.save(),
         name: 'Receipt_${widget.sale.orderNumber}',
       );
     } catch (e) {
       if (mounted) {
-        ScaffoldMessenger.of(context).showSnackBar(
-          const SnackBar(
-            content: Text('Failed to print receipt. Please try again.'),
-            backgroundColor: Color(0xFFDC2626),
-          ),
+        AppToast.error(
+          context,
+          'We could not print the receipt. Please try again.',
+          title: 'Print failed',
         );
       }
     } finally {
@@ -488,11 +488,10 @@ class _ReceiptDialogState extends State<ReceiptDialog> {
       );
     } catch (e) {
       if (mounted) {
-        ScaffoldMessenger.of(context).showSnackBar(
-          const SnackBar(
-            content: Text('Failed to save receipt. Please try again.'),
-            backgroundColor: Color(0xFFDC2626),
-          ),
+        AppToast.error(
+          context,
+          'We could not save the receipt. Please try again.',
+          title: 'Save failed',
         );
       }
     } finally {

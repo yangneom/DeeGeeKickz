@@ -14,6 +14,7 @@ import '../../../widgets/customer/homescreen/hero_section.dart';
 import '../../../widgets/customer/homescreen/brand_discovery_section.dart';
 import '../../../widgets/customer/homescreen/category_discovery_section.dart';
 import '../../../widgets/customer/homescreen/why_shop_section.dart';
+import '../../../widgets/customer/homescreen/app_download_section.dart';
 import '../../../widgets/customer/shop/shop_product_card.dart';
 
 class HomeScreen extends ConsumerStatefulWidget {
@@ -217,6 +218,7 @@ class _HomeScreenState extends ConsumerState<HomeScreen> {
                     ),
 
                     const WhyShopSection(),
+                    const AppDownloadSection(),
                     const AppFooter(),
                   ],
                 ),

@@ -10,7 +10,9 @@ import '../../../services/super/sales/sales_report_service.dart';
 import '../../../core/utils/csv_export_helper.dart';
 import '../../../core/utils/excel_export_helper.dart';
 import '../../../widgets/super/sales/full_product_sales_report_dialog.dart';
+import '../../../widgets/common/dialog/app_toast.dart';
 import '../../../services/super/sales/sales_report_service.dart';
+import '../../../widgets/common/dialog/app_toast.dart';
 // ================================================
 // SALES REPORT SCREEN
 //
@@ -40,7 +42,12 @@ class _SalesReportScreenState extends ConsumerState<SalesReportScreen> {
   // separate Month/Year/Custom dropdown, the standalone "All Months"
   // table, and the old Growth-only Filter in one coherent flow.
   ReportPeriod _reportPeriod = ReportPeriod.thisMonth;
-  DateTimeRange? _customRange;
+    DateTimeRange? _customRange;
+
+  // What is selected inside the open filter panel. It only becomes the
+  // applied report period when Apply is pressed.
+  ReportPeriod _pendingPeriod = ReportPeriod.thisMonth;
+  DateTimeRange? _pendingCustomRange;
   bool _showFilterPanel = false;
 
   bool _isLoadingPeriod = false;
@@ -430,8 +437,15 @@ class _SalesReportScreenState extends ConsumerState<SalesReportScreen> {
       crossAxisAlignment: CrossAxisAlignment.start,
       children: [
         Text(
-          _isYearGranularity ? '${DateTime.now().year} Summary' : labels[_reportPeriod]!,
+                  _isYearGranularity ? '${DateTime.now().year} Summary' : labels[_reportPeriod]!,
           style: const TextStyle(fontSize: 18, fontWeight: FontWeight.bold, color: Color(0xFF111827)),
+        ),
+        const SizedBox(height: 4),
+        Text(
+          singleDay
+              ? _formatShortDate(start)
+              : '${_formatShortDate(start)} – ${_formatShortDate(end)}',
+          style: const TextStyle(fontSize: 13, color: Color(0xFF6B7280)),
         ),
         const SizedBox(height: 16),
 
@@ -470,6 +484,13 @@ class _SalesReportScreenState extends ConsumerState<SalesReportScreen> {
                 title: 'Total Quantity Sold',
                 valueText: _periodTotalQuantity.toString(),
               ),
+                           _buildMetricCard(
+                icon: Icons.shopping_bag_outlined,
+                iconBg: const Color(0xFFFEE2E2),
+                iconColor: const Color(0xFFDC2626),
+                title: 'COGS',
+                valueText: _formatCurrency(_periodCogs),
+              ),
               _buildMetricCard(
                 icon: Icons.trending_up,
                 iconBg: const Color(0xFFEDE9FE),
@@ -494,17 +515,29 @@ class _SalesReportScreenState extends ConsumerState<SalesReportScreen> {
               onChanged: (value) => setState(() {}),
             ),
             const SizedBox(width: 8),
-            FilterButton(
+                        FilterButton(
               isOpen: _showFilterPanel,
-              onTap: () => setState(() => _showFilterPanel = !_showFilterPanel),
-              selectedValues: {'Period': labels[_reportPeriod]},
+              onTap: () => setState(() {
+                // Opening starts from what is currently applied, so anything
+                // selected earlier but never applied is thrown away.
+                if (!_showFilterPanel) {
+                  _pendingPeriod = _reportPeriod;
+                  _pendingCustomRange = _customRange;
+                }
+                _showFilterPanel = !_showFilterPanel;
+              }),
+              // The panel shows the PENDING choice. The heading, cards,
+              // table and export keep showing the applied one.
+              selectedValues: {'Period': _pendingPeriod.name},
               onValueChanged: (String section, String? value) async {
                 if (value == 'custom') {
-                  final DateTimeRange? picked = await _showCompactDateRangeDialog(initialRange: _customRange);
+                  final DateTimeRange? picked = await _showCompactDateRangeDialog(
+                    initialRange: _pendingCustomRange ?? _customRange,
+                  );
                   if (picked != null) {
                     setState(() {
-                      _reportPeriod = ReportPeriod.custom;
-                      _customRange = picked;
+                      _pendingPeriod = ReportPeriod.custom;
+                      _pendingCustomRange = picked;
                     });
                   }
                 } else {
@@ -512,24 +545,42 @@ class _SalesReportScreenState extends ConsumerState<SalesReportScreen> {
                     (p) => p.name == value,
                     orElse: () => ReportPeriod.thisMonth,
                   );
-                  setState(() => _reportPeriod = selected);
+                  setState(() => _pendingPeriod = selected);
                 }
               },
-              onClear: () => setState(() => _reportPeriod = ReportPeriod.thisMonth),
+              onClear: () {
+                // The shared filter panel closes itself on Clear (same as on
+                // every other screen), so Clear means: back to the default
+                // period, This Month, applied right away.
+                setState(() {
+                  _reportPeriod = ReportPeriod.thisMonth;
+                  _customRange = null;
+                  _pendingPeriod = ReportPeriod.thisMonth;
+                  _pendingCustomRange = null;
+                  _showFilterPanel = false;
+                });
+                _loadReportPeriod();
+              },
               onApply: () {
-                setState(() => _showFilterPanel = false);
+                setState(() {
+                  _reportPeriod = _pendingPeriod;
+                  _customRange = _pendingCustomRange;
+                  _showFilterPanel = false;
+                });
                 _loadReportPeriod();
               },
               sections: [
                 FilterSection(
                   title: 'Period',
-                  options: ReportPeriod.values.map((p) => FilterOption(label: labels[p]!, value: p.name)).toList(),
+                  options: ReportPeriod.values
+                      .map((p) => FilterOption(label: labels[p]!, value: p.name))
+                      .toList(),
                 ),
               ],
             ),
             const Spacer(),
             if (!_isYearGranularity && !_isLoadingPeriod)
-              TextButton.icon(
+                           ElevatedButton.icon(
                 onPressed: () async {
                   final List<DayTransaction> transactions =
                       await _reportService.getRangeTransactions(start, end);
@@ -541,9 +592,18 @@ class _SalesReportScreenState extends ConsumerState<SalesReportScreen> {
                     showDatePerRow: !singleDay,
                   );
                 },
-                icon: const Icon(Icons.receipt_long_outlined, size: 16, color: Color(0xFF2563EB)),
-                label: const Text('View Transactions', style: TextStyle(fontSize: 13, color: Color(0xFF2563EB), fontWeight: FontWeight.w500)),
+                             icon: const Icon(Icons.receipt_long_outlined, size: 16),
+                label: const Text('View All Transactions', style: TextStyle(fontSize: 13, fontWeight: FontWeight.w500)),
+                style: ElevatedButton.styleFrom(
+                  backgroundColor: const Color(0xFF2563EB),
+                  foregroundColor: Colors.white,
+                  elevation: 0,
+                  minimumSize: const Size(0, 42),
+                  padding: const EdgeInsets.symmetric(horizontal: 16),
+                  shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(8)),
+                ),
               ),
+              const SizedBox(width: 8),
             ExportButton(
               onExport: _exportToCsv,
               onFormatSelected: (format) {
@@ -570,10 +630,8 @@ class _SalesReportScreenState extends ConsumerState<SalesReportScreen> {
                           _buildAmountText(_formatCurrency(m.grossProfit), color: const Color(0xFF16A34A)),
                           Text(m.bestSeller, style: const TextStyle(fontSize: 13, color: Color(0xFF111827))),
                           _buildGrowthBadge(m.growthPercent),
-                          TextButton.icon(
-                            onPressed: () => _showMonthOrDayDetails(period: m.monthStart, isMonth: true),
-                            icon: const Icon(Icons.visibility_outlined, size: 14, color: Color(0xFF2563EB)),
-                            label: const Text('View Details', style: TextStyle(fontSize: 12, color: Color(0xFF2563EB))),
+                                                   _buildTopProductsButton(
+                            () => _showMonthOrDayDetails(period: m.monthStart, isMonth: true),
                           ),
                         ];
                       }).toList(),
@@ -583,7 +641,7 @@ class _SalesReportScreenState extends ConsumerState<SalesReportScreen> {
                       padding: EdgeInsets.symmetric(vertical: 24),
                       child: Text('No sales data available for this period.', style: TextStyle(fontSize: 13, color: Color(0xFF6B7280))))
                                   : CommonTable(
-                      headers: const ['Date', 'Product Sales', 'Orders', 'Quantity Sold', 'Gross Profit', ''],
+                      headers: const ['Date', 'Product Sales', 'Orders', 'Quantity Sold', 'COGS', 'Gross Profit', ''],
                       rows: _periodDailyRows.map((d) {
                         return <Widget>[
                           InkWell(
@@ -595,12 +653,11 @@ class _SalesReportScreenState extends ConsumerState<SalesReportScreen> {
                           ),
                           _buildAmountText(_formatCurrency(d.totalSales)),
                           Text(d.totalOrders.toString(), style: const TextStyle(fontSize: 13, color: Color(0xFF111827))),
-                          Text(d.totalQuantitySold.toString(), style: const TextStyle(fontSize: 13, color: Color(0xFF111827))),
+                                             Text(d.totalQuantitySold.toString(), style: const TextStyle(fontSize: 13, color: Color(0xFF111827))),
+                          _buildAmountText(_formatCurrency(d.totalSales - d.grossProfit), color: const Color(0xFFDC2626)),
                           _buildAmountText(_formatCurrency(d.grossProfit), color: const Color(0xFF16A34A)),
-                          TextButton.icon(
-                            onPressed: () => _showMonthOrDayDetails(period: d.date, isMonth: false),
-                            icon: const Icon(Icons.visibility_outlined, size: 14, color: Color(0xFF2563EB)),
-                            label: const Text('View Details', style: TextStyle(fontSize: 12, color: Color(0xFF2563EB))),
+                                                    _buildTopProductsButton(
+                            () => _showMonthOrDayDetails(period: d.date, isMonth: false),
                           ),
                         ];
                       }).toList(),
@@ -611,43 +668,79 @@ class _SalesReportScreenState extends ConsumerState<SalesReportScreen> {
 // ================================================
   // EXPORT
   // ================================================
-  static const List<String> _exportHeaders = [
-    'Month',
-    'Product Sales',
-    'COGS',
-    'Gross Profit',
-    'Best Seller',
-    'Growth %',
-  ];
+  // The export mirrors exactly what the report table shows: same period,
+  // same grouping (monthly rows for This Year, daily rows for every other
+  // period), same figures. COGS = sales - gross profit, the same
+  // relationship the table uses.
+  List<String> get _exportHeaders => _isYearGranularity
+      ? const ['Month', 'Product Sales', 'COGS', 'Gross Profit', 'Best Seller', 'Growth %']
+      : const ['Date', 'Product Sales', 'Orders', 'Quantity Sold', 'COGS', 'Gross Profit'];
 
   List<List<dynamic>> _buildExportRows() {
-    return _filteredReports.map((report) {
+    if (_isYearGranularity) {
+      return _periodMonthlyRows.map((m) {
+        return [
+          m.month,
+          m.totalSales,
+          m.cogs,
+          m.grossProfit,
+          m.bestSeller,
+          m.growthPercent ?? 'New',
+        ];
+      }).toList();
+    }
+    return _periodDailyRows.map((d) {
       return [
-        report.month,
-        report.totalSales,
-        report.cogs,
-        report.grossProfit,
-        report.bestSeller,
-        report.growthPercent ?? 'New',
+        _formatShortDate(d.date),
+        d.totalSales,
+        d.totalOrders,
+        d.totalQuantitySold,
+        d.totalSales - d.grossProfit,
+        d.grossProfit,
       ];
     }).toList();
   }
 
+  // The file name carries the exact period, e.g.
+  // sales_report_2026-09-24_to_2026-09-27
+  String get _exportFileName {
+    final (DateTime start, DateTime end) = _resolvePeriodRange();
+    String ymd(DateTime d) =>
+        '${d.year}-${d.month.toString().padLeft(2, '0')}-${d.day.toString().padLeft(2, '0')}';
+    return 'sales_report_${ymd(start)}_to_${ymd(end)}';
+  }
+
+  void _showNothingToExport() {
+      AppToast.info(
+      context,
+      'There is no data to export for the selected period.',
+      title: 'Nothing to export',
+    );
+  }
+
   void _exportToCsv() {
-    final String today = DateTime.now().toIso8601String().split('T').first;
+    final List<List<dynamic>> rows = _buildExportRows();
+    if (rows.isEmpty) {
+      _showNothingToExport();
+      return;
+    }
     CsvExportHelper.exportToCsv(
-      filename: 'sales_report_$today',
+      filename: _exportFileName,
       headers: _exportHeaders,
-      rows: _buildExportRows(),
+      rows: rows,
     );
   }
 
   void _exportToExcel() {
-    final String today = DateTime.now().toIso8601String().split('T').first;
+    final List<List<dynamic>> rows = _buildExportRows();
+    if (rows.isEmpty) {
+      _showNothingToExport();
+      return;
+    }
     ExcelExportHelper.exportToExcel(
-      filename: 'sales_report_$today',
+      filename: _exportFileName,
       headers: _exportHeaders,
-      rows: _buildExportRows(),
+      rows: rows,
       sheetName: 'Sales Report',
     );
   }
@@ -938,10 +1031,15 @@ class _SalesReportScreenState extends ConsumerState<SalesReportScreen> {
                 const SizedBox(height: 16),
                 Align(
                   alignment: Alignment.centerRight,
-                  child: TextButton(
+                                child: OutlinedButton(
                     onPressed: () => Navigator.of(context).pop(),
-                    style: TextButton.styleFrom(foregroundColor: const Color(0xFF374151)),
-                    child: const Text('Close'),
+                    style: OutlinedButton.styleFrom(
+                      foregroundColor: const Color(0xFF374151),
+                      side: const BorderSide(color: Color(0xFFD1D5DB)),
+                      padding: const EdgeInsets.symmetric(horizontal: 24, vertical: 12),
+                      shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(8)),
+                    ),
+                    child: const Text('Close', style: TextStyle(fontSize: 13)),
                   ),
                 ),
               ],
@@ -1190,7 +1288,7 @@ class _SalesReportScreenState extends ConsumerState<SalesReportScreen> {
                 const SizedBox(height: 20),
                 const Divider(height: 1, color: Color(0xFFE5E7EB)),
                 const SizedBox(height: 16),
-                const Text('Top 5 Products', style: TextStyle(fontSize: 14, fontWeight: FontWeight.bold, color: Color(0xFF111827))),
+                const Text('Top 5 Products · ranked by units sold', style: TextStyle(fontSize: 14, fontWeight: FontWeight.bold, color: Color(0xFF111827))),
                 const SizedBox(height: 12),
                 Flexible(
                   child: detail.products.isEmpty
@@ -1228,10 +1326,15 @@ class _SalesReportScreenState extends ConsumerState<SalesReportScreen> {
                 const SizedBox(height: 16),
                 Align(
                   alignment: Alignment.centerRight,
-                  child: TextButton(
+                             child: OutlinedButton(
                     onPressed: () => Navigator.of(context).pop(),
-                    style: TextButton.styleFrom(foregroundColor: const Color(0xFF374151)),
-                    child: const Text('Close'),
+                    style: OutlinedButton.styleFrom(
+                      foregroundColor: const Color(0xFF374151),
+                      side: const BorderSide(color: Color(0xFFD1D5DB)),
+                      padding: const EdgeInsets.symmetric(horizontal: 28, vertical: 12),
+                      shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(8)),
+                    ),
+                    child: const Text('Close', style: TextStyle(fontSize: 13)),
                   ),
                 ),
               ],
@@ -1239,6 +1342,24 @@ class _SalesReportScreenState extends ConsumerState<SalesReportScreen> {
           ),
         );
       },
+    );
+  }
+
+  // The per-row "Top Products" button, styled like the "View" button in
+  // the other management tables (outlined, neutral gray).
+  Widget _buildTopProductsButton(VoidCallback onPressed) {
+    return Align(
+      alignment: Alignment.centerLeft,
+      child: OutlinedButton(
+        onPressed: onPressed,
+        style: OutlinedButton.styleFrom(
+          foregroundColor: const Color(0xFF374151),
+          side: const BorderSide(color: Color(0xFFD1D5DB)),
+          padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 8),
+          shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(6)),
+        ),
+        child: const Text('Top Products', style: TextStyle(fontSize: 12)),
+      ),
     );
   }
 

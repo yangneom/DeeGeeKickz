@@ -1,6 +1,8 @@
 import 'package:flutter/material.dart';
 import 'package:supabase_flutter/supabase_flutter.dart';
 import '../../screens/auth/mfa_challenge_screen.dart';
+import '../../core/utils/form_validators.dart';
+import '../../widgets/common/forms/auth_form_fields.dart';
 
 /// Customer-facing "set a new password" form, used only at the end of
 /// the Forgot Password flow — after the recovery OTP has been verified
@@ -13,6 +15,10 @@ import '../../screens/auth/mfa_challenge_screen.dart';
 /// itself and skips that flag entirely. Styling also matches the
 /// customer auth screens (rounded, white) rather than the staff theme
 /// (sharp corners, filled grey).
+///
+/// Uses the same shared fields and the same password rule as Sign Up
+/// (FormValidators.newPassword). It used to accept 6 characters while
+/// Sign Up asked for 8.
 class ResetPasswordForm extends StatefulWidget {
   final VoidCallback onSuccess;
 
@@ -26,11 +32,16 @@ class _ResetPasswordFormState extends State<ResetPasswordForm> {
   final SupabaseClient _supabase = Supabase.instance.client;
   final GlobalKey<FormState> _formKey = GlobalKey<FormState>();
 
+  // Re-checks ONLY the confirm field when the new password changes.
+  final GlobalKey<FormFieldState<String>> _confirmKey =
+      GlobalKey<FormFieldState<String>>();
+
   final TextEditingController _passwordController = TextEditingController();
   final TextEditingController _confirmController = TextEditingController();
 
-  bool _isPasswordVisible = false;
-  bool _isConfirmVisible = false;
+  // True after the first failed submit; from then on the fields re-check
+  // themselves as the user edits them.
+  bool _showErrors = false;
   bool _isSubmitting = false;
   String? _errorMessage;
 
@@ -43,7 +54,11 @@ class _ResetPasswordFormState extends State<ResetPasswordForm> {
 
   Future<void> _handleSubmit() async {
     if (_isSubmitting) return;
-    if (!_formKey.currentState!.validate()) return;
+
+    if (!_formKey.currentState!.validate()) {
+      setState(() => _showErrors = true);
+      return;
+    }
 
     setState(() {
       _isSubmitting = true;
@@ -109,6 +124,8 @@ class _ResetPasswordFormState extends State<ResetPasswordForm> {
     });
 
     try {
+      // Trimmed on purpose: sign-up and login (AuthService) trim the
+      // password too, so all three flows stay consistent.
       await _supabase.auth.updateUser(
         UserAttributes(password: _passwordController.text.trim()),
       );
@@ -130,111 +147,79 @@ class _ResetPasswordFormState extends State<ResetPasswordForm> {
 
     return Form(
       key: _formKey,
+      autovalidateMode: _showErrors
+          ? AutovalidateMode.onUserInteraction
+          : AutovalidateMode.disabled,
       child: SizedBox(
         width: formWidth,
-        child: Column(
-          crossAxisAlignment: CrossAxisAlignment.start,
-          children: [
-            const Text(
-              'Reset Your Password',
-              style: TextStyle(
-                fontSize: 22,
-                fontWeight: FontWeight.bold,
-                color: Colors.black,
-              ),
-            ),
-            const SizedBox(height: 8),
-            const Text(
-              'Enter a new password for your account.',
-              style: TextStyle(fontSize: 14, color: Colors.grey),
-            ),
-            const SizedBox(height: 30),
-
-            const Text(
-              'New Password',
-              style: TextStyle(fontSize: 14, fontWeight: FontWeight.w500, color: Colors.black),
-            ),
-            const SizedBox(height: 8),
-            TextFormField(
-              controller: _passwordController,
-              obscureText: !_isPasswordVisible,
-              decoration: InputDecoration(
-                hintText: 'Enter a new password',
-                border: OutlineInputBorder(borderRadius: BorderRadius.circular(8)),
-                contentPadding: const EdgeInsets.symmetric(horizontal: 16, vertical: 14),
-                suffixIcon: IconButton(
-                  icon: Icon(_isPasswordVisible ? Icons.visibility : Icons.visibility_off),
-                  onPressed: () => setState(() => _isPasswordVisible = !_isPasswordVisible),
+        child: AutofillGroup(
+          child: Column(
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: [
+              const Text(
+                'Reset Your Password',
+                style: TextStyle(
+                  fontSize: 22,
+                  fontWeight: FontWeight.bold,
+                  color: Colors.black,
                 ),
               ),
-              validator: (value) {
-                if (value == null || value.isEmpty) return 'Please enter a password';
-                if (value.length < 6) return 'Password must be at least 6 characters';
-                return null;
-              },
-            ),
-
-            const SizedBox(height: 16),
-
-            const Text(
-              'Confirm Password',
-              style: TextStyle(fontSize: 14, fontWeight: FontWeight.w500, color: Colors.black),
-            ),
-            const SizedBox(height: 8),
-            TextFormField(
-              controller: _confirmController,
-              obscureText: !_isConfirmVisible,
-              decoration: InputDecoration(
-                hintText: 'Re-enter your new password',
-                border: OutlineInputBorder(borderRadius: BorderRadius.circular(8)),
-                contentPadding: const EdgeInsets.symmetric(horizontal: 16, vertical: 14),
-                suffixIcon: IconButton(
-                  icon: Icon(_isConfirmVisible ? Icons.visibility : Icons.visibility_off),
-                  onPressed: () => setState(() => _isConfirmVisible = !_isConfirmVisible),
-                ),
+              const SizedBox(height: 8),
+              const Text(
+                'Enter a new password for your account.',
+                style: TextStyle(fontSize: 14, color: Color(0xFF6B7280)),
               ),
-              validator: (value) {
-                if (value == null || value.isEmpty) return 'Please confirm your password';
-                if (value != _passwordController.text) return 'Passwords do not match';
-                return null;
-              },
-            ),
+              const SizedBox(height: 30),
 
-            const SizedBox(height: 20),
-
-            if (_errorMessage != null)
-              Container(
-                width: double.infinity,
-                padding: const EdgeInsets.all(12),
-                margin: const EdgeInsets.only(bottom: 16),
-                decoration: BoxDecoration(
-                  color: Colors.red.shade50,
-                  borderRadius: BorderRadius.circular(8),
-                  border: Border.all(color: Colors.red.shade200),
-                ),
-                child: Text(_errorMessage!, style: const TextStyle(color: Colors.red, fontSize: 13)),
+              // ── NEW PASSWORD ──
+              AuthPasswordField(
+                label: 'New Password',
+                hint: 'Enter a new password',
+                controller: _passwordController,
+                textInputAction: TextInputAction.next,
+                autofillHints: const [AutofillHints.newPassword],
+                validator: FormValidators.newPassword,
+                onChanged: (_) {
+                  // "Passwords do not match" may have just become true or
+                  // false — re-check only the confirm field.
+                  if (_showErrors && _confirmController.text.isNotEmpty) {
+                    _confirmKey.currentState?.validate();
+                  }
+                },
               ),
 
-            SizedBox(
-              width: double.infinity,
-              height: 50,
-              child: ElevatedButton(
-                onPressed: _isSubmitting ? null : _handleSubmit,
-                style: ElevatedButton.styleFrom(
-                  backgroundColor: Colors.black,
-                  foregroundColor: Colors.white,
-                  shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(8)),
-                ),
-                child: _isSubmitting
-                    ? const SizedBox(
-                        height: 20,
-                        width: 20,
-                        child: CircularProgressIndicator(color: Colors.white, strokeWidth: 2),
-                      )
-                    : const Text('Reset Password', style: TextStyle(fontSize: 16, fontWeight: FontWeight.bold)),
+              const SizedBox(height: 16),
+
+              // ── CONFIRM ──
+              AuthPasswordField(
+                label: 'Confirm Password',
+                hint: 'Re-enter your new password',
+                controller: _confirmController,
+                fieldKey: _confirmKey,
+                textInputAction: TextInputAction.done,
+                autofillHints: const [AutofillHints.newPassword],
+                // Enter submits.
+                onFieldSubmitted: (_) => _handleSubmit(),
+                validator: (String? value) =>
+                    FormValidators.confirmPassword(value, _passwordController.text),
               ),
-            ),
-          ],
+
+              const SizedBox(height: 20),
+
+              // ── WHOLE-FORM ERROR ──
+              if (_errorMessage != null) ...[
+                AuthFormError(message: _errorMessage!),
+                const SizedBox(height: 16),
+              ],
+
+              // ── SUBMIT ──
+              AuthPrimaryButton(
+                label: 'Reset Password',
+                isLoading: _isSubmitting,
+                onPressed: _handleSubmit,
+              ),
+            ],
+          ),
         ),
       ),
     );

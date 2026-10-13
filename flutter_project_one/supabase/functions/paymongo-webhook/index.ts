@@ -113,6 +113,61 @@ serve(async (req) => {
     }
 
     if (!claimedOrder) {
+      // LATE PAYMENT: PayMongo captured money for an order that was already
+      // cancelled (for example by the unpaid-order cleanup) and whose payment
+      // was never verified. Ignoring it would leave the customer charged with
+      // no order, so flag it for a refund and tell the admins.
+      const { data: payNow } = await supabase
+        .from("payment")
+        .select("payment_status")
+        .eq("payment_id", paymentRow.payment_id)
+        .single();
+
+      const neverVerified =
+        payNow != null &&
+        ["Cancelled", "Pending"].includes(payNow.payment_status);
+
+      if (orderRow.order_status === "Cancelled" && neverVerified) {
+        console.error(
+          `LATE PAYMENT for cancelled order ${paymentRow.order_id}: ` +
+          `PayMongo payment ${paymentId} needs a refund.`
+        );
+
+        await supabase
+          .from("payment")
+          .update({
+            reference_number: paymentId,
+            payment_status:   "Refund Failed",
+            payment_date:     new Date().toISOString(),
+          })
+          .eq("payment_id", paymentRow.payment_id);
+
+        await supabase.from("order_progress").insert({
+          order_id:   paymentRow.order_id,
+          status:     "Cancelled",
+          admin_note: `Payment ${paymentId} arrived after this order was cancelled. Refund it in the PayMongo dashboard.`,
+        });
+
+        const { data: admins } = await supabase
+          .from("users")
+          .select("id")
+          .eq("role", "Admin");
+
+        if (admins && admins.length > 0) {
+          await supabase.from("notifications").insert(
+            admins.map((a: { id: string }) => ({
+              customer_id:    a.id,
+              type:           "order",
+              title:          "Late payment: refund needed",
+              body:           `Order #${paymentRow.order_id} was cancelled before its payment arrived. Please refund payment ${paymentId} in the PayMongo dashboard.`,
+              recipient_role: "admin",
+            }))
+          );
+        }
+
+        return new Response("OK (late payment flagged)", { status: 200 });
+      }
+
       console.log(
         `Duplicate webhook delivery ignored — order ${paymentRow.order_id} ` +
         `already at status '${orderRow.order_status}'.`

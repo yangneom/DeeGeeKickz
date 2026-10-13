@@ -2,6 +2,7 @@ import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import '../../../models/discount_model.dart';
 import '../../../services/admin/promotionDiscount/discount_service.dart';
+import '../../common/dialog/app_toast.dart';
 
 // ================================================
 // EDIT DISCOUNT DIALOG
@@ -9,6 +10,10 @@ import '../../../services/admin/promotionDiscount/discount_service.dart';
 // Product is NOT editable once a discount is created
 // (matches DiscountService.updateDiscount's contract) —
 // only type, value, duration, and status can change.
+//
+// Problems with a single field (value, dates) are shown in red
+// directly under that field. Whole-form problems (the save itself
+// failing) use the app toast.
 //
 // How to open:
 //   showEditDiscountDialog(context, discount: discount);
@@ -47,6 +52,10 @@ class _EditDiscountDialogState extends State<EditDiscountDialog> {
 
   bool _isSaving = false;
 
+  // Inline errors, each shown under the field it belongs to.
+  String? _valueError;
+  String? _dateError;
+
   @override
   void initState() {
     super.initState();
@@ -81,8 +90,10 @@ class _EditDiscountDialogState extends State<EditDiscountDialog> {
       setState(() {
         if (isStart) {
           _startDate = picked;
+          _dateError = null;
         } else {
           _endDate = picked;
+          _dateError = null;
         }
       });
     }
@@ -121,26 +132,32 @@ class _EditDiscountDialogState extends State<EditDiscountDialog> {
   }
 
   Future<void> _handleSave() async {
+    // Start clean: old messages disappear every time Save is pressed.
+    setState(() {
+      _valueError = null;
+      _dateError = null;
+    });
+
     if (_valueController.text.isEmpty) {
-      _showError('Please enter a discount value.');
+      setState(() => _valueError = 'Please enter a discount value.');
       return;
     }
     if (_endDate.isBefore(_startDate)) {
-      _showError('End date must be after start date.');
+      setState(() => _dateError = 'End date must be after the start date.');
       return;
     }
-    
+
     final double? discountValue = double.tryParse(_valueController.text);
     if (discountValue == null) {
-      _showError('Discount value must be a number.');
+      setState(() => _valueError = 'Discount value must be a number.');
       return;
     }
     if (_discountType == 'Percentage' && discountValue > 100) {
-      _showError('Percentage discount cannot exceed 100%.');
+      setState(() => _valueError = 'Percentage discount cannot exceed 100%.');
       return;
     }
     if (discountValue <= 0) {
-      _showError('Discount value must be greater than 0.');
+      setState(() => _valueError = 'Discount value must be greater than 0.');
       return;
     }
 
@@ -159,16 +176,27 @@ class _EditDiscountDialogState extends State<EditDiscountDialog> {
     setState(() => _isSaving = false);
 
     if (error != null) {
-      _showError('Failed to save changes: $error');
+      _showError('We could not save the discount. Please try again.');
       return;
     }
 
     Navigator.pop(context, true);
   }
 
+  // Whole-form problems (not tied to one field) use the app toast.
   void _showError(String message) {
-    ScaffoldMessenger.of(context).showSnackBar(
-      SnackBar(content: Text(message), backgroundColor: const Color(0xFFDC2626)),
+    AppToast.error(context, message, title: 'Changes not saved');
+  }
+
+  // Red text shown directly under the field it belongs to.
+  Widget _buildFieldError(String? message) {
+    if (message == null) return const SizedBox.shrink();
+    return Padding(
+      padding: const EdgeInsets.only(top: 6),
+      child: Text(
+        message,
+        style: const TextStyle(fontSize: 12, color: Color(0xFFDC2626)),
+      ),
     );
   }
 
@@ -241,6 +269,7 @@ class _EditDiscountDialogState extends State<EditDiscountDialog> {
               const Text('Discount Value', style: TextStyle(fontSize: 13, fontWeight: FontWeight.w500, color: Color(0xFF374151))),
               const SizedBox(height: 8),
               _buildValueInput(),
+              _buildFieldError(_valueError),
 
               if (_valueController.text.isNotEmpty)
                 Padding(
@@ -262,6 +291,7 @@ class _EditDiscountDialogState extends State<EditDiscountDialog> {
                   Expanded(child: _buildDatePicker(label: 'End Date', date: _endDate, onTap: () => _pickDate(isStart: false))),
                 ],
               ),
+              _buildFieldError(_dateError),
 
               const SizedBox(height: 20),
 
@@ -336,7 +366,10 @@ class _EditDiscountDialogState extends State<EditDiscountDialog> {
   Widget _buildTypeCard({required String label, required String icon, required String value}) {
     final bool isSelected = _discountType == value;
     return GestureDetector(
-      onTap: () => setState(() => _discountType = value),
+      onTap: () => setState(() {
+        _discountType = value;
+        _valueError = null;
+      }),
       child: Container(
         padding: const EdgeInsets.symmetric(vertical: 12, horizontal: 16),
         decoration: BoxDecoration(
@@ -380,7 +413,7 @@ class _EditDiscountDialogState extends State<EditDiscountDialog> {
       controller: _valueController,
       keyboardType: const TextInputType.numberWithOptions(decimal: true),
       inputFormatters: [FilteringTextInputFormatter.allow(RegExp(r'[0-9.]'))],
-      onChanged: (_) => setState(() {}),
+      onChanged: (_) => setState(() => _valueError = null),
       style: const TextStyle(fontSize: 13, color: Color(0xFF111827)),
       decoration: InputDecoration(
         suffixText: _discountType == 'Percentage' ? '%' : '₱',

@@ -161,8 +161,17 @@ class SalesReportService {
   // explicitly, regardless of the device's own clock/timezone. The
   // Philippines does not observe Daylight Saving Time, so a fixed
   // +8 offset is stable and correct, not a fragile shortcut.
+  // Returns the Philippine wall-clock time as a plain local DateTime, so it
+  // compares correctly with the DateTime(y, m, d) range boundaries used in
+  // this file on ANY device timezone. (The previous version returned a
+  // UTC-flagged value, which Dart compares as a different moment from a
+  // local midnight, shifting day boundaries by the device's UTC offset.)
   DateTime _toPhilippineTime(dynamic rawTimestamp) {
-    return DateTime.parse(rawTimestamp.toString()).toUtc().add(const Duration(hours: 8));
+    final DateTime ph = DateTime.parse(rawTimestamp.toString())
+        .toUtc()
+        .add(const Duration(hours: 8));
+    return DateTime(
+        ph.year, ph.month, ph.day, ph.hour, ph.minute, ph.second, ph.millisecond);
   }
 
   static const List<String> _monthNames = [
@@ -578,8 +587,8 @@ class SalesReportService {
         .from('orders')
         .select('order_id, total_amount, created_at, user_id')
         .inFilter('order_id', qualifyingIds.toList());
-
-    final DateTime now = DateTime.now();
+    // Philippine business date, not the viewing device's clock.
+    final DateTime now = DateTime.now().toUtc().add(const Duration(hours: 8));
     final DateTime lastMonth = DateTime(now.year, now.month - 1);
 
     double monthlyRevenue = 0;
@@ -587,8 +596,7 @@ class SalesReportService {
     final Set<String> activeCustomerIds = {};
 
     for (final row in orders) {
-      final DateTime created =
-          DateTime.parse(row['created_at'].toString()).toLocal();
+           final DateTime created = _toPhilippineTime(row['created_at']);
       final double total = (row['total_amount'] as num?)?.toDouble() ?? 0;
       final bool isThisMonth =
           created.year == now.year && created.month == now.month;
@@ -700,14 +708,14 @@ class SalesReportService {
         .from('orders')
         .select('order_id, created_at')
         .inFilter('order_id', qualifyingIds.toList());
-
-    final DateTime cutoff =
-        DateTime.now().subtract(Duration(days: monthsBack * 30));
+    final DateTime cutoff = DateTime.now()
+        .toUtc()
+        .add(const Duration(hours: 8))
+        .subtract(Duration(days: monthsBack * 30));
     final Set<int> recentOrderIds = {};
 
     for (final row in orders) {
-      final DateTime created =
-          DateTime.parse(row['created_at'].toString()).toLocal();
+      final DateTime created = _toPhilippineTime(row['created_at']);
       if (created.isAfter(cutoff)) {
         recentOrderIds.add((row['order_id'] as num).toInt());
       }

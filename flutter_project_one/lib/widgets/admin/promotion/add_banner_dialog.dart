@@ -3,7 +3,7 @@ import 'package:file_picker/file_picker.dart';
 import 'package:flutter/material.dart';
 import 'package:crop_your_image/crop_your_image.dart';
 import '../../../services/admin/promotionDiscount/banner_service.dart';
-
+import '../../common/dialog/app_toast.dart';
 // ================================================
 // ADD BANNER DIALOG
 //
@@ -67,6 +67,8 @@ class _AddBannerDialogState extends State<AddBannerDialog> {
   // ── UPLOAD STATE ──
   bool _isUploading = false;
 
+  // Inline error shown under the upload area (a field problem, not a toast).
+  String? _imageError;
   final BannerService _bannerService = BannerService();
 
   // ================================================
@@ -109,7 +111,8 @@ class _AddBannerDialogState extends State<AddBannerDialog> {
     switch (result) {
       case CropSuccess(:final croppedImage):
         setState(() {
-          _croppedBytes = croppedImage;
+                   _croppedBytes = croppedImage;
+          _imageError = null;
           _isCropping = false;
         });
         break;
@@ -117,11 +120,10 @@ class _AddBannerDialogState extends State<AddBannerDialog> {
         setState(() {
           _isCropping = false;
         });
-        ScaffoldMessenger.of(context).showSnackBar(
-          SnackBar(
-            content: Text('Could not crop image: $cause'),
-            backgroundColor: const Color(0xFFDC2626),
-          ),
+        AppToast.error(
+          context,
+          'We could not crop that image. Please try a different one.',
+          title: 'Crop failed',
         );
         break;
     }
@@ -132,12 +134,7 @@ class _AddBannerDialogState extends State<AddBannerDialog> {
   // ================================================
   Future<void> _handleUpload() async {
     if (_croppedBytes == null) {
-      ScaffoldMessenger.of(context).showSnackBar(
-        const SnackBar(
-          content: Text('Please upload a banner image first.'),
-          backgroundColor: Color(0xFFDC2626),
-        ),
-      );
+      setState(() => _imageError = 'Please upload a banner image first.');
       return;
     }
 
@@ -154,11 +151,10 @@ class _AddBannerDialogState extends State<AddBannerDialog> {
     setState(() => _isUploading = false);
 
     if (error != null) {
-      ScaffoldMessenger.of(context).showSnackBar(
-        SnackBar(
-          content: Text('Failed to upload banner: $error'),
-          backgroundColor: const Color(0xFFDC2626),
-        ),
+      AppToast.error(
+        context,
+        'We could not upload the banner. Please check your connection and try again.',
+        title: 'Upload failed',
       );
       return;
     }
@@ -230,12 +226,21 @@ class _AddBannerDialogState extends State<AddBannerDialog> {
             else
               _buildCroppedPreview(),
 
+            if (_imageError != null)
+              Padding(
+                padding: const EdgeInsets.only(top: 6),
+                child: Text(
+                  _imageError!,
+                  style: const TextStyle(fontSize: 12, color: Color(0xFFDC2626)),
+                ),
+              ),
+
             // ── CROP NOTE ──
             if (_croppedBytes != null && !_isCropping)
               const Padding(
                 padding: EdgeInsets.only(top: 6),
                 child: Text(
-                  'Image is cropped to fit the banner ratio (16:5).',
+                  'Image is cropped to the banner ratio (21:9).',
                   style: TextStyle(
                     fontSize: 11,
                     color: Color(0xFF9CA3AF),
@@ -366,7 +371,7 @@ class _AddBannerDialogState extends State<AddBannerDialog> {
           ),
           SizedBox(height: 4),
           Text(
-            'Recommended size: 1920x700 JPG or PNG',
+            'Recommended size: 2100x900 (21:9), JPG or PNG',
             style: TextStyle(
               fontSize: 11,
               color: Color(0xFF9CA3AF),

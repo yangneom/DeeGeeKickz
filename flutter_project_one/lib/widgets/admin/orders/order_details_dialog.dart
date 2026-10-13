@@ -8,6 +8,7 @@ import '../../../services/customer/sms/sms_service.dart';
 import '../../common/dialog/cancel_reason_dialog.dart';
 import '../../common/dialog/confirm_dialog.dart';
 import '../../../services/customer/delivery/lalamove_service.dart';
+import '../../common/dialog/app_toast.dart';
 void showOrderDetailsDialog(
   BuildContext context,
   Order order,
@@ -973,22 +974,20 @@ class _OrderDetailsDialogState extends State<OrderDetailsDialog> {
                   );
                 } on InsufficientStockException catch (stockErr) {
                   if (mounted) {
-                    ScaffoldMessenger.of(context).showSnackBar(
-                      SnackBar(
-                        content: Text(stockErr.message),
-                        backgroundColor: const Color(0xFFDC2626),
-                        duration: const Duration(seconds: 6),
-                      ),
+                    AppToast.error(
+                      context,
+                      stockErr.message,
+                      title: 'Not enough stock',
+                      duration: const Duration(seconds: 8),
                     );
                   }
                   return;
                 } catch (e) {
                   if (mounted) {
-                    ScaffoldMessenger.of(context).showSnackBar(
-                      SnackBar(
-                        content: Text('Failed to approve payment: $e'),
-                        backgroundColor: const Color(0xFFDC2626),
-                      ),
+                    AppToast.error(
+                      context,
+                      'The payment could not be approved. Please try again.',
+                      title: 'Approval failed',
                     );
                   }
                   return;
@@ -1129,12 +1128,11 @@ class _OrderDetailsDialogState extends State<OrderDetailsDialog> {
                       // courier may genuinely already be en route.
                       if (mounted) {
                         setState(() => _isBookingDelivery = false);
-                        ScaffoldMessenger.of(context).showSnackBar(
-                          SnackBar(
-                            content: Text(bookedErr.message),
-                            backgroundColor: const Color(0xFFDC2626),
-                            duration: const Duration(seconds: 8),
-                          ),
+                        AppToast.error(
+                          context,
+                          bookedErr.message,
+                          title: 'Courier already booked',
+                          duration: const Duration(seconds: 10),
                         );
                       }
                       return;
@@ -1149,15 +1147,13 @@ class _OrderDetailsDialogState extends State<OrderDetailsDialog> {
                       if (link.isEmpty || !linkLooksValid) {
                         if (mounted) {
                           setState(() => _isBookingDelivery = false);
-                          ScaffoldMessenger.of(context).showSnackBar(
-                            SnackBar(
-                              content: Text(
-                                link.isEmpty
-                                    ? 'No coordinates on file — please paste a Lalamove tracking link manually before marking as Shipped.'
-                                    : 'That doesn\'t look like a valid Lalamove tracking link.',
-                              ),
-                              backgroundColor: const Color(0xFFDC2626),
-                            ),
+                          AppToast.warning(
+                            context,
+                            link.isEmpty
+                                ? 'No coordinates on file. Please paste a Lalamove tracking link manually before marking as Shipped.'
+                                : 'That doesn\'t look like a valid Lalamove tracking link.',
+                            title: link.isEmpty ? 'Tracking link needed' : 'Invalid tracking link',
+                            duration: const Duration(seconds: 8),
                           );
                         }
                         return;
@@ -1184,24 +1180,22 @@ class _OrderDetailsDialogState extends State<OrderDetailsDialog> {
                       // not it technically has lat/lng on file.
                       if (mounted) {
                         setState(() => _isBookingDelivery = false);
-                        ScaffoldMessenger.of(context).showSnackBar(
-                          SnackBar(
-                            content: Text(quoteErr.message),
-                            backgroundColor: const Color(0xFFDC2626),
-                            duration: const Duration(seconds: 8),
-                          ),
+                        AppToast.error(
+                          context,
+                          quoteErr.message,
+                          title: 'Delivery quote failed',
+                          duration: const Duration(seconds: 10),
                         );
                       }
                       return;
                     } catch (e) {
                       if (mounted) {
                         setState(() => _isBookingDelivery = false);
-                        ScaffoldMessenger.of(context).showSnackBar(
-                          SnackBar(
-                            content: Text('Could not book delivery: $e'),
-                            backgroundColor: const Color(0xFFDC2626),
-                            duration: const Duration(seconds: 6),
-                          ),
+                        AppToast.error(
+                          context,
+                          'The delivery could not be booked. Please try again, or paste a tracking link manually.',
+                          title: 'Booking failed',
+                          duration: const Duration(seconds: 8),
                         );
                       }
                     }

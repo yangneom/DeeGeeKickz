@@ -8,7 +8,7 @@ import '../../../providers/auth/auth_provider.dart';
 import '../../../screens/customer/product_detail/write_review_screen.dart';
 import '../../../screens/auth/login_screen.dart';
 import 'package:supabase_flutter/supabase_flutter.dart' show RealtimeChannel;
-
+import '../../common/dialog/app_toast.dart';
 class ProductReviewsSection extends ConsumerStatefulWidget {
   final int productId;
   final String productName;
@@ -106,8 +106,7 @@ class _ProductReviewsSectionState
     // the Scaffold while this method's earlier await was in flight.
     // Grabbing the state once, while the tree is still guaranteed
     // stable, sidesteps that lookup entirely.
-    final ScaffoldMessengerState messenger = ScaffoldMessenger.of(context);
-
+    // (No Scaffold lookup needed any more: toasts live above the navigator.)
     final authState = ref.read(authStateProvider);
     final isLoggedIn = authState.value?.session != null;
 
@@ -228,12 +227,10 @@ class _ProductReviewsSectionState
        if (!mounted) return;
 
     if (hasReviewed) {
-      messenger.showSnackBar(
-        const SnackBar(
-          content: Text('You have already reviewed this product.'),
-          backgroundColor: Colors.black,
-          behavior: SnackBarBehavior.floating,
-        ),
+      AppToast.info(
+        context,
+        'You have already reviewed this product.',
+        title: 'Already reviewed',
       );
       return;
     }
@@ -820,13 +817,7 @@ class _ReviewCardState extends ConsumerState<_ReviewCard> {
     setState(() => _submittingReply = false);
 
     if (error != null) {
-      ScaffoldMessenger.of(context).showSnackBar(
-        SnackBar(
-          content: Text(error),
-          backgroundColor: const Color(0xFFBA1A1A),
-          behavior: SnackBarBehavior.floating,
-        ),
-      );
+      AppToast.error(context, error, title: 'Could not send reply');
       return;
     }
 
@@ -1002,12 +993,10 @@ class _ReviewCardState extends ConsumerState<_ReviewCard> {
             GestureDetector(
               onTap: () {
                 if (!isLoggedIn) {
-                  ScaffoldMessenger.of(context).showSnackBar(
-                    const SnackBar(
-                      content: Text('Sign in to reply.'),
-                      backgroundColor: Colors.black,
-                      behavior: SnackBarBehavior.floating,
-                    ),
+                  AppToast.info(
+                    context,
+                    'Please sign in to reply to this review.',
+                    title: 'Sign in needed',
                   );
                   return;
                 }

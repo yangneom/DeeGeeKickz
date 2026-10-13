@@ -5,6 +5,7 @@ import '../../services/auth/auth_service.dart';
 import '../../services/auth/iprog_sms_service.dart';
 import '../../main.dart';
 import '../../screens/auth/login_screen.dart';
+import '../../widgets/common/dialog/app_toast.dart';
 
 
 // Creates ONE AuthService for the whole app
@@ -207,12 +208,11 @@ final customerDisabledWatcherProvider = Provider<void>((ref) {
 
           final ctx = appNavigatorKey.currentContext;
           if (ctx != null && ctx.mounted) {
-            ScaffoldMessenger.of(ctx).showSnackBar(
-              SnackBar(
-                content: Text(reason),
-                backgroundColor: const Color(0xFFDC2626),
-                duration: const Duration(seconds: 6),
-              ),
+            AppToast.error(
+              ctx,
+              reason,
+              title: 'Account suspended',
+              duration: const Duration(seconds: 8),
             );
           }
 

@@ -2,7 +2,7 @@ import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import '../../../services/admin/promotionDiscount/discount_service.dart';
 import '../../common/dialog/confirm_dialog.dart';
-// ================================================
+import '../../common/dialog/app_toast.dart';// ================================================
 // CREATE DISCOUNT DIALOG
 //
 // Lets the admin create a new discount for a real
@@ -72,6 +72,11 @@ class _CreateDiscountDialogState extends State<CreateDiscountDialog> {
   bool _showCountdown = false;
   bool _isSaving = false;
 
+  // Inline errors, each shown under the field it belongs to.
+  String? _productError;
+  String? _variantError;
+  String? _valueError;
+  String? _dateError;
   @override
   void dispose() {
     _searchController.dispose();
@@ -111,6 +116,7 @@ class _CreateDiscountDialogState extends State<CreateDiscountDialog> {
   Future<void> _selectProduct(Map<String, dynamic> result) async {
     setState(() {
       _selectedProductId = result['productId'] as int;
+      _productError = null;
       _selectedProductName = result['productName'] as String;
       _selectedOriginalPrice = result['originalPrice'] as double;
       _searchController.text = _selectedProductName!;
@@ -133,6 +139,7 @@ class _CreateDiscountDialogState extends State<CreateDiscountDialog> {
   void _selectVariant(Map<String, dynamic> variant) {
     setState(() {
       _selectedVariantId = variant['variantId'] as int;
+      _variantError = null;
       _selectedVariantColor = variant['color'] as String;
     });
   }
@@ -165,8 +172,10 @@ class _CreateDiscountDialogState extends State<CreateDiscountDialog> {
       setState(() {
         if (isStart) {
           _startDate = picked;
+          _dateError = null;
         } else {
           _endDate = picked;
+          _dateError = null;
         }
       });
     }
@@ -212,38 +221,43 @@ class _CreateDiscountDialogState extends State<CreateDiscountDialog> {
   // ================================================
   // HANDLE APPLY
 Future<void> _handleApply() async {
-  if (_selectedProductId == null) {
-    _showError('Please select a product.');
+  setState(() {
+    _productError = null;
+    _variantError = null;
+    _valueError = null;
+    _dateError = null;
+  });  if (_selectedProductId == null) {
+   setState(() => _productError = 'Please select a product.');
     return;
   }
   if (_applyToSpecificVariant && _selectedVariantId == null) {
-    _showError('Please select which color this discount applies to.');
+    setState(() => _variantError = 'Please select which color this discount applies to.');
     return;
   }
   if (_valueController.text.isEmpty) {
-    _showError('Please enter a discount value.');
+    setState(() => _valueError = 'Please enter a discount value.');
     return;
   }
   if (_startDate == null || _endDate == null) {
-    _showError('Please pick a start and end date.');
+    setState(() => _dateError = 'Please pick a start and end date.');
     return;
   }
   if (_endDate!.isBefore(_startDate!)) {
-    _showError('End date must be after start date.');
+    setState(() => _dateError = 'End date must be after the start date.');
     return;
   }
 
   final double? discountValue = double.tryParse(_valueController.text);
   if (discountValue == null) {
-    _showError('Discount value must be a number.');
+    setState(() => _valueError = 'Discount value must be a number.');
     return;
   }
   if (_discountType == 'Percentage' && discountValue > 100) {
-    _showError('Percentage discount cannot exceed 100%.');
+    setState(() => _valueError = 'Percentage discount cannot exceed 100%.');
     return;
   }
   if (discountValue <= 0) {
-    _showError('Discount value must be greater than 0.');
+    setState(() => _valueError = 'Discount value must be greater than 0.');
     return;
   }
 
@@ -314,7 +328,7 @@ Future<void> _handleApply() async {
   setState(() => _isSaving = false);
 
   if (error != null) {
-    _showError('Failed to create discount: $error');
+    _showError('We could not create the discount. Please try again.');
     return;
   }
 
@@ -322,12 +336,7 @@ Future<void> _handleApply() async {
 }
 
   void _showError(String message) {
-    ScaffoldMessenger.of(context).showSnackBar(
-      SnackBar(
-        content: Text(message),
-        backgroundColor: const Color(0xFFDC2626),
-      ),
-    );
+    AppToast.error(context, message, title: 'Discount not saved');
   }
 
   // ================================================
@@ -370,7 +379,8 @@ Future<void> _handleApply() async {
 
               _buildLabel('Select Product'),
               const SizedBox(height: 8),
-              _buildProductSearchField(),
+              _buildProductSearchField(), 
+              _buildFieldError(_productError),
 
               // ── APPLY TO — only shown once a product with 2+
               // variants is selected. Single-variant products skip
@@ -384,6 +394,7 @@ Future<void> _handleApply() async {
                 if (_applyToSpecificVariant) ...[
                   const SizedBox(height: 12),
                   _buildVariantColorPicker(),
+                  _buildFieldError(_variantError),
                 ],
               ],
 
@@ -398,6 +409,7 @@ Future<void> _handleApply() async {
               _buildLabel('Discount Value'),
               const SizedBox(height: 8),
               _buildValueInput(),
+              _buildFieldError(_valueError),
 
               if (_selectedProductId != null && _valueController.text.isNotEmpty)
                 Padding(
@@ -435,6 +447,7 @@ Future<void> _handleApply() async {
                   ),
                 ],
               ),
+                            _buildFieldError(_dateError),
               const SizedBox(height: 28),
 
               Row(
@@ -479,6 +492,17 @@ Future<void> _handleApply() async {
             ],
           ),
         ),
+      ),
+    );
+  }
+
+  Widget _buildFieldError(String? message) {
+    if (message == null) return const SizedBox.shrink();
+    return Padding(
+      padding: const EdgeInsets.only(top: 6),
+      child: Text(
+        message,
+        style: const TextStyle(fontSize: 12, color: Color(0xFFDC2626)),
       ),
     );
   }
@@ -605,6 +629,7 @@ Future<void> _handleApply() async {
               _applyToSpecificVariant = false;
               _selectedVariantId = null;
               _selectedVariantColor = null;
+              _variantError = null;
             }),
           ),
         ),
@@ -729,6 +754,7 @@ Future<void> _handleApply() async {
         setState(() {
           _discountType = value;
           _valueController.clear();
+          _valueError = null;
         });
       },
       child: Container(
@@ -782,7 +808,7 @@ Future<void> _handleApply() async {
       controller: _valueController,
       keyboardType: const TextInputType.numberWithOptions(decimal: true),
       inputFormatters: [FilteringTextInputFormatter.allow(RegExp(r'[0-9.]'))],
-      onChanged: (_) => setState(() {}),
+      onChanged: (_) => setState(() => _valueError = null),
       style: const TextStyle(fontSize: 13, color: Color(0xFF111827)),
       decoration: InputDecoration(
         hintText: _discountType == 'Percentage' ? '20' : '500',

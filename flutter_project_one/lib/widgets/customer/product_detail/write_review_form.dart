@@ -3,7 +3,7 @@ import 'package:file_picker/file_picker.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter/foundation.dart' show kIsWeb;
 import 'package:supabase_flutter/supabase_flutter.dart';
-
+import '../../common/dialog/app_toast.dart';
 /// Stateful form for submitting a product review.
 /// - Interactive star rating picker
 /// - Review title + body text fields
@@ -51,6 +51,7 @@ class _WriteReviewFormState extends State<WriteReviewForm> {
 
   double _rating = 0;
   double _hoverRating = 0;
+  String? _ratingError; // inline error shown under the stars
   List<PlatformFile> _photos = [];
 
    // Profanity check state — shown as an inline error under the
@@ -101,12 +102,11 @@ class _WriteReviewFormState extends State<WriteReviewForm> {
       (f) => isVideoFile(f) && f.size > _maxVideoBytes,
     );
     if (oversized.isNotEmpty && mounted) {
-      ScaffoldMessenger.of(context).showSnackBar(
-        const SnackBar(
-          content: Text('VIDEO TOO LARGE — MAX 25MB'),
-          backgroundColor: Colors.black,
-          duration: Duration(seconds: 2),
-        ),
+      AppToast.warning(
+        context,
+        'Videos can be up to 25 MB. Please choose a smaller video.',
+        title: 'Video too large',
+      
       );
     }
     final accepted = picked.where(
@@ -128,21 +128,9 @@ class _WriteReviewFormState extends State<WriteReviewForm> {
 
     Future<void> _submit() async {
     if (_rating == 0) {
-      ScaffoldMessenger.of(context).showSnackBar(
-        const SnackBar(
-          content: Text(
-            'PLEASE SELECT A STAR RATING',
-            style: TextStyle(
-              fontFamily: 'Inter',
-              fontSize: 12,
-              fontWeight: FontWeight.w600,
-              letterSpacing: 1,
-            ),
-          ),
-          backgroundColor: Colors.black,
-          duration: Duration(seconds: 2),
-        ),
-      );
+      setState(() => _ratingError = 'Please select a star rating.');
+      // Show any missing text-field errors at the same time.
+      _formKey.currentState!.validate();
       return;
     }
     if (!_formKey.currentState!.validate()) return;
@@ -227,8 +215,20 @@ class _WriteReviewFormState extends State<WriteReviewForm> {
             onSelect: (v) => setState(() {
               _rating = v;
               _hoverRating = 0;
+              _ratingError = null;
             }),
           ),
+          if (_ratingError != null) ...[
+            const SizedBox(height: 8),
+            Text(
+              _ratingError!,
+              style: const TextStyle(
+                fontFamily: 'Inter',
+                fontSize: 12,
+                color: Color(0xFFBA1A1A),
+              ),
+            ),
+          ],
           if (_rating > 0) ...[
             const SizedBox(height: 8),
             Text(

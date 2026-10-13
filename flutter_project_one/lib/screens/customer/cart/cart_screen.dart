@@ -11,6 +11,7 @@ import '../../../widgets/common/nav/bottom_nav_bar.dart';
 import '../../../widgets/common/nav/app_footer.dart';
 import '../../../widgets/customer/cart/cart_item_tile.dart';
 import '../../../widgets/customer/cart/cart_summary_card.dart';
+import '../../../widgets/common/dialog/app_toast.dart';
 
 /// Shopping Bag / Cart screen.
 /// Matches the HTML mockup: item list (left/full) + summary sidebar (right on desktop).
@@ -90,15 +91,12 @@ class _CartScreenState extends ConsumerState<CartScreen> {
       final int cap = available ?? item.quantity;
 
       if (item.quantity >= cap) {
-        ScaffoldMessenger.of(context).showSnackBar(
-          SnackBar(
-            content: Text(
-              available == null
-                  ? 'Unable to verify stock for this item right now.'
-                  : 'Only $available available for this size.',
-            ),
-            backgroundColor: Colors.black,
-          ),
+        AppToast.warning(
+          context,
+          available == null
+              ? 'Unable to verify stock for this item right now.'
+              : 'Only $available available for this size.',
+          title: available == null ? 'Can\'t verify stock' : 'Stock limit reached',
         );
         return;
       }

@@ -12,6 +12,7 @@ import '../../../widgets/common/buttons/search_bar.dart';
 import '../../../widgets/common/buttons/filter_button.dart';
 import '../../../widgets/common/buttons/export_button.dart';
 import '../../../widgets/common/dialog/confirm_dialog.dart';
+import '../../../widgets/common/dialog/app_toast.dart';
 import '../../../widgets/admin/inventory/edit_product_dialog.dart'; 
 import '../../../core/utils/csv_export_helper.dart';
 import '../../../core/utils/excel_export_helper.dart';
@@ -251,13 +252,8 @@ class _InventoryScreenState extends ConsumerState<InventoryScreen> {
 
     if (error != null) {
       if (mounted) {
-        ScaffoldMessenger.of(context).showSnackBar(
-          SnackBar(
-            content: Text(error),
-            backgroundColor: Colors.red,
-          ),
-        );
-      }
+        AppToast.error(context, error, title: 'Could not discontinue product');
+      } 
       return;
     }
 
@@ -269,11 +265,10 @@ class _InventoryScreenState extends ConsumerState<InventoryScreen> {
     // refresh the list
     await _loadProducts();
     if (mounted) {
-      ScaffoldMessenger.of(context).showSnackBar(
-        SnackBar(
-          content: Text('"${product.productName}" archived.'),
-          backgroundColor: const Color(0xFF9CA3AF),
-        ),
+      AppToast.success(
+        context,
+        '"${product.productName}" was discontinued. You can restore it from the Archived list.',
+        title: 'Product discontinued',
       );
     }
   }

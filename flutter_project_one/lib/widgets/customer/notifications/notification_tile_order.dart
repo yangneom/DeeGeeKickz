@@ -5,7 +5,7 @@ import '../../../models/notification_model.dart';
 import '../../../models/order.dart';
 import '../../../screens/customer/orders/order_tracking_screen.dart';
 import '../../../services/customer/History/order_history_service.dart';
-
+import '../../common/dialog/app_toast.dart';
 /// Notification card for [NotificationType.order].
 ///
 /// FIX: previously expected an `order` parameter that was NEVER
@@ -44,11 +44,10 @@ class _NotificationTileOrderState extends State<NotificationTileOrder> {
     setState(() => _isLoadingOrder = false);
 
     if (order == null) {
-      ScaffoldMessenger.of(context).showSnackBar(
-        const SnackBar(
-          content: Text('Could not load this order. It may have been removed.'),
-          backgroundColor: Colors.red,
-        ),
+      AppToast.error(
+        context,
+        'We could not load this order. It may have been removed.',
+        title: 'Order unavailable',
       );
       return;
     }

@@ -2,7 +2,7 @@ import 'package:flutter/material.dart';
 import '../../../models/customer_account.dart';
 import '../../common/tables/common_table.dart';
 import '../../common/dialog/confirm_dialog.dart';
-
+import '../../common/dialog/app_toast.dart';
 // ================================================
 // CUSTOMER DISABLED DIALOG
 //
@@ -129,20 +129,18 @@ class _CustomerDisabledDialogState extends State<CustomerDisabledDialog> {
         _enablingIds.remove(account.id);
       });
 
-      ScaffoldMessenger.of(context).showSnackBar(
-        SnackBar(
-          content: Text('${account.fullName} enabled successfully.'),
-          backgroundColor: const Color(0xFF16A34A),
-        ),
+      AppToast.success(
+        context,
+        '${account.fullName} can log in again.',
+        title: 'Account enabled',
       );
     } catch (e) {
       if (!mounted) return;
       setState(() => _enablingIds.remove(account.id));
-      ScaffoldMessenger.of(context).showSnackBar(
-        SnackBar(
-          content: Text('Failed to enable ${account.fullName}. Please try again.'),
-          backgroundColor: const Color(0xFFEF4444),
-        ),
+      AppToast.error(
+        context,
+        'We could not enable ${account.fullName}. Please try again.',
+        title: 'Account not enabled',
       );
     }
   }

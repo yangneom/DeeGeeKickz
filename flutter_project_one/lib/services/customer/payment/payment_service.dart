@@ -15,9 +15,12 @@ import 'package:supabase_flutter/supabase_flutter.dart';
 //                 (see OrderManagementService.updateOrderStatus).
 //                 For In-Store walk-in QR sales, the webhook sets
 //                 this immediately since there's no approval step.
-//   'Rejected'  — admin rejected the order while Pending.
-//   'Refunded' / 'Refund Failed' — set when a Verified/Paid order
-//                 is cancelled and a refund is attempted.
+//   'Rejected'  — admin rejected the order while Pending
+//   'Refund Failed' — set when a Verified/Paid order is cancelled.
+//                 There is no automatic refund yet, so this means a
+//                 refund still has to be made BY HAND in the PayMongo
+//                 dashboard (admins get a "Refund needed" notification).
+//                 'Refunded' is kept for when automatic refunds exist.
 //
 // STOCK:
 //   approvePayment  -> commits stock (deducts real
@@ -141,7 +144,7 @@ class PaymentService {
   //   once the order is marked 'Completed'
   //   (see OrderManagementService.updateOrderStatus).
   // ================================================
-    Future<void> approvePayment({required int orderId}) async {
+  Future<void> approvePayment({required int orderId}) async {
     try {
       // Guard against double-tap/retry races — re-read the order's
       // current status before touching stock. Without this, two
@@ -175,7 +178,7 @@ class PaymentService {
       // an admin could approve (committing real stock, marking
       // 'Paid') even if the webhook never confirmed the charge at
       // all. COD is exempt since it never goes through a gateway.
-            if (!isCod) {
+      if (!isCod) {
         final String currentStatus =
             (paymentRow?['payment_status'] ?? '').toString();
         if (currentStatus != 'Verified') {
@@ -200,7 +203,7 @@ class PaymentService {
         throw Exception('This order is no longer Pending, refresh before retrying.');
       }
 
-           try {
+      try {
         // Commit stock — if this throws (insufficient stock), we've
         // already flipped the order to 'Confirmed' above, so revert
         // that back to 'Pending' rather than leave it stuck
@@ -268,13 +271,14 @@ class PaymentService {
   // NOTE: No automatic refund here — admin manually
   // refunds on dashboard.paymongo.com if the customer
   // had already paid. The customer cancel flow (below)
-  // handles automatic refunds instead.
+  // flags the refund for the admins instead (there are
+  // no automatic refunds yet).
   // ================================================
   Future<void> rejectPayment({
     required int    orderId,
     required String reason,
   }) async {
-       try {
+    try {
       // AUDIT FIX: atomically claim the order instead of a plain
       // read-then-check — closes the same admin-vs-admin,
       // admin-vs-customer race as approvePayment().
@@ -311,7 +315,7 @@ class PaymentService {
         'admin_note': 'Payment rejected by admin: $reason',
       });
 
-       // 5. Notify the customer — this order previously had no
+      // 5. Notify the customer — this order previously had no
       // customer-facing notification at all when rejected.
       // AUDIT FIX: wrapped — this method's own doc comment already
       // said a notification failure "must never block the actual
@@ -325,15 +329,11 @@ class PaymentService {
       await _evaluateAbuseAfterCancellation(orderId);
 
     } catch (e) {
-      print('PaymentService.rejectPayment error: $e');      rethrow;
+      print('PaymentService.rejectPayment error: $e');
+      rethrow;
     }
   }
 
-  // ================================================
-  // NOTIFY CUSTOMER — ORDER REJECTED
-  // Non-critical — a notification failure must never block the
-  // actual rejection, which has already succeeded by this point.
-  // ================================================
   // ================================================
   // NOTIFY CUSTOMER — ORDER CONFIRMED
   // Fires when admin approves payment (Pending -> Confirmed). Every
@@ -412,106 +412,56 @@ class PaymentService {
   // ================================================
   // CANCEL ORDER (customer)
   //
-  // A customer can only cancel while the order is still 'Pending'
-  // (i.e. before admin has approved it). For gcash/card, the
-  // gateway may have already confirmed the charge by this point
-  // (payment_status = 'Verified'), so a refund must be issued and
-  // the payment row must be updated to reflect that — it should
-  // never be left claiming a status that implies money is still
-  // held/finalized when it isn't.
+  // A customer can only cancel while the order is still
+  // 'Awaiting Payment' or 'Pending' (i.e. before admin has approved it).
+  //
+  // The whole cancellation is ONE server-side step
+  // (customer_cancel_order): it cancels the order, gives the reserved
+  // stock back (exactly once), marks the payment, writes the timeline
+  // note and, if the gateway had already confirmed the charge, marks
+  // the payment 'Refund Failed' and sends every admin a "Refund needed"
+  // notification. Doing those steps one at a time from the customer's
+  // own session did not work — customers are not allowed to update
+  // payments, so the payment status silently never changed and a paid
+  // customer who cancelled was never flagged for a refund.
+  //
+  // Returns true when the customer had already paid, i.e. a refund is
+  // owed. (No money moves automatically; an admin refunds it in the
+  // PayMongo dashboard.) Screens may use this to tell the customer.
   // ================================================
-Future<void> cancelOrder({
+  Future<bool> cancelOrder({
     required int    orderId,
     required String reason,
     required String cancelledBy,
   }) async {
-        try {
-      // AUDIT FIX: this method previously had NO atomic status guard
-      // at all — it would unconditionally cancel and release stock
-      // regardless of current status, so a customer cancelling while
-      // an admin approved the SAME order concurrently could both
-      // "succeed," leaving stock committed AND released.
-      final dynamic claimed = await _supabase.rpc('claim_order_status', params: {
-        'p_order_id': orderId,
-        'p_from_status': 'Pending',
-        'p_to_status': 'Cancelled',
+    try {
+      final dynamic result = await _supabase.rpc('customer_cancel_order', params: {
+        'p_order_id':     orderId,
+        'p_reason':       reason,
+        'p_cancelled_by': cancelledBy,
       });
-      if (claimed == null) {
-        throw Exception('This order is no longer Pending, it may have already been processed.');
-      }
+      final bool refundNeeded = result == true;
 
-      // Release the stock reservation regardless of who
-      // cancelled — the order was never approved, so only
-      // the reservation needs to be given back.
-      await _releaseStock(orderId: orderId);
-
-      // NOTE: order_status is already 'Cancelled' — claim_order_status
-      // set it atomically above.
-
-      await _supabase.from('order_progress').insert({
-        'order_id':   orderId,
-        'status':     'Cancelled',
-        'admin_note': 'Cancelled by $cancelledBy: $reason',
-      });
-
-      // Only notify staff when the CUSTOMER cancels — an admin
-      // rejecting an order goes through rejectPayment(), not this
-      // method, so no extra guard is needed here.
+      // Non-critical extras. Each one swallows its own errors, so a
+      // failure here can never undo or block the cancellation above.
       await _notifyStaffOrderCancellation(
         orderId: orderId,
         reason: reason,
       );
-
-      // Check whether the gateway had already confirmed this
-      // payment (or, belt-and-suspenders, whether it was somehow
-      // already marked Paid) before the cancellation happened.
-      final Map<String, dynamic>? paymentRow = await _supabase
-          .from('payment')
-          .select('payment_status')
-          .eq('order_id', orderId)
-          .maybeSingle();
-
-      final String currentPaymentStatus =
-          (paymentRow?['payment_status'] ?? '').toString();
-      final bool wasPaid = currentPaymentStatus == 'Verified' ||
-          currentPaymentStatus == 'Paid';
-
-      if (wasPaid) {
-        // Attempt refund via gateway first.
-        bool refundSucceeded = false;
-        try {
-          await _supabase.functions.invoke(
-            'refund-payment',
-            body: {
-              'orderId': orderId,
-              'reason':  reason,
-            },
-          );
-          refundSucceeded = true;
-        } catch (refundErr) {
-          print('PaymentService.cancelOrder refund error: $refundErr');
-        }
-
-        // Reflect the outcome on the payment row so payment_status
-        // never stays stuck at 'Verified'/'Paid' for a cancelled order.
-        await _supabase.from('payment').update({
-          'payment_status': refundSucceeded ? 'Refunded' : 'Refund Failed',
-        }).eq('order_id', orderId);
-      } else {
-        // No money was ever collected (e.g. COD cancelled before
-        // delivery), so there's nothing to refund — but the payment
-        // row should still reflect that this order is closed, instead
-        // of staying stuck at 'Pending' forever next to a Cancelled order.
-        await _supabase.from('payment').update({
-          'payment_status': 'Cancelled',
-        }).eq('order_id', orderId);
-      }
-
       await _evaluateAbuseAfterCancellation(orderId);
+
+      return refundNeeded;
+    } on PostgrestException catch (e) {
+      print('PaymentService.cancelOrder error: $e');
+      // Keep the friendly message the screens already show for "too late".
+      if (e.code == 'P1005') throw Exception(e.message);
+      rethrow;
     } catch (e) {
-      print('PaymentService.cancelOrder error: $e');      rethrow;
+      print('PaymentService.cancelOrder error: $e');
+      rethrow;
     }
   }
+
   // ================================================
   // NOTIFY STAFF — ORDER CANCELLATION
   // Recipient: Admin only (ties to Order Approval, Admin-only).
@@ -535,6 +485,7 @@ Future<void> cancelOrder({
       print('_notifyStaffOrderCancellation error: $error');
     }
   }
+
   // ================================================
   // FETCH PAYMENT FOR ORDER
   // ================================================
@@ -562,7 +513,7 @@ Future<void> cancelOrder({
   // longer has enough stock — approval should be
   // blocked and the order left at Pending in that case.
   // ================================================
-    Future<void> _commitStock({required int orderId}) async {
+  Future<void> _commitStock({required int orderId}) async {
     // AUDIT FIX: was a multi-step Dart-side read-then-write with no
     // row locking — a real lost-update race when two orders share a
     // size_id. Now a single atomic, row-locked Postgres call.
@@ -575,9 +526,6 @@ Future<void> cancelOrder({
       rethrow;
     }
   }
-
-  // ================================================
-  // RELEASE STOCK (rejection / cancellation)
 
   // ================================================
   // RELEASE STOCK (rejection / cancellation)
@@ -597,13 +545,14 @@ Future<void> cancelOrder({
     // RLS the same way commit_order_stock already does.
     await _supabase.rpc('release_order_stock', params: {'p_order_id': orderId});
   }
+
   // ================================================
   // SET COD PENDING
   // COD orders skip payment entirely.
   // Moves order from 'Awaiting Payment' to 'Pending'
   // so it appears in admin approval immediately.
   // ================================================
-    Future<void> setCodPending({required int orderId}) async {
+  Future<void> setCodPending({required int orderId}) async {
     try {
       // Moved server-side — a direct client PATCH here is now
       // correctly blocked by guard_customer_order_updates. This RPC
@@ -618,7 +567,7 @@ Future<void> cancelOrder({
     }
   }
 
-    // ================================================
+  // ================================================
   // EVALUATE ABUSE AFTER CANCELLATION
   // Non-critical — must never fail the cancellation/rejection
   // itself, which has already succeeded by the time this runs.
