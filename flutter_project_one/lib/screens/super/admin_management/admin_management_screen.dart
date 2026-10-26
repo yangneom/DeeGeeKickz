@@ -11,6 +11,7 @@ import '../../../widgets/super/admin_management/admin_add_dialog.dart';
 import '../../../providers/admin_provider/admin_account_provider.dart';
 import '../../../models/admin_account.dart';
 import '../../../widgets/common/dialog/app_toast.dart';
+import '../../../widgets/common/menus/action_menu.dart';
 
 class AdminManagementScreen extends ConsumerStatefulWidget {
   const AdminManagementScreen({super.key});
@@ -286,7 +287,16 @@ class _AdminManagementScreenState
           child: PopupMenuButton<String>(
             icon: const Icon(Icons.more_vert, color: Color(0xFF6B7280), size: 20),
             tooltip: 'Actions',
-            shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(8)),
+            // Same card as the Inventory table's menu. Without an explicit
+            // colour the menu took the theme's pinkish surface tint.
+            color: ActionMenuStyle.background,
+            surfaceTintColor: Colors.transparent,
+            elevation: ActionMenuStyle.elevation,
+            shadowColor: ActionMenuStyle.shadow,
+            constraints: const BoxConstraints(minWidth: ActionMenuStyle.minWidth),
+            shape: ActionMenuStyle.shape,
+            position: PopupMenuPosition.under,
+            offset: const Offset(0, 4),
             onSelected: (String value) {
               if (value == 'edit') {
                 showAdminEditDialog(
@@ -303,17 +313,23 @@ class _AdminManagementScreenState
               }
             },
             itemBuilder: (BuildContext context) => [
-              const PopupMenuItem(
+              actionMenuItem<String>(
                 value: 'edit',
-                child: Text('Edit & View', style: TextStyle(fontSize: 13)),
+                icon: Icons.edit_outlined,
+                label: 'Edit & View',
               ),
-            if (account.role == 'Admin' || account.role == 'Super Admin' || account.role == 'Cashier')
-                const PopupMenuItem(
-                  value: 'reset_mfa',                  child: Text('Reset 2FA', style: TextStyle(fontSize: 13, color: Color(0xFFDC2626))),
+              if (account.role == 'Admin' || account.role == 'Super Admin' || account.role == 'Cashier')
+                actionMenuItem<String>(
+                  value: 'reset_mfa',
+                  icon: Icons.lock_outline,
+                  label: 'Reset 2FA',
+                  destructive: true,
                 ),
-              const PopupMenuItem(
+              actionMenuItem<String>(
                 value: 'disable',
-                child: Text('Disable', style: TextStyle(fontSize: 13, color: Color(0xFFDC2626))),
+                icon: Icons.block,
+                label: 'Disable',
+                destructive: true,
               ),
             ],
           ),

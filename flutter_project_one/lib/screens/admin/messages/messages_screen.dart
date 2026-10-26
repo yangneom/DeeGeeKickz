@@ -10,6 +10,7 @@ import '../../../models/chat_message_model.dart';
 import '../../../models/product.dart' as db_product;
 import 'dart:async';
 import '../../../widgets/common/dialog/app_toast.dart';
+import '../../../widgets/common/chat/chat_image.dart';
 
 void _showCustomerInfoDialog(BuildContext context, Conversation conversation) {
   showDialog(
@@ -40,7 +41,7 @@ void _showCustomerInfoDialog(BuildContext context, Conversation conversation) {
             _infoLine(
               'Account Status',
               conversation.isCustomerSuspended ? conversation.customerBanTierLabel : 'Active',
-          ),
+            ),
             const SizedBox(height: 20),
             Align(
               alignment: Alignment.centerRight,
@@ -66,6 +67,7 @@ Widget _infoLine(String label, String value) {
     ],
   );
 }
+
 class MessagesScreen extends ConsumerStatefulWidget {
   const MessagesScreen({super.key});
 
@@ -111,7 +113,7 @@ class _MessagesScreenState extends ConsumerState<MessagesScreen> {
     });
   }
 
- bool _isUploadingImage = false;
+  bool _isUploadingImage = false;
 
   void _onSend() {
     final text = _inputController.text.trim();
@@ -159,6 +161,7 @@ class _MessagesScreenState extends ConsumerState<MessagesScreen> {
       }
     }
   }
+
   @override
   Widget build(BuildContext context) {
     final chatState = ref.watch(adminChatProvider);
@@ -178,7 +181,7 @@ class _MessagesScreenState extends ConsumerState<MessagesScreen> {
           : Row(
               children: [
                 // ── LEFT: Customer list ───────────────────────
-                               _CustomerList(
+                _CustomerList(
                   conversations:          chatState.conversations,
                   allCustomers:           chatState.allCustomers,
                   selectedConversationId: chatState.selectedConversationId,
@@ -203,7 +206,7 @@ class _MessagesScreenState extends ConsumerState<MessagesScreen> {
                             ),
                           ),
                         )
-                     : _ChatWindow(
+                      : _ChatWindow(
                           conversation:    chatState.selectedConversation!,
                           messages:        chatState.messages,
                           isLoading:       chatState.isMessagesLoading,
@@ -242,6 +245,7 @@ class _CustomerList extends StatefulWidget {
   @override
   State<_CustomerList> createState() => _CustomerListState();
 }
+
 class _CustomerListState extends State<_CustomerList> {
   final TextEditingController _search = TextEditingController();
   String _query = '';
@@ -251,6 +255,7 @@ class _CustomerListState extends State<_CustomerList> {
     _search.dispose();
     super.dispose();
   }
+
   @override
   Widget build(BuildContext context) {
     final filteredConversations = widget.conversations
@@ -344,8 +349,7 @@ class _CustomerListState extends State<_CustomerList> {
             ),
           ),
 
-          // List
-                    // List — existing conversations first, then customers
+          // List — existing conversations first, then customers
           // with no conversation yet.
           Expanded(
             child: ListView(
@@ -474,7 +478,7 @@ class _ConversationListItem extends StatelessWidget {
                           : const Color(0xFF111827),
                     ),
                   ),
-                                    const SizedBox(height: 2),
+                  const SizedBox(height: 2),
                   Row(
                     children: [
                       Container(
@@ -681,7 +685,7 @@ class _ChatWindow extends StatelessWidget {
                         color: Colors.black,
                       ),
                     ),
-                                       const SizedBox(height: 2),
+                    const SizedBox(height: 2),
                     Row(
                       children: [
                         Container(
@@ -747,7 +751,7 @@ class _ChatWindow extends StatelessWidget {
         ),
 
         // Messages
-                Expanded(
+        Expanded(
           child: isLoading
               ? const Center(
                   child: CircularProgressIndicator(color: Colors.black))
@@ -777,7 +781,6 @@ class _ChatWindow extends StatelessWidget {
                 ),
         ),
 
-        // Input
         // Input
         Container(
           padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 14),
@@ -903,99 +906,78 @@ class _AdminMessageBubble extends StatelessWidget {
             ),
 
           // Bubble + time
-         // Bubble + time
           Flexible(
             child: Column(
-            crossAxisAlignment:
-                isAdmin ? CrossAxisAlignment.end : CrossAxisAlignment.start,
-            children: [
-              Container(
-                constraints: BoxConstraints(
-                  maxWidth: MediaQuery.of(context).size.width * 0.7,
-                ),
-                clipBehavior: Clip.antiAlias,
-                decoration: BoxDecoration(
-                  color: isAdmin ? Colors.black : Colors.white,
-                  borderRadius: BorderRadius.only(
-                    topLeft: const Radius.circular(16),
-                    topRight: const Radius.circular(16),
-                    bottomLeft: isAdmin
-                        ? const Radius.circular(16)
-                        : const Radius.circular(4),
-                    bottomRight: isAdmin
-                        ? const Radius.circular(4)
-                        : const Radius.circular(16),
+              crossAxisAlignment:
+                  isAdmin ? CrossAxisAlignment.end : CrossAxisAlignment.start,
+              children: [
+                Container(
+                  constraints: BoxConstraints(
+                    maxWidth: MediaQuery.of(context).size.width * 0.7,
                   ),
-                  border: isAdmin
-                      ? null
-                      : Border.all(
-                          color: const Color(0xFFE5E7EB), width: 0.5),
-                ),
-                child: Column(
-                  crossAxisAlignment: CrossAxisAlignment.start,
-                  mainAxisSize: MainAxisSize.min,
-                  children: [
-                    if (message.hasImage)
-                      Image.network(
-                        message.imageUrl!,
-                        width: 240,
-                        fit: BoxFit.cover,
-                        loadingBuilder: (context, child, progress) {
-                          if (progress == null) return child;
-                          return Container(
-                            width: 240,
-                            height: 160,
-                            alignment: Alignment.center,
-                            child: const CircularProgressIndicator(strokeWidth: 2),
-                          );
-                        },
-                        errorBuilder: (_, __, ___) => Container(
-                          width: 240,
-                          height: 100,
-                          color: const Color(0xFFEEEEEE),
-                          alignment: Alignment.center,
-                          child: const Icon(Icons.broken_image_outlined,
-                              color: Color(0xFF9CA3AF)),
+                  clipBehavior: Clip.antiAlias,
+                  decoration: BoxDecoration(
+                    color: isAdmin ? Colors.black : Colors.white,
+                    borderRadius: BorderRadius.only(
+                      topLeft: const Radius.circular(16),
+                      topRight: const Radius.circular(16),
+                      bottomLeft: isAdmin
+                          ? const Radius.circular(16)
+                          : const Radius.circular(4),
+                      bottomRight: isAdmin
+                          ? const Radius.circular(4)
+                          : const Radius.circular(16),
+                    ),
+                    border: isAdmin
+                        ? null
+                        : Border.all(
+                            color: const Color(0xFFE5E7EB), width: 0.5),
+                  ),
+                  child: Column(
+                    crossAxisAlignment: CrossAxisAlignment.start,
+                    mainAxisSize: MainAxisSize.min,
+                    children: [
+                      // Photo — click it to open it large (same for photos
+                      // sent by the customer and by the admin).
+                      if (message.hasImage)
+                        ChatImage(url: message.imageUrl!),
+                      if (message.hasProductRef)
+                        _AdminProductRefCard(
+                          productId: message.productId!,
+                          isAdmin: isAdmin,
                         ),
-                      ),
-                    if (message.hasProductRef)
-                      _AdminProductRefCard(
-                        productId: message.productId!,
-                        isAdmin: isAdmin,
-                      ),
-                    if (message.text.isNotEmpty)
-                      Padding(
-                        padding: const EdgeInsets.symmetric(
-                            horizontal: 14, vertical: 10),
-                        child: Text(
-                          message.text,
-                          style: TextStyle(
-                            fontFamily: 'Inter',
-                            fontSize: 13,
-                            color: isAdmin
-                                ? Colors.white
-                                : const Color(0xFF111827),
-                            height: 1.5,
+                      if (message.text.isNotEmpty)
+                        Padding(
+                          padding: const EdgeInsets.symmetric(
+                              horizontal: 14, vertical: 10),
+                          child: Text(
+                            message.text,
+                            style: TextStyle(
+                              fontFamily: 'Inter',
+                              fontSize: 13,
+                              color: isAdmin
+                                  ? Colors.white
+                                  : const Color(0xFF111827),
+                              height: 1.5,
+                            ),
                           ),
                         ),
-                      ),
-                  ],
+                    ],
+                  ),
                 ),
-              ),
-          
-              const SizedBox(height: 4),
-              Text(
-                message.formattedTime,
-                style: const TextStyle(
-                  fontSize: 10,
-                  color: Color(0xFF9CA3AF),
-                ),
-              ),
-            ],
-          )),
 
-          // Admin avatar
-          // Admin avatar
+                const SizedBox(height: 4),
+                Text(
+                  message.formattedTime,
+                  style: const TextStyle(
+                    fontSize: 10,
+                    color: Color(0xFF9CA3AF),
+                  ),
+                ),
+              ],
+            ),
+          ),
+
           // Admin avatar
           if (isAdmin)
             Container(

@@ -3,6 +3,20 @@ import '../../../models/customer_cart_item.dart';
 import '../../../widgets/customer/checkout/checkout_order_summary.dart';
 
 /// Step 2 — Review order + shipping address before payment.
+///
+/// WHAT CHANGED
+///   - The address card is compact: 16px padding (was 24), smaller text, and a
+///     header row that keeps "SHIPPING TO" and "EDIT" on one aligned line.
+///   - Lines with nothing in them are not printed. The name and phone used to be
+///     passed in as empty text, which left blank lines in the card.
+///   - If there is no address at all, a centered "no address" message with a
+///     button back to Shipping is shown (and Continue is not offered).
+///   - The Continue button now sits directly under the order total, inside the
+///     summary, instead of floating in the middle of the page above it. There is
+///     still exactly ONE primary button.
+///   - Gaps between sections are 20px on phones (were 48px).
+///
+/// The inputs are unchanged, so the checkout screen needs no other change.
 class CheckoutStep2Review extends StatelessWidget {
   final String firstName, lastName, street, city, postal, phone, country;
   final List<CustomerCartItem> items;
@@ -28,10 +42,41 @@ class CheckoutStep2Review extends StatelessWidget {
     required this.onEditShipping,
   });
 
+  bool get _hasAddress =>
+      street.trim().isNotEmpty || city.trim().isNotEmpty;
+
+  Widget _summary() {
+    return CheckoutOrderSummary(
+      items: items,
+      subtotal: subtotal,
+      shipping: shipping,
+      total: total,
+      showPlaceOrder: true,
+      // No address means there is nothing to continue with: the button takes
+      // the customer back to Shipping instead.
+      actionLabel: _hasAddress ? 'CONTINUE TO PAYMENT' : 'CHOOSE AN ADDRESS',
+      onPlaceOrder: _hasAddress ? onContinue : onEditShipping,
+    );
+  }
+
   @override
   Widget build(BuildContext context) {
     return LayoutBuilder(builder: (context, constraints) {
-      final isDesktop = constraints.maxWidth >= 1024;
+      final bool isDesktop = constraints.maxWidth >= 1024;
+
+      final Widget details = _ReviewDetails(
+        fullName: [firstName, lastName]
+            .where((String s) => s.trim().isNotEmpty)
+            .join(' '),
+        street: street,
+        cityLine: [city, postal]
+            .where((String s) => s.trim().isNotEmpty)
+            .join(', '),
+        country: country,
+        phone: phone,
+        hasAddress: _hasAddress,
+        onEditShipping: onEditShipping,
+      );
 
       if (isDesktop) {
         return Row(
@@ -42,59 +87,26 @@ class CheckoutStep2Review extends StatelessWidget {
               flex: 7,
               child: Padding(
                 padding: const EdgeInsets.only(right: 40),
-                child: _ReviewDetails(
-                  firstName: firstName,
-                  lastName: lastName,
-                  street: street,
-                  city: city,
-                  postal: postal,
-                  phone: phone,
-                  country: country,
-                  onEditShipping: onEditShipping,
-                  onContinue: onContinue,
-                ),
+                child: details,
               ),
             ),
-            // Right: summary (5/12)
+            // Right: summary with the Continue button under the total (5/12)
             Expanded(
               flex: 5,
-              child: CheckoutOrderSummary(
-                items: items,
-                subtotal: subtotal,
-                shipping: shipping,
-                total: total,
-                showPlaceOrder: false,
-                onPlaceOrder: () {},
-              ),
+              child: _summary(),
             ),
           ],
         );
       }
 
-      // Mobile
+      // Mobile: address, then the summary with the button directly under the
+      // total.
       return Column(
         crossAxisAlignment: CrossAxisAlignment.start,
         children: [
-          _ReviewDetails(
-            firstName: firstName,
-            lastName: lastName,
-            street: street,
-            city: city,
-            postal: postal,
-            phone: phone,
-            country: country,
-            onEditShipping: onEditShipping,
-            onContinue: onContinue,
-          ),
-          const SizedBox(height: 48),
-          CheckoutOrderSummary(
-            items: items,
-            subtotal: subtotal,
-            shipping: shipping,
-            total: total,
-            showPlaceOrder: false,
-            onPlaceOrder: () {},
-          ),
+          details,
+          const SizedBox(height: 20),
+          _summary(),
         ],
       );
     });
@@ -102,42 +114,53 @@ class CheckoutStep2Review extends StatelessWidget {
 }
 
 class _ReviewDetails extends StatelessWidget {
-  final String firstName, lastName, street, city, postal, phone, country;
+  final String fullName;
+  final String street;
+  final String cityLine;
+  final String country;
+  final String phone;
+  final bool hasAddress;
   final VoidCallback onEditShipping;
-  final VoidCallback onContinue;
 
   const _ReviewDetails({
-    required this.firstName,
-    required this.lastName,
+    required this.fullName,
     required this.street,
-    required this.city,
-    required this.postal,
-    required this.phone,
+    required this.cityLine,
     required this.country,
+    required this.phone,
+    required this.hasAddress,
     required this.onEditShipping,
-    required this.onContinue,
   });
+
+  static const TextStyle _lineStyle = TextStyle(
+    fontFamily: 'Inter',
+    fontSize: 14,
+    height: 1.4,
+    color: Color(0xFF4C4546),
+  );
 
   @override
   Widget build(BuildContext context) {
+    final bool compact = MediaQuery.of(context).size.width < 600;
+
     return Column(
       crossAxisAlignment: CrossAxisAlignment.start,
       children: [
-        const Text(
+        Text(
           'Review Your Order',
           style: TextStyle(
             fontFamily: 'Archivo Narrow',
-            fontSize: 32,
+            fontSize: compact ? 28 : 32,
             fontWeight: FontWeight.w600,
             letterSpacing: -0.5,
             color: Colors.black,
           ),
         ),
-        const SizedBox(height: 32),
+        SizedBox(height: compact ? 16 : 24),
 
         Container(
           width: double.infinity,
-          padding: const EdgeInsets.all(24),
+          padding: const EdgeInsets.all(16),
           decoration: BoxDecoration(
             color: const Color(0xFFF3F3F4),
             border: Border.all(color: const Color(0xFFCFC4C5)),
@@ -145,133 +168,126 @@ class _ReviewDetails extends StatelessWidget {
           child: Column(
             crossAxisAlignment: CrossAxisAlignment.start,
             children: [
+              // Label and Edit on one aligned line.
               Row(
-                mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                crossAxisAlignment: CrossAxisAlignment.center,
                 children: [
-                  const Text(
-                    'SHIPPING TO',
-                    style: TextStyle(
-                      fontFamily: 'Inter',
-                      fontSize: 12,
-                      fontWeight: FontWeight.w700,
-                      letterSpacing: 2.0,
-                      color: Color(0xFF656464),
-                    ),
-                  ),
-                  GestureDetector(
-                    onTap: onEditShipping,
-                    child: const Text(
-                      'EDIT',
+                  const Expanded(
+                    child: Text(
+                      'SHIPPING TO',
                       style: TextStyle(
                         fontFamily: 'Inter',
                         fontSize: 12,
                         fontWeight: FontWeight.w700,
                         letterSpacing: 2.0,
-                        color: Colors.black,
-                        decoration: TextDecoration.underline,
+                        color: Color(0xFF656464),
+                      ),
+                    ),
+                  ),
+                  // The padding makes the tap area comfortable without
+                  // changing how the word looks.
+                  GestureDetector(
+                    behavior: HitTestBehavior.opaque,
+                    onTap: onEditShipping,
+                    child: const Padding(
+                      padding: EdgeInsets.symmetric(horizontal: 4, vertical: 10),
+                      child: Text(
+                        'EDIT',
+                        style: TextStyle(
+                          fontFamily: 'Inter',
+                          fontSize: 12,
+                          fontWeight: FontWeight.w700,
+                          letterSpacing: 2.0,
+                          color: Colors.black,
+                          decoration: TextDecoration.underline,
+                        ),
                       ),
                     ),
                   ),
                 ],
               ),
-              const SizedBox(height: 12),
-              Text(
-                '$firstName $lastName',
-                style: const TextStyle(
-                  fontFamily: 'Inter',
-                  fontSize: 16,
-                  fontWeight: FontWeight.w600,
-                  color: Colors.black,
-                ),
-              ),
               const SizedBox(height: 4),
-              Text(
-                street,
-                style: const TextStyle(
-                  fontFamily: 'Inter',
-                  fontSize: 14,
-                  color: Color(0xFF4C4546),
+
+              if (hasAddress) ...[
+                if (fullName.isNotEmpty)
+                  Text(
+                    fullName,
+                    style: const TextStyle(
+                      fontFamily: 'Inter',
+                      fontSize: 15,
+                      fontWeight: FontWeight.w600,
+                      color: Colors.black,
+                    ),
+                  ),
+                if (street.trim().isNotEmpty) Text(street, style: _lineStyle),
+                if (cityLine.isNotEmpty) Text(cityLine, style: _lineStyle),
+                if (country.trim().isNotEmpty) Text(country, style: _lineStyle),
+                if (phone.trim().isNotEmpty) ...[
+                  const SizedBox(height: 4),
+                  Text(phone, style: _lineStyle),
+                ],
+              ] else
+                // No address: a centered message and a way back to Shipping.
+                Padding(
+                  padding: const EdgeInsets.symmetric(vertical: 12),
+                  child: Center(
+                    child: Column(
+                      mainAxisSize: MainAxisSize.min,
+                      children: [
+                        const Icon(Icons.location_off_outlined,
+                            size: 32, color: Color(0xFF9CA3AF)),
+                        const SizedBox(height: 8),
+                        const Text(
+                          'No shipping address yet',
+                          textAlign: TextAlign.center,
+                          style: TextStyle(
+                            fontFamily: 'Inter',
+                            fontSize: 14,
+                            fontWeight: FontWeight.w600,
+                            color: Colors.black,
+                          ),
+                        ),
+                        const SizedBox(height: 4),
+                        const Text(
+                          'Choose where we should deliver your order.',
+                          textAlign: TextAlign.center,
+                          style: TextStyle(
+                            fontFamily: 'Inter',
+                            fontSize: 13,
+                            color: Color(0xFF656464),
+                          ),
+                        ),
+                        const SizedBox(height: 12),
+                        GestureDetector(
+                          behavior: HitTestBehavior.opaque,
+                          onTap: onEditShipping,
+                          child: Container(
+                            padding: const EdgeInsets.symmetric(
+                                horizontal: 20, vertical: 12),
+                            decoration: BoxDecoration(
+                              border:
+                                  Border.all(color: const Color(0xFFCFC4C5)),
+                            ),
+                            child: const Text(
+                              'ADD AN ADDRESS',
+                              style: TextStyle(
+                                fontFamily: 'Inter',
+                                fontSize: 12,
+                                fontWeight: FontWeight.w600,
+                                letterSpacing: 2.0,
+                                color: Colors.black,
+                              ),
+                            ),
+                          ),
+                        ),
+                      ],
+                    ),
+                  ),
                 ),
-              ),
-              Text(
-                '$city, $postal',
-                style: const TextStyle(
-                  fontFamily: 'Inter',
-                  fontSize: 14,
-                  color: Color(0xFF4C4546),
-                ),
-              ),
-              Text(
-                country,
-                style: const TextStyle(
-                  fontFamily: 'Inter',
-                  fontSize: 14,
-                  color: Color(0xFF4C4546),
-                ),
-              ),
-              const SizedBox(height: 4),
-              Text(
-                phone,
-                style: const TextStyle(
-                  fontFamily: 'Inter',
-                  fontSize: 14,
-                  color: Color(0xFF4C4546),
-                ),
-              ),
             ],
           ),
         ),
-
-        const SizedBox(height: 48),
-
-        _ContinueToPaymentButton(onTap: onContinue),
       ],
-    );
-  }
-}
-
-class _ContinueToPaymentButton extends StatefulWidget {
-  final VoidCallback onTap;
-  const _ContinueToPaymentButton({required this.onTap});
-
-  @override
-  State<_ContinueToPaymentButton> createState() =>
-      _ContinueToPaymentButtonState();
-}
-
-class _ContinueToPaymentButtonState
-    extends State<_ContinueToPaymentButton> {
-  bool _pressed = false;
-
-  @override
-  Widget build(BuildContext context) {
-    return GestureDetector(
-      onTapDown: (_) => setState(() => _pressed = true),
-      onTapUp: (_) {
-        setState(() => _pressed = false);
-        widget.onTap();
-      },
-      onTapCancel: () => setState(() => _pressed = false),
-      child: AnimatedScale(
-        scale: _pressed ? 0.98 : 1.0,
-        duration: const Duration(milliseconds: 80),
-        child: Container(
-          width: double.infinity,
-          padding: const EdgeInsets.symmetric(vertical: 16),
-          color: Colors.black,
-          alignment: Alignment.center,
-          child: const Text(
-            'CONTINUE TO PAYMENT',
-            style: TextStyle(
-              fontFamily: 'Inter',
-              fontSize: 14,
-              fontWeight: FontWeight.w600,
-              letterSpacing: 3.0,
-              color: Colors.white,
-            ),
-          ),
-        ),
-      ),
     );
   }
 }

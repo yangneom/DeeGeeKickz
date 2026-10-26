@@ -4,6 +4,7 @@ import 'package:supabase_flutter/supabase_flutter.dart';
 import '../../../providers/auth/auth_provider.dart';
 import '../../../services/auth/auth_service.dart';
 import '../../common/dialog/profile_dialog.dart';
+import '../../common/dialog/password_reminder_dialog.dart';
 
 class CashierTopBar extends ConsumerStatefulWidget {
   const CashierTopBar({super.key});
@@ -33,46 +34,32 @@ class _CashierTopBarState extends ConsumerState<CashierTopBar> {
   }
 
   void _showPasswordReminderDialog() {
+    // The same dialog for Admin, Super Admin and Cashier.
+    showPasswordReminderDialog(
+      context: context,
+      onChangeNow: _openPasswordChange,
+    );
+  }
+
+  // "Change Now": opens the profile dialog with the password section open.
+  Future<void> _openPasswordChange() async {
+    final user = Supabase.instance.client.auth.currentUser;
+    if (user == null) return;
+
+    final data = await ref.read(ownProfileProvider.future);
+
+    if (!mounted) return;
     showDialog(
       context: context,
-      barrierDismissible: true,
-      builder: (dialogContext) => AlertDialog(
-        title: const Text('Time to update your password'),
-        content: const Text(
-          'For account security, please update your password. '
-          'It\'s been 30 days or more since your last change.',
-        ),
-        actions: [
-          TextButton(
-            onPressed: () => Navigator.pop(dialogContext),
-            child: const Text('Later'),
-          ),
-          ElevatedButton(
-            onPressed: () async {
-              Navigator.pop(dialogContext);
-              final user = Supabase.instance.client.auth.currentUser;
-              if (user == null) return;
-
-                            final data = await ref.read(ownProfileProvider.future);
-
-              if (!mounted) return;
-              showDialog(
-                context: context,
-                builder: (_) => ProfileDialog(
-                  userId: user.id,
-                  firstName: data?['first_name'] ?? '',
-                  lastName: data?['last_name'] ?? '',
-                  email: data?['email'] ?? user.email ?? '',
-                  phone: data?['phone'] ?? '',
-                  role: data?['role'] ?? '',
-                  canEdit: false,
-                  autoOpenPasswordSection: true,
-                ),
-              );
-            },
-            child: const Text('Change Now'),
-          ),
-        ],
+      builder: (_) => ProfileDialog(
+        userId: user.id,
+        firstName: data?['first_name'] ?? '',
+        lastName: data?['last_name'] ?? '',
+        email: data?['email'] ?? user.email ?? '',
+        phone: data?['phone'] ?? '',
+        role: data?['role'] ?? '',
+        canEdit: false,
+        autoOpenPasswordSection: true,
       ),
     );
   }

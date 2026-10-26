@@ -23,7 +23,10 @@ import 'screens/super/super_layout.dart';
 import 'screens/cashier/cashier_layout.dart';
 import 'providers/customer/chat_provider.dart';
 import 'screens/auth/mfa_enroll_screen.dart';
+import 'core/guards/mfa_flow_guard.dart';
 import 'screens/auth/mfa_challenge_screen.dart';
+import 'core/guards/staff_device_rules.dart';
+
 
 // Global navigator key — lets any file navigate without needing a
 // local BuildContext that might get unmounted mid-flow (e.g. checkout
@@ -107,7 +110,17 @@ void main() async {
         final passwordSet = profile['password_set'] as bool? ?? true;
         final role = profile['role'] as String? ?? 'Customer';
 
-        if (!passwordSet &&
+        // A staff session saved on a phone or in the mobile app must not start
+        // the app (this path had no device check at all, so refreshing or
+        // reopening skipped the login-time block). Sign it out and fall back to
+        // the normal first screen: the shop on web, the login screen in the app.
+        final StaffDeviceBlock? blockedStaff = StaffDeviceGuard.isStaff(role)
+            ? StaffDeviceGuard.blockForThisDevice()
+            : null;
+
+        if (blockedStaff != null) {
+          await Supabase.instance.client.auth.signOut();
+        } else if (!passwordSet &&
             (role == 'Admin' || role == 'Cashier' || role == 'Super Admin')) {
           startScreen = const SetPasswordScreen();
         } else if (passwordSet &&
@@ -303,6 +316,7 @@ class _MyAppState extends ConsumerState<MyApp> {
     Supabase.instance.client.auth.onAuthStateChange.listen((data) async {
       final event = data.event;
       final session = data.session;
+      print('AUTH-EVENT $event');
 
 
       if (session == null) {
@@ -352,7 +366,32 @@ class _MyAppState extends ConsumerState<MyApp> {
             final role = profile['role'] as String? ?? 'Customer';
             final isDisabled = profile['is_disabled'] as bool? ?? false;
 
-            if (isDisabled) {
+            // Staff on a phone / the mobile app: sign out and leave, FIRST,
+            // before anything else can route this session into the app. This
+            // used to be checked only in one late branch, so a staff account
+            // that still had to set its password, or whose login the form was
+            // "already handling", was never checked.
+            final StaffDeviceBlock? staffBlock = StaffDeviceGuard.isStaff(role)
+                ? StaffDeviceGuard.blockForThisDevice(
+                    width: _navigatorKey.currentContext == null
+                        ? null
+                        : MediaQuery.of(_navigatorKey.currentContext!).size.width,
+                  )
+                : null;
+
+            if (staffBlock != null) {
+              ref
+                  .read(errorMessageProvider.notifier)
+                  .setError(staffBlock.messageFor(role));
+              await Supabase.instance.client.auth.signOut();
+              WidgetsBinding.instance.addPostFrameCallback((_) {
+                _navigatorKey.currentState?.pushAndRemoveUntil(
+                  MaterialPageRoute(builder: (_) => const LoginScreen()),
+                  (route) => false,
+                );
+              });
+              return;
+            } else if (isDisabled) {
               // Suspended/banned account — login()'s own check runs
               // in parallel and will sign this session back out with
               // the real suspension reason shown on the login screen.
@@ -386,27 +425,6 @@ class _MyAppState extends ConsumerState<MyApp> {
               // submitted on the screen login_form.dart just showed.
               // Skip entirely here; only act for OTHER tabs' sessions.
                         } else {
-              // AUDIT FIX: the desktop-width restriction was only ever
-              // checked in login_form.dart's own _handleLogin() — this
-              // GLOBAL listener also reacts to the same signedIn event
-              // independently, with no viewport awareness at all,
-              // letting a staff login proceed to MFA regardless of
-              // screen width via this separate path. Same check,
-              // applied here too, so neither path can bypass the other.
-              if (kIsWeb &&
-                  (role == 'Admin' || role == 'Super Admin' || role == 'Cashier') &&
-                  _navigatorKey.currentContext != null &&
-                  MediaQuery.of(_navigatorKey.currentContext!).size.width < 768) {
-                await Supabase.instance.client.auth.signOut();
-                WidgetsBinding.instance.addPostFrameCallback((_) {
-                  _navigatorKey.currentState?.pushAndRemoveUntil(
-                    MaterialPageRoute(builder: (_) => const LoginScreen()),
-                    (route) => false,
-                  );
-                });
-                return;
-              }
-
               Widget destination;
               if (role == 'Admin' ||
                   role == 'Super Admin' ||
@@ -462,6 +480,18 @@ class _MyAppState extends ConsumerState<MyApp> {
               }
 
               WidgetsBinding.instance.addPostFrameCallback((_) {
+                // An MFA screen (enrol, challenge or recovery code) is ALREADY on
+                // screen. Replacing it would throw away what the person is doing.
+                // That is what interrupted the recovery-code screen with a second MFA
+                // prompt (events like the login's own, one from another open tab, or
+                // the start-up one arrive late), and what started a second
+                // authenticator enrolment. Only a DUPLICATE MFA screen is skipped; the
+                // person still has to pass the one that is showing, and every other
+                // destination is routed exactly as before.
+                if ((destination is MfaChallengeScreen || destination is MfaEnrollScreen) &&
+                    MfaFlowGuard.anyShowing) {
+                  return;
+                }
                 _navigatorKey.currentState?.pushAndRemoveUntil(
                   MaterialPageRoute(builder: (_) => destination),
                   (route) => false,
@@ -481,7 +511,14 @@ class _MyAppState extends ConsumerState<MyApp> {
           ref.invalidate(adminChatProvider);
         } catch (e) {}
       }
-    });
+    },
+    onError: (Object error) {
+      // The SDK reports a refused email link (expired, or already used) on this same
+      // stream. With no handler it surfaced as "Uncaught Error". The Set Password
+      // screen now explains it to the person. Only the TYPE is printed.
+      print('[AUTH-DEBUG] Auth stream error: ${error.runtimeType}');
+    },
+    );
   }
 
   @override

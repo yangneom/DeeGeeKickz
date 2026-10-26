@@ -3,8 +3,10 @@ import 'package:url_launcher/url_launcher.dart';
 
 import '../../../models/order.dart';
 import '../../../services/customer/payment/payment_service.dart';
-import '../../../services/customer/sms/sms_service.dart';
+import '../../common/dialog/app_toast.dart';
 import '../../common/dialog/cancel_reason_dialog.dart';
+import '../checkout/checkout_order_summary.dart' show formatPeso;
+import 'order_status_style.dart';
 
 // ================================================
 // ORDER HISTORY TILE
@@ -22,24 +24,20 @@ class OrderHistoryTile extends StatelessWidget {
   final Order       order;
   final VoidCallback onTrack;  // opens in-app OrderTrackingScreen
 
+  /// Called after a cancellation succeeded, so the list can reload and show the
+  /// real status. Optional: without it the tile still works, the list just
+  /// stays as it was until it reloads.
+  final VoidCallback? onCancelled;
+
   const OrderHistoryTile({
     super.key,
     required this.order,
     required this.onTrack,
+    this.onCancelled,
   });
 
-  Color get _statusColor {
-  switch (order.orderStatus.toLowerCase()) {
-    case 'completed':
-    case 'delivered':   return const Color(0xFF1E8449);
-    case 'shipped':     return const Color(0xFF1A5276);
-    case 'preparing':   return const Color(0xFF7D6608);
-    case 'confirmed':   return const Color(0xFF1D4ED8);
-    case 'pending':     return const Color(0xFF92400E);
-    case 'cancelled':   return const Color(0xFF991B1B);
-    default:            return const Color(0xFF656464);
-  }
-}
+  // Same colours as the order details page: both read order_status_style.dart.
+  Color get _statusColor => orderStatusColor(order.orderStatus);
 
   bool get _isShipped =>
       order.orderStatus.toLowerCase() == 'shipped' ||
@@ -54,20 +52,46 @@ class OrderHistoryTile extends StatelessWidget {
   bool get _isCancelled =>
       order.orderStatus.toLowerCase() == 'cancelled';
 
-  Future<void> _openLalamove() async {
-    if (!_hasTrackingUrl) return;
-    final Uri uri = Uri.parse(order.trackingUrl!);
-    if (await canLaunchUrl(uri)) {
-      await launchUrl(uri, mode: LaunchMode.externalApplication);
+  // Opens a link only if it is a real http(s) address, and tells the customer
+  // when it cannot be opened. The old code used Uri.parse (which throws on a bad
+  // link) and ignored a failed launch silently.
+  Future<void> _openWebLink(
+      BuildContext context, String url, String what) async {
+    final Uri? uri = Uri.tryParse(url.trim());
+    if (uri == null ||
+        !(uri.scheme == 'https' || uri.scheme == 'http') ||
+        uri.host.isEmpty) {
+      AppToast.error(
+        context,
+        'The $what link for this order is not valid. Please contact support.',
+        title: 'Cannot open $what',
+      );
+      return;
+    }
+
+    bool opened = false;
+    try {
+      opened = await launchUrl(uri, mode: LaunchMode.externalApplication);
+    } catch (_) {
+      opened = false;
+    }
+    if (!opened && context.mounted) {
+      AppToast.error(
+        context,
+        'We could not open the $what page. Please try again.',
+        title: 'Cannot open $what',
+      );
     }
   }
 
-  Future<void> _openReceipt() async {
+  Future<void> _openLalamove(BuildContext context) async {
+    if (!_hasTrackingUrl) return;
+    await _openWebLink(context, order.trackingUrl!, 'tracking');
+  }
+
+  Future<void> _openReceipt(BuildContext context) async {
     if (!_hasReceipt) return;
-    final Uri uri = Uri.parse(order.receiptUrl!);
-    if (await canLaunchUrl(uri)) {
-      await launchUrl(uri, mode: LaunchMode.externalApplication);
-    }
+    await _openWebLink(context, order.receiptUrl!, 'receipt');
   }
 
   @override
@@ -192,7 +216,7 @@ class OrderHistoryTile extends StatelessWidget {
                         ),
                       ),
                       Text(
-                        '₱${order.totalAmount.toStringAsFixed(2)}',
+                        formatPeso(order.totalAmount),
                         style: const TextStyle(
                           fontFamily: 'Inter',
                           fontSize:   14,
@@ -206,8 +230,17 @@ class OrderHistoryTile extends StatelessWidget {
                   const SizedBox(height: 10),
 
                   // ── Bottom action row ──────────────────────────
+                  // The links WRAP onto a second line on narrow phones. A plain
+                  // Row overflowed when Track, Receipt and Cancel all showed.
                   Row(
+                    crossAxisAlignment: CrossAxisAlignment.center,
                     children: [
+                      Expanded(
+                        child: Wrap(
+                          spacing: 16,
+                          runSpacing: 4,
+                          crossAxisAlignment: WrapCrossAlignment.center,
+                          children: [
 
                       // Track Shipment / View Progress
                       // Shipped → open Lalamove URL
@@ -215,7 +248,7 @@ class OrderHistoryTile extends StatelessWidget {
                       if (!_isCancelled)
                         GestureDetector(
                           onTap: _isShipped && _hasTrackingUrl
-                              ? _openLalamove
+                              ? () => _openLalamove(context)
                               : onTrack,
                           child: Row(
                             mainAxisSize: MainAxisSize.min,
@@ -246,9 +279,8 @@ class OrderHistoryTile extends StatelessWidget {
 
                       // Receipt link — shown when payment approved
                       if (_hasReceipt) ...[
-                        const SizedBox(width: 12),
                         GestureDetector(
-                          onTap: _openReceipt,
+                          onTap: () => _openReceipt(context),
                           child: const Row(
                             mainAxisSize: MainAxisSize.min,
                             children: [
@@ -273,7 +305,9 @@ class OrderHistoryTile extends StatelessWidget {
                         ),
                       ],
 
-                      const Spacer(),
+                          ],
+                        ),
+                      ),
 
                       // Cancel button — Pending only
                       if (order.orderStatus.toLowerCase() == 'pending')
@@ -281,11 +315,13 @@ class OrderHistoryTile extends StatelessWidget {
                           onTap: () {
                             showCancelReasonDialog(
                               context:      context,
+                              style:        CancelDialogStyle.customer,
                               title:        'Cancel Order',
                               subtitle:
-                                  'Select a reason to cancel your order',
+                                  'Tell us why you are cancelling. This cannot be undone.',
                               confirmLabel: 'Cancel Order',
-                              confirmColor: const Color(0xFFEF4444),
+                              dismissLabel: 'Keep Order',
+                              confirmColor: const Color(0xFFBA1A1A),
                               reasons: const [
                                 'Changed my mind',
                                 'Ordered by mistake',
@@ -307,20 +343,36 @@ class OrderHistoryTile extends StatelessWidget {
                               // admin/system-initiated flow, just no
                               // longer called from this button.
 
-                                if (context.mounted) {
-                                  Navigator.of(context).pop();
-                                }
+                              // The dialog closes ITSELF after this returns.
+                              // The old code also called Navigator.pop() here;
+                              // together with the dialog's own pop that could
+                              // close the Order History page under the dialog.
+                              //
+                              // This point is reached when cancelOrder returned
+                              // WITHOUT throwing. cancelOrder must throw when
+                              // the backend refuses (so the dialog shows the
+                              // error); if it ever returns quietly on failure,
+                              // this confirmation would be wrong.
+                              if (context.mounted) {
+                                AppToast.success(
+                                  context,
+                                  'Order #${order.orderId} was cancelled. If you '
+                                  'already paid, our team will arrange your refund.',
+                                  title: 'Order cancelled',
+                                );
+                              }
+                              onCancelled?.call();
                               },
                             );
                           },
                           child: Container(
                             padding: const EdgeInsets.symmetric(
                               horizontal: 16,
-                              vertical:   8,
+                              vertical:   12,
                             ),
                             decoration: BoxDecoration(
                               border: Border.all(
-                                  color: const Color(0xFFEF4444)),
+                                  color: const Color(0xFFBA1A1A)),
                             ),
                             child: const Text(
                               'Cancel',
@@ -328,7 +380,7 @@ class OrderHistoryTile extends StatelessWidget {
                                 fontFamily: 'Inter',
                                 fontSize:   12,
                                 fontWeight: FontWeight.w600,
-                                color:      Color(0xFFEF4444),
+                                color:      Color(0xFFBA1A1A),
                               ),
                             ),
                           ),

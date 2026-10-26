@@ -2,6 +2,7 @@ import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import 'package:flutter_project_one/widgets/common/dialog/confirm_dialog.dart';
 import 'package:flutter_project_one/widgets/common/dialog/app_toast.dart';
+import 'package:flutter_project_one/widgets/common/forms/app_dropdown_field.dart';
 import '../../../models/product.dart';
 import '../../../services/admin/inventory/inventory_service.dart';
 import '../../../services/admin/inventory/stock_service.dart';
@@ -376,40 +377,17 @@ class _StockAdjustmentDialogState extends State<StockAdjustmentDialog> {
               const Text('Category',
                   style: TextStyle(fontSize: 12, color: Color(0xFF6B7280))),
               const SizedBox(height: 4),
-              SizedBox(
-                height: 36,
-                child: Container(
-                  padding: const EdgeInsets.symmetric(horizontal: 10),
-                  decoration: BoxDecoration(
-                    color: Colors.white,
-                    borderRadius: BorderRadius.circular(6),
-                    border: Border.all(color: const Color(0xFFD1D5DB)),
-                  ),
-                  child: DropdownButtonHideUnderline(
-                    child: DropdownButton<String>(
-                      value: _selectedCategory,
-                      hint: const Text('All',
-                          style: TextStyle(fontSize: 12, color: Color(0xFF9CA3AF))),
-                      isExpanded: true,
-                      items: [
-                        const DropdownMenuItem<String>(
-                          value: null,
-                          child: Text('All', style: TextStyle(fontSize: 12)),
-                        ),
-                        ...categories.map((String category) {
-                          return DropdownMenuItem<String>(
-                            value: category,
-                            child: Text(category, style: const TextStyle(fontSize: 12)),
-                          );
-                        }).toList(),
-                      ],
-                      onChanged: (String? value) {
-                        setState(() => _selectedCategory = value);
-                        _applyFilters();
-                      },
-                    ),
-                  ),
-                ),
+              AppDropdownField<String>(
+                dense: true,
+                hint: 'All',
+                value: _selectedCategory,
+                items: categories,
+                labelOf: (String category) => category,
+                nullOptionLabel: 'All',
+                onChanged: (String? value) {
+                  setState(() => _selectedCategory = value);
+                  _applyFilters();
+                },
               ),
             ],
           ),

@@ -1,13 +1,22 @@
 import { serve } from "https://deno.land/std@0.168.0/http/server.ts";
+import { webUrl } from "../_shared/web_base.ts";
 import { createClient } from "https://esm.sh/@supabase/supabase-js@2";
 
 const SUPABASE_URL = Deno.env.get("SUPABASE_URL")!;
 const SERVICE_ROLE_KEY = Deno.env.get("SUPABASE_SERVICE_ROLE_KEY")!;
 
-// This must match exactly what you added to
-// Supabase → Auth → URL Configuration → Redirect URLs
-const INVITE_REDIRECT_URL =
-  Deno.env.get("INVITE_REDIRECT_URL") ?? "http://localhost:5000/#/set-password";
+// The Set Your Password page on the OFFICIAL site: https://deegeekickz.com/set-password
+//
+// The address is built by _shared/web_base.ts, which accepts ONLY the official domain
+// (or local development) and ignores anything else, for example an old Firebase address
+// still left in a server secret. Supabase must also allow it: Authentication -> URL
+// Configuration (Site URL = https://deegeekickz.com).
+//
+// The app serves real paths now, so the page is /set-password (not the old "#/" hash route).
+const INVITE_REDIRECT_URL = webUrl(
+  Deno.env.get("INVITE_REDIRECT_URL") ?? Deno.env.get("WEB_BASE_URL"),
+  "/set-password",
+);
 
 const corsHeaders = {
   "Access-Control-Allow-Origin": "*",

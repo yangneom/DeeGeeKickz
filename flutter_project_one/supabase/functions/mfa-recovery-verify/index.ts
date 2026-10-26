@@ -39,7 +39,6 @@ serve(async (req) => {
     }
 
     const { code } = await req.json();
-    console.log(`RECOVERY_DEBUG: received code length=${code?.length}, value=[${code}]`);
     if (!code) {      return new Response(
         JSON.stringify({ success: false, error: "Missing code" }),
         { status: 400, headers: { ...corsHeaders, "Content-Type": "application/json" } },
@@ -94,7 +93,19 @@ serve(async (req) => {
     // stale, still-valid aal2 token from BEFORE this reset could
     // otherwise keep working on every aal2-gated action. Force a
     // global sign-out so any such token stops working immediately.
-    await adminClient.auth.admin.signOut(user.id, "global");
+    // admin.signOut() takes the user's own ACCESS TOKEN, not a user id. Passing the id
+    // made the call fail and the failure was never looked at, so nothing was ended.
+    // Passing the caller's own token with scope "others" ends every OTHER session of
+    // this account (including any old verified-level one) and KEEPS this one, which the
+    // next step (enrolling a new authenticator) needs.
+    const { error: signOutError } = await adminClient.auth.admin.signOut(
+      authHeader.replace("Bearer ", ""),
+      "others",
+    );
+    if (signOutError) {
+      // The factors are already removed; do not undo that. Log the reason, no secrets.
+      console.error("mfa-recovery-verify: could not end other sessions:", signOutError.message);
+    }
 
     return new Response(      JSON.stringify({ success: true }),
       { headers: { ...corsHeaders, "Content-Type": "application/json" } },

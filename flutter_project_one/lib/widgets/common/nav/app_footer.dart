@@ -158,18 +158,7 @@ class AppFooter extends StatelessWidget {
           tooltip: 'Open DeeGee Kickz on Facebook',
           onTap: () => _open(context, Uri.parse(_facebookUrl)),
         ),
-        // Website only (never inside the installed app), and not on iPhone,
-        // where there is no iOS app to download.
-        if (kIsWeb && defaultTargetPlatform != TargetPlatform.iOS) ...[
-          const SizedBox(height: 20),
-          _sectionHeading('GET THE APP'),
-          _infoRow(
-            icon: Icons.android,
-            label: 'Download the app',
-            tooltip: 'Download the DeeGee Kickz Android app',
-            onTap: () => _open(context, Uri.parse(AppLinks.androidApk)),
-          ),
-        ],
+
       ],
     );
   }

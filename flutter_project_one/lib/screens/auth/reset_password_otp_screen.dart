@@ -6,6 +6,9 @@ import '../../widgets/auth/reset_password_form.dart';
 import 'login_screen.dart';
 import '../../main.dart';
 import '../../widgets/common/dialog/app_toast.dart';
+import 'package:supabase_flutter/supabase_flutter.dart' show AuthException, Supabase;
+import '../../services/auth/password_reset_email_errors.dart';
+import '../../widgets/auth/recovery_steps.dart';
 
 class ResetPasswordOtpScreen extends ConsumerStatefulWidget {
   final String email;
@@ -23,7 +26,9 @@ class _ResetPasswordOtpScreenState extends ConsumerState<ResetPasswordOtpScreen>
   String? _errorMessage;
 
   Timer? _timer;
-  int _secondsLeft = 30;
+  // Supabase allows ONE reset email per 60 seconds for an address. The button used to
+  // unlock after 30, so a single click at 31 seconds was refused with a 429.
+  int _secondsLeft = 60;
 
   @override
   void initState() {
@@ -37,10 +42,9 @@ class _ResetPasswordOtpScreenState extends ConsumerState<ResetPasswordOtpScreen>
     _timer?.cancel();
     super.dispose();
   }
-
-  void _startTimer() {
+  void _startTimer({int seconds = 60}) {
     _timer?.cancel();
-    setState(() => _secondsLeft = 30);
+    setState(() => _secondsLeft = seconds);
     _timer = Timer.periodic(const Duration(seconds: 1), (t) {
       if (_secondsLeft <= 1) {
         t.cancel();
@@ -91,13 +95,35 @@ class _ResetPasswordOtpScreenState extends ConsumerState<ResetPasswordOtpScreen>
           title: 'Code sent',
         );
       }
-    } catch (_) {
-      setState(() => _errorMessage = 'Could not resend the code. Please try again.');
+    } catch (error) {
+      if (!mounted) return;
+      if (error is AuthException) {
+        final ResetEmailFailure failure = describeResetEmailFailure(
+          statusCode: error.statusCode,
+          message: error.message,
+        );
+        setState(() => _errorMessage = failure.message);
+        // A refusal for being too early, or for the email allowance: lock the
+        // button for the time the server asked (or a minute), so it cannot be
+        // clicked into the same refusal again.
+        if (failure.limit != ResetEmailLimit.other) {
+          _startTimer(seconds: failure.waitSeconds ?? 60);
+        }
+      } else {
+        setState(() => _errorMessage = 'Could not resend the code. Please try again.');
+      }
     }
   }
 
-  void _handlePasswordSaved() {
+  Future<void> _handlePasswordSaved() async {
     isCustomerPasswordResetFlow = false;
+    // The recovery session was only meant to get the password changed. End it, so
+    // the person logs in with the NEW password (and their authenticator), exactly as
+    // the message says. This device only: the password change already ended every
+    // other session of the account.
+    try {
+      await Supabase.instance.client.auth.signOut();
+    } catch (_) {}
     if (mounted) {
       AppToast.success(
         context,
@@ -175,6 +201,11 @@ class _ResetPasswordOtpScreenState extends ConsumerState<ResetPasswordOtpScreen>
                               ],
                             ),
                           ),
+                          const SizedBox(height: 20),
+                          const RecoveryStepper(
+                            labels: RecoveryStepper.withAuthenticator,
+                            active: 1,
+                          ),
                           const SizedBox(height: 24),
 
                           const Text(
@@ -187,7 +218,7 @@ class _ResetPasswordOtpScreenState extends ConsumerState<ResetPasswordOtpScreen>
                           ),
                           const SizedBox(height: 8),
                           Text(
-                            'Enter the 6-digit code sent to ${widget.email}',
+'Step 1: Enter the code we sent to ${widget.email}. If your account uses an authenticator app, you will be asked for its code next.',
                             style: const TextStyle(fontSize: 14, color: Colors.grey),
                           ),
                           const SizedBox(height: 30),
@@ -217,7 +248,7 @@ class _ResetPasswordOtpScreenState extends ConsumerState<ResetPasswordOtpScreen>
                             alignment: Alignment.centerRight,
                             child: _secondsLeft > 0
                                 ? Text(
-                                    'Resend code in 0:${_secondsLeft.toString().padLeft(2, '0')}',
+'Resend code in ${_secondsLeft ~/ 60}:${(_secondsLeft % 60).toString().padLeft(2, '0')}',
                                     style: const TextStyle(color: Colors.grey, fontSize: 13),
                                   )
                                 : TextButton(onPressed: _handleResend, child: const Text('Resend code')),

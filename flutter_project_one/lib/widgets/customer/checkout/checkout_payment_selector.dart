@@ -48,51 +48,39 @@ class CheckoutPaymentSelector extends StatelessWidget {
         ),
         const SizedBox(height: 8),
                 Column(
-          children: _options
-              .map((o) => Padding(
-                    padding: const EdgeInsets.only(bottom: 12),
-                    child: _PaymentTile(
-                      option:     o,
-                      isSelected: selectedMethod == o.id,
-                      onTap:      () => onChanged(o.id),
-                    ),
-                  ))
-              .toList(),
+          children: [
+            for (final _PaymentOption o in _options) ...[
+              _PaymentTile(
+                option:     o,
+                isSelected: selectedMethod == o.id,
+                onTap:      () => onChanged(o.id),
+              ),
+              // The chosen method's instructions sit directly under its card,
+              // in one calm style (the brand colour stays on the card's icon).
+              if (selectedMethod == o.id)
+                _buildNote(
+                  color:      const Color(0xFFF3F3F4),
+                  border:     const Color(0xFFCFC4C5),
+                  iconColor:  const Color(0xFF4C4546),
+                  textColor:  const Color(0xFF4C4546),
+                  icon: o.id == 'gcash'
+                      ? Icons.open_in_new
+                      : o.id == 'card'
+                          ? Icons.lock_outline
+                          : Icons.info_outline,
+                  text: o.id == 'gcash'
+                      ? 'You will be taken to a secure GCash payment page. '
+                        'Your order stays pending until the payment is confirmed.'
+                      : o.id == 'card'
+                          ? 'You will enter your card details on the next step. '
+                            'They are sent securely to our payment partner.'
+                          : 'Pay in cash when your order arrives. '
+                            'Our team will verify your address before confirming.',
+                ),
+              const SizedBox(height: 12),
+            ],
+          ],
         ),
-
-        // ── Method-specific notes ──
-        if (selectedMethod == 'gcash')
-          _buildNote(
-            color:      const Color(0xFFEFF6FF),
-            border:     const Color(0xFFBFDBFE),
-            iconColor:  const Color(0xFF1D4ED8),
-            textColor:  const Color(0xFF1D4ED8),
-            icon:       Icons.open_in_new,
-            text:       'You will be redirected to the GCash app '
-                        'to complete payment securely.',
-          ),
-
-        if (selectedMethod == 'card')
-          _buildNote(
-            color:      const Color(0xFFF8F9FA),
-            border:     const Color(0xFFE5E7EB),
-            iconColor:  const Color(0xFF6B7280),
-            textColor:  const Color(0xFF6B7280),
-            icon:       Icons.lock_outline,
-            text:       'Your card details are encrypted and '
-                        ,
-          ),
-
-        if (selectedMethod == 'cod')
-          _buildNote(
-            color:      const Color(0xFFF0FDF4),
-            border:     const Color(0xFF86EFAC),
-            iconColor:  const Color(0xFF16A34A),
-            textColor:  const Color(0xFF16A34A),
-            icon:       Icons.info_outline,
-            text:       'Pay in cash when your order arrives. '
-                        'Admin will verify your address before confirming.',
-          ),
       ],
     );
   }

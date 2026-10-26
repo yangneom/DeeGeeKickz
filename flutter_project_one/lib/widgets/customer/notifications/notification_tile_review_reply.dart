@@ -30,8 +30,13 @@ class _NotificationTileReviewReplyState
   bool _isLoading = false;
 
   Future<void> _goToReview() async {
-        final String? feedbackId = widget.notification.referenceId;
+    // A second tap while the first is still loading is ignored, so the
+    // product page can't be opened twice.
+    if (_isLoading) return;
+
     widget.onMarkRead();
+
+    final int? feedbackId = int.tryParse(widget.notification.referenceId ?? '');
     if (feedbackId == null) {
       if (mounted) {
         AppToast.info(
@@ -46,8 +51,7 @@ class _NotificationTileReviewReplyState
     setState(() => _isLoading = true);
 
     try {
-      final review = await ReviewService().fetchReviewById(int.parse(feedbackId));
-      print('🔍 fetched review: $review, productId on review: ${review?.productId}');
+      final review = await ReviewService().fetchReviewById(feedbackId);
 
       if (!mounted) return;
       if (review == null) {
@@ -83,6 +87,16 @@ class _NotificationTileReviewReplyState
           ),
         ),
       );
+    } catch (_) {
+      // A failed request used to escape as an unhandled error and the
+      // customer saw nothing happen.
+      if (mounted) {
+        AppToast.error(
+          context,
+          'We could not open this review. Please check your connection and try again.',
+          title: 'Review unavailable',
+        );
+      }
     } finally {
       if (mounted) setState(() => _isLoading = false);
     }

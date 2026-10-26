@@ -6,6 +6,7 @@ import '../../../models/customer_address.dart';
 import '../../../services/customer/address/address_service.dart';
 import '../../common/dialog/confirm_dialog.dart';
 import 'address_pin_picker.dart';
+import '../../common/forms/app_dropdown_field.dart';
 import '../../../services/customer/address/psgc_service.dart';
 
 /// Shows a bottom sheet for adding a new address or editing an existing one.
@@ -307,6 +308,10 @@ class _AddressBottomSheetState extends State<AddressBottomSheet> {
   // (the full street match was rejected as untrustworthy) rather
   // than a real attempt at the exact house/building location.
   bool _lastGeocodeWasLocalityOnly = false;
+  // The address text the geocoder matched. It is shown on the confirmation map
+  // as the "closest match". Set only by a fresh geocode; cleared when the
+  // address text is unchanged.
+  String? _lastGeocodeFormattedAddress;
 
   Future<Map<String, double>?> _geocode() async {
     late final dynamic responseData;
@@ -407,6 +412,8 @@ class _AddressBottomSheetState extends State<AddressBottomSheet> {
 
     _lastGeocodeWasMismatch = data['locationMismatch'] == true;
     _lastGeocodeWasLocalityOnly = data['localityAnchorOnly'] == true;
+    final dynamic formatted = data['formattedAddress'];
+    _lastGeocodeFormattedAddress = formatted is String ? formatted : null;
 
     return {
       'lat': (data['lat'] as num).toDouble(),
@@ -594,6 +601,7 @@ class _AddressBottomSheetState extends State<AddressBottomSheet> {
       // session leak into the picker below.
       _lastGeocodeWasMismatch = false;
       _lastGeocodeWasLocalityOnly = false;
+      _lastGeocodeFormattedAddress = null;
     }
 
     // Show the pin picker whenever we have coordinates to confirm —
@@ -615,6 +623,7 @@ class _AddressBottomSheetState extends State<AddressBottomSheet> {
         initialLng: lng,
         showMismatchWarning: _lastGeocodeWasMismatch,
         isLocalityAnchorOnly: _lastGeocodeWasLocalityOnly,
+        resolvedAddress: _lastGeocodeFormattedAddress,
       );
 
       if (confirmed == null) {
@@ -1105,39 +1114,17 @@ class _PsgcDropdown<T> extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    return Container(
-      width: double.infinity,
-      padding: const EdgeInsets.symmetric(horizontal: 12),
-      decoration: BoxDecoration(
-        color: enabled ? Colors.white : const Color(0xFFF3F3F4),
-        border: Border.all(color: const Color(0xFFCFC4C5)),
-      ),
-      child: DropdownButtonHideUnderline(
-        child: DropdownButton<T>(
-          value: value,
-          isExpanded: true,
-          hint: Text(
-            hint,
-            style: const TextStyle(
-              fontFamily: 'Inter',
-              fontSize: 14,
-              color: Color(0xFFCFC4C5),
-            ),
-          ),
-          style: const TextStyle(
-            fontFamily: 'Inter',
-            fontSize: 14,
-            color: Colors.black,
-          ),
-          items: items
-              .map((T item) => DropdownMenuItem<T>(
-                    value: item,
-                    child: Text(labelOf(item)),
-                  ))
-              .toList(),
-          onChanged: enabled ? onChanged : null,
-        ),
-      ),
+    // Same dropdown as the rest of the app, in the CUSTOMER look: square
+    // corners, #CFC4C5 border, Inter text, black while open. It matches the
+    // text fields (_FormField) in this sheet.
+    return AppDropdownField<T>(
+      style: AppDropdownStyle.customer,
+      hint: hint,
+      value: value,
+      items: items,
+      labelOf: labelOf,
+      enabled: enabled,
+      onChanged: enabled ? onChanged : null,
     );
   }
 }

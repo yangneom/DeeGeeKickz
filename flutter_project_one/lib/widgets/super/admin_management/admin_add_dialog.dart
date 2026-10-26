@@ -1,6 +1,7 @@
 import 'package:flutter/material.dart';
 import '../../common/dialog/confirm_dialog.dart';
 import '../../common/dialog/app_toast.dart';
+import '../../common/forms/app_dropdown_field.dart';
 // ================================================
 // ADMIN ADD DIALOG
 //
@@ -334,41 +335,20 @@ Future<void> _handleAdd() async {
                           ),
                         ),
                         const SizedBox(height: 6),
-                        Container(
-                          decoration: BoxDecoration(
-                            color: Colors.white,
-                            borderRadius: BorderRadius.circular(8),
-                            border: Border.all(
-                              color: const Color(0xFFE5E7EB),
-                            ),
-                          ),
-                          child: DropdownButtonHideUnderline(
-                            child: DropdownButton<String>(
-                              value: _selectedRole,
-                              isExpanded: true,
-                              padding: const EdgeInsets.symmetric(
-                                horizontal: 12,
-                              ),
-                              style: const TextStyle(
-                                fontSize: 13,
-                                color: Color(0xFF111827),
-                              ),
-                              items: ['Admin', 'Cashier']
-                                  .map((String role) {
-                                return DropdownMenuItem<String>(
-                                  value: role,
-                                  child: Text(role),
-                                );
-                              }).toList(),
-                              onChanged: (String? value) {
-                                if (value != null) {
-                                  setState(() {
-                                    _selectedRole = value;
-                                  });
-                                }
-                              },
-                            ),
-                          ),
+                        AppDropdownField<String>(
+                          hint: 'Select a role',
+                          value: _selectedRole,
+                          items: const ['Admin', 'Cashier'],
+                          labelOf: (String role) => role,
+                          fillColor: Colors.white,
+                          borderColor: const Color(0xFFE5E7EB),
+                          onChanged: (String? value) {
+                            if (value != null) {
+                              setState(() {
+                                _selectedRole = value;
+                              });
+                            }
+                          },
                         ),
                       ],
                     ),

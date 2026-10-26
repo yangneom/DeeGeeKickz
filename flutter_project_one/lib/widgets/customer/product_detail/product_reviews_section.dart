@@ -700,6 +700,12 @@ class _ReviewsList extends StatelessWidget {
                   DropdownButton<_SortOption>(
                     value: sort,
                     underline: const SizedBox.shrink(),
+                    // Menu look: flat white, square corners, clean arrow.
+                    dropdownColor: Colors.white,
+                    borderRadius: BorderRadius.zero,
+                    elevation: 2,
+                    icon: const Icon(Icons.keyboard_arrow_down,
+                        size: 18, color: Colors.black),
                     style: const TextStyle(
                       fontFamily: 'Inter',
                       fontSize: 14,

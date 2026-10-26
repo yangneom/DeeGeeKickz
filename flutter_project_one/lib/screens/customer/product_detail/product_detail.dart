@@ -137,8 +137,10 @@ class _ProductDetailScreenState extends ConsumerState<ProductDetailScreen> {
                         final hPad = isDesktop ? 48.0 : 16.0;
 
                         return Padding(
-                          padding:
-                              EdgeInsets.fromLTRB(hPad, 24, hPad, 0),
+                          // The bottom gap keeps the gallery clear of the divider that
+                          // starts the next section. It used to be 0, so the two touched.
+                          padding: EdgeInsets.fromLTRB(
+                              hPad, 24, hPad, isDesktop ? 40 : 24),
                           child: ConstrainedBox(
                             constraints:
                                 const BoxConstraints(maxWidth: 1440),

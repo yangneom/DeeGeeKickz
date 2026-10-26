@@ -13,6 +13,7 @@ import '../../../widgets/customer/notifications/notification_tile_order.dart';
 import '../../../widgets/customer/notifications/notification_tile_offer.dart';
 import '../../../widgets/customer/notifications/notification_tile_message.dart';
 import '../../../widgets/customer/notifications/notification_tile_review_reply.dart';
+import '../../../widgets/customer/notifications/notification_tile_notice.dart';
 
 /// Notifications screen — reads from [NotificationProvider].
 /// Accessible via the bell icon in [AppTopBar].
@@ -71,29 +72,57 @@ class NotificationsScreen extends ConsumerWidget {
                                 const _EmptyState()
                               else
                                 Column(
-                                  children: notifState.notifications.map((n) {
+                                  children: notifState.notifications.map<Widget>((n) {
+                                    // Warning or suspension notice — opens the
+                                    // support chat. Recognised by its stored type
+                                    // text, because adding a new NotificationType
+                                    // would break the staff screens that list them.
+                                    if (n.isAccountWarning) {
+                                      return NotificationTileNotice(
+                                        notification: n,
+                                        onMarkRead: () =>
+                                            notifier.markRead(n.id),
+                                      );
+                                    }
+
+                                    // Every other kind of notification a customer
+                                    // can receive has its own tile, and each tile
+                                    // opens the right page when tapped.
                                     switch (n.type) {
+                                      // Order updates, and the automatic
+                                      // cancellation notice. Opens that order,
+                                      // or the order list if the notice has no
+                                      // order number (older ones).
                                       case NotificationType.order:
+                                      case NotificationType.orderCancellation:
                                         return NotificationTileOrder(
                                           notification: n,
                                           onMarkRead: () =>
                                               notifier.markRead(n.id),
                                         );
-                                                                            case NotificationType.adminReply:
+
+                                      // Support replies — opens the chat.
+                                      case NotificationType.adminReply:
+                                      case NotificationType.newMessage:
                                         return NotificationTileMessage(
                                           notification: n,
                                           onMarkRead: () =>
                                               notifier.markRead(n.id),
                                         );
+
+                                      // An admin replied to the customer's review.
                                       case NotificationType.newFeedback:
                                         return NotificationTileReviewReply(
                                           notification: n,
                                           onMarkRead: () =>
                                               notifier.markRead(n.id),
                                         );
+
+                                      // Discounts, promo banners, new arrivals.
                                       case NotificationType.promotion:
+                                      case NotificationType.newArrival:
                                       default:
-                                        // Staff-only types (lowStock, newFeedback, etc.)
+                                        // Staff-only types (lowStock, etc.)
                                         // shouldn't normally reach a customer's feed,
                                         // but fall back to the offer tile rather than
                                         // crashing if they ever do.

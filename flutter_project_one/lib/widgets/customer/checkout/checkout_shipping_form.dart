@@ -254,6 +254,14 @@ class _CountryDropdown extends StatelessWidget {
         DropdownButtonFormField<String>(
           value: selected,
           onChanged: onChanged,
+          // Menu look: a flat white card with square corners and a clean
+          // arrow, to match the rest of this customer form.
+          dropdownColor: Colors.white,
+          borderRadius: BorderRadius.zero,
+          elevation: 2,
+          menuMaxHeight: 280,
+          icon: const Icon(Icons.keyboard_arrow_down,
+              size: 20, color: Color(0xFF656464)),
           style: const TextStyle(
             fontFamily: 'Inter',
             fontSize: 16,

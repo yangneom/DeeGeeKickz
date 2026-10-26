@@ -36,15 +36,15 @@ class _OrderHistoryScreenState extends State<OrderHistoryScreen> {
     _loadOrders();
   }
   
-  @override
-void didChangeDependencies() {
-  super.didChangeDependencies();
-  if (!_loading) _loadOrders();
-}
+  // (A didChangeDependencies() reload used to be here. It ran on EVERY change of
+  // the screen size, keyboard or theme, and replaced the page with a spinner each
+  // time. The list now refreshes when a cancellation succeeds and when the
+  // customer comes back from the order page, which is what it was meant to do.)
 
 
-  Future<void> _loadOrders() async {
-    setState(() => _loading = true);
+  // silent: true refreshes the list in place (no full-screen spinner).
+  Future<void> _loadOrders({bool silent = false}) async {
+    if (!silent) setState(() => _loading = true);
 
     final orders = await _service.getMyOrders();
 
@@ -68,12 +68,14 @@ void didChangeDependencies() {
         .toList();
   }
 
-  void _goToTracking(Order order) {
-    Navigator.of(context).push(
+  Future<void> _goToTracking(Order order) async {
+    await Navigator.of(context).push(
       MaterialPageRoute(
         builder: (_) => OrderTrackingScreen(order: order),
       ),
     );
+    // The status may have changed while the customer was on the order page.
+    if (mounted) _loadOrders(silent: true);
   }
 
   @override
@@ -164,6 +166,7 @@ void didChangeDependencies() {
                                           order: order,
                                           onTrack: () =>
                                               _goToTracking(order),
+                                          onCancelled: _loadOrders,
                                         ),
                                       )
                                       .toList(),

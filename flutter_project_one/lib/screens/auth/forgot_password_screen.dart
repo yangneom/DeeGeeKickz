@@ -4,6 +4,7 @@ import 'package:supabase_flutter/supabase_flutter.dart' show AuthException;
 import '../../providers/auth/auth_provider.dart';
 import '../../core/utils/form_validators.dart';
 import '../../widgets/common/forms/auth_form_fields.dart';
+import '../../services/auth/password_reset_email_errors.dart';
 import 'reset_password_otp_screen.dart';
 
 class ForgotPasswordScreen extends ConsumerStatefulWidget {
@@ -34,12 +35,13 @@ class _ForgotPasswordScreenState extends ConsumerState<ForgotPasswordScreen> {
   // "AuthApiException(message: ..., statusCode: 429 ...)") was shown.
   String _friendlyError(Object error) {
     if (error is AuthException) {
-      final String message = error.message.toLowerCase();
-      if (error.statusCode == '429' ||
-          message.contains('rate limit') ||
-          message.contains('security purposes')) {
-        return 'Too many requests. Please wait a few minutes and try again.';
-      }
+      // Supabase answers 429 for different reasons (a code was just sent, the whole
+      // project's email allowance is used up, too many requests from this
+      // connection). Each now gets the message that is actually true.
+      return describeResetEmailFailure(
+        statusCode: error.statusCode,
+        message: error.message,
+      ).message;
     }
     return 'We couldn\'t send the code. Please check your connection and try again.';
   }

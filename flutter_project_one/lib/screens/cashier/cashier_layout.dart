@@ -1,5 +1,6 @@
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
+import '../../core/guards/staff_device_gate.dart';
 import '../../widgets/cashier/sidebar/cashier_sidebar.dart';
 import '../../widgets/cashier/topbar/cashier_top_bar.dart';
 import 'cashierModule/cashier_screen.dart';
@@ -58,6 +59,10 @@ class _CashierLayoutState extends ConsumerState<CashierLayout> {
   // ================================================
   @override
   Widget build(BuildContext context) {
+    return StaffDeviceGate(child: _buildLayout(context));
+  }
+
+  Widget _buildLayout(BuildContext context) {
     return Scaffold(
       backgroundColor: const Color(0xFFF3F4F6),
       body: Row(

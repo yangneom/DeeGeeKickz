@@ -7,31 +7,113 @@ import '../../../models/chat_message_model.dart';
 class ChatService {
   final SupabaseClient _client = Supabase.instance.client;
 
+  // ── Chat photo rules ───────────────────────────────────────────
+  // Checked here as well as by the picker, because the picker only
+  // filters by "image" and anyone can call the upload directly.
+  static const int _maxImageBytes = 10 * 1024 * 1024; // 10 MB
+  static const Map<String, String> _imageTypes = {
+    'jpg':  'image/jpeg',
+    'jpeg': 'image/jpeg',
+    'png':  'image/png',
+    'webp': 'image/webp',
+    'gif':  'image/gif',
+  };
+
   // ── Upload a chat image to the shared product-images bucket ────
   // Reuses the same bucket inventory already uses, under its own
   // "chat/" folder so the two don't mix. Returns the public URL, or
-  // null if the upload failed (caller should show a friendly error
-  // and NOT send a message with a broken image link).
+  // null if the upload failed or the file isn't an allowed photo
+  // (caller should show a friendly error and NOT send a message with
+  // a broken image link).
   Future<String?> uploadChatImage({
     required String conversationId,
     required PlatformFile file,
   }) async {
     try {
-      final String timestamp = DateTime.now().millisecondsSinceEpoch.toString();
-      final String filePath = 'chat/$conversationId/${timestamp}_${file.name}';
+      final String extension =
+          (file.extension ?? file.name.split('.').last).toLowerCase();
+      final String? contentType = _imageTypes[extension];
+      if (contentType == null) {
+        return null; // not a JPG, PNG, WebP or GIF
+      }
 
       Uint8List? bytes = file.bytes;
       if (bytes == null && file.path != null) {
         bytes = await File(file.path!).readAsBytes();
       }
-      if (bytes == null) {
-        return null;
+      if (bytes == null || bytes.isEmpty || bytes.length > _maxImageBytes) {
+        return null; // nothing to upload, or larger than 10 MB
       }
 
-      await _client.storage.from('product-images').uploadBinary(filePath, bytes);
+      // The original file name is typed by whoever owns the device, so
+      // keep only plain characters — spaces, slashes and symbols can
+      // make the storage path invalid.
+      final String safeName =
+          file.name.replaceAll(RegExp(r'[^A-Za-z0-9._-]'), '_');
+      final String timestamp = DateTime.now().millisecondsSinceEpoch.toString();
+      final String filePath = 'chat/$conversationId/${timestamp}_$safeName';
+
+      await _client.storage.from('product-images').uploadBinary(
+            filePath,
+            bytes,
+            fileOptions: FileOptions(contentType: contentType),
+          );
       return _client.storage.from('product-images').getPublicUrl(filePath);
     } catch (error) {
       return null;
+    }
+  }
+
+  // ── Find the customer's open conversation, if any ──────────────
+  // Takes the OLDEST open one instead of expecting exactly one. The
+  // old maybeSingle() threw as soon as a customer had two open
+  // conversations (which could happen if the chat was opened twice
+  // at the same moment), and then the chat never loaded again.
+  Future<Map<String, dynamic>?> _findOpenConversationRow(
+    String customerId,
+  ) async {
+    final List<dynamic> rows = await _client
+        .from('conversations')
+        .select()
+        .eq('customer_id', customerId)
+        .eq('status', 'open')
+        .order('created_at', ascending: true)
+        .limit(1);
+
+    if (rows.isEmpty) return null;
+    return rows.first as Map<String, dynamic>;
+  }
+
+  // ── Get the open conversation for a customer, or create it ─────
+  // Shared by the customer side and the admin side, so both behave
+  // the same. If two callers try to create it at the same moment,
+  // the database (one open conversation per customer) refuses the
+  // second insert, and this simply loads the one that won.
+  Future<Conversation> _getOrCreateFor(String customerId) async {
+    final Map<String, dynamic>? existing =
+        await _findOpenConversationRow(customerId);
+    if (existing != null) {
+      return Conversation.fromMap(existing);
+    }
+
+    try {
+      final created = await _client
+          .from('conversations')
+          .insert({'customer_id': customerId, 'status': 'open'})
+          .select()
+          .single();
+
+      return Conversation.fromMap(created as Map<String, dynamic>);
+    } on PostgrestException catch (e) {
+      // 23505 = unique violation: someone else just created it.
+      if (e.code == '23505') {
+        final Map<String, dynamic>? again =
+            await _findOpenConversationRow(customerId);
+        if (again != null) {
+          return Conversation.fromMap(again);
+        }
+      }
+      rethrow;
     }
   }
 
@@ -40,26 +122,7 @@ class ChatService {
     final userId = _client.auth.currentUser?.id;
     if (userId == null) return null;
 
-    // Check for existing open conversation
-    final existing = await _client
-        .from('conversations')
-        .select()
-        .eq('customer_id', userId)
-        .eq('status', 'open')
-        .maybeSingle();
-
-    if (existing != null) {
-      return Conversation.fromMap(existing as Map<String, dynamic>);
-    }
-
-    // Create new conversation
-    final created = await _client
-        .from('conversations')
-        .insert({'customer_id': userId, 'status': 'open'})
-        .select()
-        .single();
-
-    return Conversation.fromMap(created as Map<String, dynamic>);
+    return _getOrCreateFor(userId);
   }
 
   // ── Fetch messages for a conversation ─────────────────────────
@@ -76,13 +139,11 @@ class ChatService {
   }
 
   // ── Send a message ─────────────────────────────────────────────
-// ── Send a message ─────────────────────────────────────────────
- // ── Send a message ─────────────────────────────────────────────
   // text can be empty ONLY if imageUrl and/or productId is set — the
   // caller is responsible for that check before calling this (see
   // chat_provider.dart sendMessage). message_text is NOT NULL in the
   // DB, so an image-only message still inserts '' rather than null.
-Future<void> sendMessage({
+  Future<void> sendMessage({
     required String conversationId,
     required String senderId,
     required String senderRole,
@@ -100,9 +161,9 @@ Future<void> sendMessage({
       'product_id':      productId == null ? null : int.parse(productId),
     });
 
-   // Notify staff when the CUSTOMER sends a message, and notify the
+    // Notify staff when the CUSTOMER sends a message, and notify the
     // customer when an ADMIN (or cashier/super admin) replies.
-       if (senderRole.toLowerCase() == 'customer') {
+    if (senderRole.toLowerCase() == 'customer') {
       await _notifyStaffNewMessage(
         conversationId: conversationId,
         customerId: senderId,
@@ -124,7 +185,7 @@ Future<void> sendMessage({
   // NOTIFY CUSTOMER — ADMIN REPLIED
   // Recipient: the customer who owns this conversation.
   // ================================================
-Future<void> _notifyCustomerAdminReply({
+  Future<void> _notifyCustomerAdminReply({
     required String conversationId,
     required String text,
     String? imageUrl,
@@ -138,6 +199,7 @@ Future<void> _notifyCustomerAdminReply({
         'p_product_id': productId == null ? null : int.parse(productId),
       });
     } catch (error) {
+      // Non-critical: the message itself was already sent.
     }
   }
 
@@ -153,11 +215,12 @@ Future<void> _notifyCustomerAdminReply({
     if (productId != null) return '🔗 Shared a product';
     return 'Sent a message';
   }
+
   // ================================================
   // NOTIFY STAFF — NEW MESSAGE
   // Recipient: Admin only (Super Admin has no chat screen).
   // ================================================
-Future<void> _notifyStaffNewMessage({
+  Future<void> _notifyStaffNewMessage({
     required String conversationId,
     required String customerId,
     required String text,
@@ -173,6 +236,7 @@ Future<void> _notifyStaffNewMessage({
         'p_product_id': productId == null ? null : int.parse(productId),
       });
     } catch (error) {
+      // Non-critical: the message itself was already sent.
     }
   }
 
@@ -188,7 +252,7 @@ Future<void> _notifyStaffNewMessage({
           schema: 'public',
           table:  'messages',
           filter: PostgresChangeFilter(
-            type:   PostgresChangeFilterType.eq, // ✅ fixed from FilterType.eq
+            type:   PostgresChangeFilterType.eq,
             column: 'conversation_id',
             value:  int.parse(conversationId),
           ),
@@ -265,8 +329,7 @@ Future<void> _notifyStaffNewMessage({
     _client.removeChannel(channel);
   }
 
-
-    // ── Admin: fetch ALL customers, regardless of whether they have
+  // ── Admin: fetch ALL customers, regardless of whether they have
   // a conversation yet — used so admin can search/start a chat with
   // anyone, not just people who already messaged first.
   Future<List<Map<String, dynamic>>> fetchAllCustomers() async {
@@ -280,29 +343,12 @@ Future<void> _notifyStaffNewMessage({
   }
 
   // ── Admin: get or create a conversation with a specific customer.
-  // Mirrors getOrCreateConversation() (the customer-side version)
-  // but admin-initiated, keyed by an explicit customerId instead of
-  // the currently logged-in user.
+  // Same behavior as getOrCreateConversation() (the customer-side
+  // version) but admin-initiated, keyed by an explicit customerId
+  // instead of the currently logged-in user.
   Future<Conversation> getOrCreateConversationWithCustomer(
     String customerId,
   ) async {
-    final existing = await _client
-        .from('conversations')
-        .select()
-        .eq('customer_id', customerId)
-        .eq('status', 'open')
-        .maybeSingle();
-
-    if (existing != null) {
-      return Conversation.fromMap(existing as Map<String, dynamic>);
-    }
-
-    final created = await _client
-        .from('conversations')
-        .insert({'customer_id': customerId, 'status': 'open'})
-        .select()
-        .single();
-
-    return Conversation.fromMap(created as Map<String, dynamic>);
+    return _getOrCreateFor(customerId);
   }
 }

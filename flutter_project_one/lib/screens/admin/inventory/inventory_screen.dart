@@ -283,13 +283,18 @@ class _InventoryScreenState extends ConsumerState<InventoryScreen> {
     final RenderBox overlay =
         Overlay.of(buttonContext).context.findRenderObject() as RenderBox;
 
+    // The menu opens just UNDER the three-dot button, not on top of it, so it
+    // sits beside the row that was clicked. showMenu keeps it fully on screen
+    // and moves it up if there is no room below.
+    final Offset below = Offset(0, button.size.height + 4);
     final RelativeRect position = RelativeRect.fromRect(
       Rect.fromPoints(
-        button.localToGlobal(Offset.zero, ancestor: overlay),
+        button.localToGlobal(Offset.zero, ancestor: overlay) + below,
         button.localToGlobal(
-          button.size.bottomRight(Offset.zero),
-          ancestor: overlay,
-        ),
+              button.size.bottomRight(Offset.zero),
+              ancestor: overlay,
+            ) +
+            below,
       ),
       Offset.zero & overlay.size,
     );
@@ -298,13 +303,18 @@ class _InventoryScreenState extends ConsumerState<InventoryScreen> {
       context: buttonContext,
       position: position,
       elevation: 4,
+      shadowColor: Colors.black.withOpacity(0.2),
+      constraints: const BoxConstraints(minWidth: 168),
       shape: RoundedRectangleBorder(
         borderRadius: BorderRadius.circular(8),
+        side: const BorderSide(color: Color(0xFFE5E7EB)),
       ),
             items: [
 
         PopupMenuItem<String>(
           value: 'edit',
+          height: 40,
+          padding: const EdgeInsets.symmetric(horizontal: 12),
           child: Row(
             children: const [
               Icon(
@@ -325,6 +335,8 @@ class _InventoryScreenState extends ConsumerState<InventoryScreen> {
         ),
       PopupMenuItem<String>(
         value: 'archive',
+        height: 40,
+        padding: const EdgeInsets.symmetric(horizontal: 12),
         child: Row(
           children: const [
             Icon(
@@ -343,7 +355,9 @@ class _InventoryScreenState extends ConsumerState<InventoryScreen> {
           ],
         ),
       ),
-    ],
+       ],
+      color: Colors.white,
+      surfaceTintColor: Colors.transparent,
     ).then((String? value) async {
       if (value == 'edit') {
         await showEditProductDialog(

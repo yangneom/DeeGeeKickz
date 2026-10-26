@@ -1,5 +1,6 @@
 import 'package:flutter/material.dart';
 import 'package:supabase_flutter/supabase_flutter.dart';
+import '../../core/guards/mfa_flow_guard.dart';
 import 'mfa_enroll_screen.dart';
 
 class MfaRecoveryScreen extends StatefulWidget {
@@ -15,8 +16,15 @@ class _MfaRecoveryScreenState extends State<MfaRecoveryScreen> {
   String? _errorMessage;
 
   @override
+  void initState() {
+    super.initState();
+    MfaFlowGuard.opened(MfaScreenKind.recovery);
+  }
+
+  @override
   void dispose() {
     _codeController.dispose();
+    MfaFlowGuard.closed(MfaScreenKind.recovery);
     super.dispose();
   }
 

@@ -1,5 +1,7 @@
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
+import '../../../core/utils/form_validators.dart';
+import '../../../core/utils/phone_format.dart';
 
 // ================================================
 // AUTH FORM FIELDS — the one look for every auth form.
@@ -219,6 +221,80 @@ class _AuthPasswordFieldState extends State<AuthPasswordField> {
             ),
             onPressed: () => setState(() => _obscure = !_obscure),
           ),
+        ),
+      ),
+    );
+  }
+}
+
+/// Phone box with a fixed, always-visible "+63". The user types only the 10
+/// digits after it. Letters and symbols cannot be typed, a pasted
+/// 09171234567 or +63 917 123 4567 is cleaned up, and it must start with 9.
+/// The controller holds ONLY those 10 digits; use
+/// PhoneFormat.toE164(controller.text) to get the +639XXXXXXXXX form.
+class AuthPhoneField extends StatelessWidget {
+  final String label;
+  final TextEditingController controller;
+  final String? Function(String?)? validator;
+  final TextInputAction? textInputAction;
+  final FocusNode? focusNode;
+  final ValueChanged<String>? onFieldSubmitted;
+  final bool autofocus;
+  final bool enabled;
+
+  const AuthPhoneField({
+    super.key,
+    required this.controller,
+    this.label = 'Phone Number',
+    this.validator,
+    this.textInputAction,
+    this.focusNode,
+    this.onFieldSubmitted,
+    this.autofocus = false,
+    this.enabled = true,
+  });
+
+  @override
+  Widget build(BuildContext context) {
+    return _LabeledField(
+      label: label,
+      field: TextFormField(
+        controller: controller,
+        focusNode: focusNode,
+        enabled: enabled,
+        autofocus: autofocus,
+        validator: validator ?? FormValidators.nationalPhone,
+        keyboardType: TextInputType.phone,
+        textInputAction: textInputAction,
+        autofillHints: const [AutofillHints.telephoneNumberNational],
+        inputFormatters: [NationalPhoneInputFormatter()],
+        onFieldSubmitted: onFieldSubmitted,
+        style: const TextStyle(fontSize: 14, color: AuthFieldStyle.text),
+        decoration: AuthFieldStyle.decoration(hint: 'e.g. 9171234567').copyWith(
+          // Always visible (a prefixIcon, unlike prefixText, does not hide
+          // itself while the box is empty).
+          prefixIcon: const Padding(
+            padding: EdgeInsets.only(left: 14, right: 10),
+            child: Row(
+              mainAxisSize: MainAxisSize.min,
+              children: [
+                Text(
+                  '+63',
+                  style: TextStyle(
+                    fontSize: 14,
+                    fontWeight: FontWeight.w600,
+                    color: AuthFieldStyle.text,
+                  ),
+                ),
+                SizedBox(width: 10),
+                SizedBox(
+                  height: 20,
+                  child: VerticalDivider(width: 1, color: AuthFieldStyle.border),
+                ),
+              ],
+            ),
+          ),
+          prefixIconConstraints: const BoxConstraints(minWidth: 0, minHeight: 0),
         ),
       ),
     );

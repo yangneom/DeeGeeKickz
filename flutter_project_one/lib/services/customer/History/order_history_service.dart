@@ -29,13 +29,18 @@ class OrderHistoryService {
           .select('''
             order_id,
             total_amount,
+            subtotal,
+            shipping,
+            discount_amount,
             payment_method,
             order_status,
             tracking_url,
             created_at,
             address (
               street,
+              barangay,
               city,
+              province,
               zip_code,
               landmark
             ),
@@ -98,10 +103,14 @@ class OrderHistoryService {
             rawAddr is Map<String, dynamic> ? rawAddr : {};
 
         final String street   = addr['street']   ?? '';
+        final String barangay = addr['barangay'] ?? '';
         final String city     = addr['city']      ?? '';
+        final String province = addr['province'] ?? '';
         final String zip      = addr['zip_code']  ?? '';
         final String landmark = addr['landmark']  ?? '';
-        final String fullAddress = [street, city, zip]
+        // Barangay and province were left out, so the address on the order page
+        // stopped at the city.
+        final String fullAddress = [street, barangay, city, province, zip]
             .where((s) => s.isNotEmpty)
             .join(', ');
 
@@ -131,6 +140,12 @@ class OrderHistoryService {
           landmark:      landmark,
           address:       fullAddress,
           totalAmount:   (map['total_amount'] as num).toDouble(),
+          // Loaded now. They were never read before, so the order page showed
+          // Shipping as 0.00 and never showed the saved amount, and the lines
+          // did not add up to the total.
+          subtotal:       (map['subtotal'] as num?)?.toDouble() ?? 0,
+          shipping:       (map['shipping'] as num?)?.toDouble() ?? 0,
+          discountAmount: (map['discount_amount'] as num?)?.toDouble() ?? 0,
           paymentMethod: map['payment_method'] ?? '',
           paymentStatus: paymentStatusMap[orderId] ?? 'Pending',
           orderStatus:   map['order_status'] ?? 'Pending',
@@ -167,13 +182,18 @@ class OrderHistoryService {
           .select('''
             order_id,
             total_amount,
+            subtotal,
+            shipping,
+            discount_amount,
             payment_method,
             order_status,
             tracking_url,
             created_at,
             address (
               street,
+              barangay,
               city,
+              province,
               zip_code,
               landmark
             ),
@@ -222,10 +242,14 @@ class OrderHistoryService {
           rawAddr is Map<String, dynamic> ? rawAddr : {};
 
       final String street   = addr['street']   ?? '';
+      final String barangay = addr['barangay'] ?? '';
       final String city     = addr['city']      ?? '';
+      final String province = addr['province'] ?? '';
       final String zip      = addr['zip_code']  ?? '';
       final String landmark = addr['landmark']  ?? '';
-      final String fullAddress = [street, city, zip]
+      // Barangay and province were left out, so the address on the order page
+      // stopped at the city.
+      final String fullAddress = [street, barangay, city, province, zip]
           .where((s) => s.isNotEmpty)
           .join(', ');
 
@@ -254,6 +278,9 @@ class OrderHistoryService {
         landmark:      landmark,
         address:       fullAddress,
         totalAmount:   (map['total_amount'] as num).toDouble(),
+        subtotal:       (map['subtotal'] as num?)?.toDouble() ?? 0,
+        shipping:       (map['shipping'] as num?)?.toDouble() ?? 0,
+        discountAmount: (map['discount_amount'] as num?)?.toDouble() ?? 0,
         paymentMethod: map['payment_method'] ?? '',
         paymentStatus: paymentStatus,
         orderStatus:   map['order_status'] ?? 'Pending',
@@ -267,4 +294,91 @@ class OrderHistoryService {
       return null;
     }
   }
+
+  // ================================================
+  // PROGRESS: the real dates of each step, and the customer's own cancel reason
+  //
+  // Reads the order_progress rows of ONE order. Customers can read only the
+  // progress rows of their own orders (the order_progress_select policy), so
+  // asking by order id is safe. If nothing can be read, the result is empty and
+  // the order page simply shows no extra dates. Nothing is estimated.
+  // ================================================
+  Future<OrderProgressInfo> fetchProgress(String orderId) async {
+    final user = _supabase.auth.currentUser;
+    final int? parsedId = int.tryParse(orderId);
+    if (user == null || parsedId == null) return const OrderProgressInfo();
+
+    try {
+      final List<dynamic> rows = await _supabase
+          .from('order_progress')
+          .select('status, admin_note, updated_at')
+          .eq('order_id', parsedId)
+          .order('updated_at', ascending: true);
+
+      final Map<String, String> stepDates = <String, String>{};
+      String? cancelReason;
+
+      for (final dynamic r in rows) {
+        final String status =
+            (r['status'] ?? '').toString().trim().toLowerCase();
+        final dynamic at = r['updated_at'];
+
+        // The FIRST row for a status is when the order reached it.
+        if (status.isNotEmpty && at != null && !stepDates.containsKey(status)) {
+          final DateTime? parsed = DateTime.tryParse(at.toString());
+          if (parsed != null) {
+            stepDates[status] = _formatDateTime(parsed.toLocal());
+          }
+        }
+
+        if (status == 'cancelled') {
+          cancelReason = _customerReasonFrom((r['admin_note'] ?? '').toString());
+        }
+      }
+
+      return OrderProgressInfo(stepDates: stepDates, cancelReason: cancelReason);
+    } catch (e) {
+      print('OrderHistoryService.fetchProgress error: $e');
+      return const OrderProgressInfo();
+    }
+  }
+
+  // Same look as the order list: 10/19/2026 3:45 pm
+  static String _formatDateTime(DateTime local) {
+    final String month = local.month.toString().padLeft(2, '0');
+    final String day   = local.day.toString().padLeft(2, '0');
+    final String year  = local.year.toString();
+    final int    h12   = local.hour % 12 == 0 ? 12 : local.hour % 12;
+    final String min   = local.minute.toString().padLeft(2, '0');
+    final String amPm  = local.hour < 12 ? 'am' : 'pm';
+    return '$month/$day/$year $h12:$min $amPm';
+  }
+
+  // Shows the reason ONLY when the customer gave it themselves
+  // ("Cancelled by customer: Changed my mind"). Notes from the store or the
+  // system are not repeated to the customer here.
+  static String? _customerReasonFrom(String note) {
+    const String prefix = 'Cancelled by customer:';
+    if (!note.startsWith(prefix)) return null;
+    String reason = note.substring(prefix.length).trim();
+    const String refundSentence = 'Payment was already confirmed';
+    final int cut = reason.indexOf(refundSentence);
+    if (cut >= 0) reason = reason.substring(0, cut).trim();
+    return reason.isEmpty ? null : reason;
+  }
+}
+
+/// What the order page needs beyond the order itself.
+class OrderProgressInfo {
+  /// Status (lower case) to a formatted date, ONLY for statuses that really
+  /// have a row in order_progress.
+  final Map<String, String> stepDates;
+
+  /// The customer's own cancellation reason, if they gave one.
+  final String? cancelReason;
+
+  const OrderProgressInfo({
+    this.stepDates = const <String, String>{},
+    this.cancelReason,
+  });
 }

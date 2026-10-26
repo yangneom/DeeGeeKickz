@@ -1,12 +1,20 @@
+import 'dart:async';
+
 import 'package:flutter/material.dart';
+import 'package:supabase_flutter/supabase_flutter.dart';
 import 'package:url_launcher/url_launcher.dart';
 
 import '../../../models/order.dart';
+import '../../../services/customer/History/order_history_service.dart';
 import '../../../widgets/common/nav/app_top_bar.dart';
 import '../../../widgets/common/nav/app_drawer.dart';
 import '../../../widgets/common/nav/bottom_nav_bar.dart';
 import '../../../widgets/common/nav/app_footer.dart';
 import '../../../widgets/customer/orders/order_tracking_timeline.dart';
+import '../../../widgets/common/dialog/app_toast.dart';
+import '../../../widgets/customer/orders/order_status_style.dart';
+import '../../../widgets/customer/checkout/checkout_order_summary.dart'
+    show formatPeso;
 import '../../customer/messages/customer_chat_screen.dart';
 
 // ================================================
@@ -18,35 +26,148 @@ import '../../customer/messages/customer_chat_screen.dart';
 //      state with a helpful message.
 // ================================================
 
-class OrderTrackingScreen extends StatelessWidget {
+// ================================================
+// THE SCREEN THE REST OF THE APP OPENS (the order list, notifications).
+//
+// Same name and same input as before, so nothing that opens it changes. It now
+// KEEPS THE ORDER FRESH:
+//   - it loads the real dates of each step (order_progress);
+//   - it listens for changes to THIS order (the `orders` table is in your
+//     realtime publication) and reloads, so if the store confirms or ships the
+//     order while the page is open, the tracker moves by itself.
+// If realtime is unavailable the page just behaves as it did before.
+// ================================================
+class OrderTrackingScreen extends StatefulWidget {
   final Order order;
 
   const OrderTrackingScreen({super.key, required this.order});
 
-  static const List<String> _steps = [
-    'Pending',
-    'Confirmed',
-    'Preparing',
-    'Shipped',
-    'Delivered',
-  ];
+  @override
+  State<OrderTrackingScreen> createState() => _OrderTrackingScreenState();
+}
+
+class _OrderTrackingScreenState extends State<OrderTrackingScreen> {
+  final OrderHistoryService _service = OrderHistoryService();
+
+  late Order _order = widget.order;
+  OrderProgressInfo _progress = const OrderProgressInfo();
+  RealtimeChannel? _channel;
+  Timer? _debounce;
+
+  @override
+  void initState() {
+    super.initState();
+    _loadProgress();
+    _subscribe();
+  }
+
+  Future<void> _loadProgress() async {
+    final OrderProgressInfo info = await _service.fetchProgress(_order.orderId);
+    if (!mounted) return;
+    setState(() => _progress = info);
+  }
+
+  // Reloads this order's status, tracking link and step dates from the database.
+  Future<void> _refresh() async {
+    final Order? fresh = await _service.fetchOrderById(_order.orderId);
+    final OrderProgressInfo info = await _service.fetchProgress(_order.orderId);
+    if (!mounted) return;
+    setState(() {
+      if (fresh != null) _order = fresh;
+      _progress = info;
+    });
+  }
+
+  void _subscribe() {
+    final int? id = int.tryParse(_order.orderId);
+    if (id == null) return;
+
+    _channel = Supabase.instance.client
+        .channel('order_tracking_$id')
+        .onPostgresChanges(
+          event: PostgresChangeEvent.update,
+          schema: 'public',
+          table: 'orders',
+          filter: PostgresChangeFilter(
+            type: PostgresChangeFilterType.eq,
+            column: 'order_id',
+            value: id,
+          ),
+          // Several rows can change in quick succession; reload once.
+          callback: (PostgresChangePayload payload) {
+            _debounce?.cancel();
+            _debounce = Timer(const Duration(milliseconds: 400), () {
+              if (mounted) _refresh();
+            });
+          },
+        )
+        .subscribe();
+  }
+
+  @override
+  void dispose() {
+    _debounce?.cancel();
+    final RealtimeChannel? channel = _channel;
+    if (channel != null) {
+      Supabase.instance.client.removeChannel(channel);
+    }
+    super.dispose();
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    return OrderTrackingView(order: _order, progress: _progress);
+  }
+}
+
+// The page itself. Same layout code as before; it just receives the order and
+// the loaded progress instead of owning them.
+class OrderTrackingView extends StatelessWidget {
+  final Order order;
+
+  /// Real dates and the customer's own cancel reason, loaded separately.
+  final OrderProgressInfo progress;
+
+  const OrderTrackingView({
+    super.key,
+    required this.order,
+    this.progress = const OrderProgressInfo(),
+  });
+
+  // The first step tells apart an order still waiting for PAYMENT ("Awaiting
+  // Payment") from one waiting for the STORE to confirm ("Pending"). Both are
+  // real, different statuses in the database.
+  List<String> get _steps => [
+        _isAwaitingPayment ? 'Awaiting Payment' : 'Pending',
+        'Confirmed',
+        'Preparing',
+        'Shipped',
+        'Delivered',
+      ];
 
   int get _currentStep {
     switch (order.orderStatus.toLowerCase()) {
       case 'confirmed':  return 1;
       case 'preparing':  return 2;
       case 'shipped':    return 3;
-      case 'delivered':  return 4;
+      case 'delivered':
+      // "Completed" is the final status of a Cash on Delivery order (the admin
+      // marks it Completed when the cash is collected). The old code sent it to
+      // the default below and showed a finished order as Pending.
+      case 'completed':  return 4;
       default:           return 0;
     }
   }
 
+  // Real dates only. Step 1 is the placement date. Every other step shows a date
+  // only if order_progress has a row for that status. No row means no date:
+  // nothing is estimated, and no date is copied from another step.
   List<String?> get _timestamps => [
         order.dateTime,
-        _currentStep >= 1 ? order.dateTime : null,
-        _currentStep >= 2 ? order.dateTime : null,
-        _currentStep >= 3 ? order.dateTime : null,
-        _currentStep >= 4 ? 'Delivered' : null,
+        progress.stepDates['confirmed'],
+        progress.stepDates['preparing'],
+        progress.stepDates['shipped'],
+        progress.stepDates['delivered'] ?? progress.stepDates['completed'],
       ];
 
   bool get _hasTrackingUrl =>
@@ -55,21 +176,39 @@ class OrderTrackingScreen extends StatelessWidget {
   bool get _hasReceipt =>
       order.receiptUrl != null && order.receiptUrl!.isNotEmpty;
 
-  Color get _statusBadgeColor {
-    switch (order.orderStatus.toLowerCase()) {
-      case 'shipped':    return const Color(0xFF1A5276);
-      case 'delivered':  return const Color(0xFF1E8449);
-      case 'preparing':  return const Color(0xFF7D6608);
-      case 'cancelled':  return const Color(0xFF991B1B);
-      default:           return Colors.black;
-    }
-  }
-
-  Future<void> _openLalamove() async {
+  // Same colours as the order list: both read order_status_style.dart. The old
+  // version showed PENDING and CONFIRMED in plain black, while the list showed
+  // them amber and blue, so one order looked like two different states.
+  Color get _statusBadgeColor => orderStatusColor(order.orderStatus);
+  // Opens the tracking link only if it is a real http(s) address. A malformed
+  // link used to throw, and a failed open did nothing silently; now the
+  // customer is told what happened.
+  Future<void> _openLalamove(BuildContext context) async {
     if (!_hasTrackingUrl) return;
-    final Uri uri = Uri.parse(order.trackingUrl!);
-    if (await canLaunchUrl(uri)) {
-      await launchUrl(uri, mode: LaunchMode.externalApplication);
+    final Uri? uri = Uri.tryParse(order.trackingUrl!.trim());
+    if (uri == null ||
+        !(uri.scheme == 'https' || uri.scheme == 'http') ||
+        uri.host.isEmpty) {
+      AppToast.error(
+        context,
+        'The tracking link for this order is not valid. Please contact support.',
+        title: 'Cannot open tracking',
+      );
+      return;
+    }
+
+    bool opened = false;
+    try {
+      opened = await launchUrl(uri, mode: LaunchMode.externalApplication);
+    } catch (_) {
+      opened = false;
+    }
+    if (!opened && context.mounted) {
+      AppToast.error(
+        context,
+        'We could not open the tracking page. Please try again.',
+        title: 'Cannot open tracking',
+      );
     }
   }
 
@@ -82,7 +221,10 @@ class OrderTrackingScreen extends StatelessWidget {
   }
 
   Widget buildCancelReasonCard() {
-  if (order.cancelReason == null || order.cancelReason!.isEmpty) {
+  // The customer's own reason (read from order_progress), or whatever the
+  // order already carried.
+  final String? reason = progress.cancelReason ?? order.cancelReason;
+  if (reason == null || reason.isEmpty) {
     return const SizedBox.shrink();
   }
   return Container(
@@ -112,7 +254,7 @@ class OrderTrackingScreen extends StatelessWidget {
               ),
               const SizedBox(height: 4),
               Text(
-                'Reason: ${order.cancelReason}',
+                'Reason: $reason',
                 style: const TextStyle(
                   fontFamily: 'Inter',
                   fontSize: 12,
@@ -181,12 +323,17 @@ class OrderTrackingScreen extends StatelessWidget {
         Row(
           crossAxisAlignment: CrossAxisAlignment.start,
           children: [
-            GestureDetector(
-              onTap: () => Navigator.of(context).pop(),
-              child: const Padding(
-                padding: EdgeInsets.only(right: 12, top: 4),
-                child: Icon(Icons.arrow_back,
-                    size: 22, color: Colors.black),
+            Semantics(
+              button: true,
+              label: 'Back',
+              excludeSemantics: true,
+              child: GestureDetector(
+                behavior: HitTestBehavior.opaque,
+                onTap: () => Navigator.of(context).pop(),
+                child: const Padding(
+                  padding: EdgeInsets.fromLTRB(0, 4, 12, 12),
+                  child: Icon(Icons.arrow_back, size: 24, color: Colors.black),
+                ),
               ),
             ),
             Expanded(
@@ -195,6 +342,8 @@ class OrderTrackingScreen extends StatelessWidget {
                 children: [
                   Text(
                     'Order #${order.orderId}',
+                    maxLines: 2,
+                    overflow: TextOverflow.ellipsis,
                     style: const TextStyle(
                       fontFamily:  'Archivo Narrow',
                       fontSize:    28,
@@ -215,6 +364,7 @@ class OrderTrackingScreen extends StatelessWidget {
                 ],
               ),
             ),
+            const SizedBox(width: 8),
             Container(
               padding: const EdgeInsets.symmetric(
                   horizontal: 10, vertical: 5),
@@ -259,7 +409,75 @@ class OrderTrackingScreen extends StatelessWidget {
     );
   }
 
+  bool get _isCancelled => order.orderStatus.toLowerCase() == 'cancelled';
+
+  bool get _isAwaitingPayment =>
+      order.orderStatus.toLowerCase() == 'awaiting payment';
+
+  // A short line under the CURRENT step, only for the two states that wait on
+  // something. Nothing is written under any other step.
+  List<String?> get _stepNotes {
+    final String status = order.orderStatus.toLowerCase();
+    return [
+      status == 'awaiting payment'
+          ? 'Your payment has not been confirmed yet.'
+          : (status == 'pending'
+              ? 'Waiting for the store to confirm your order.'
+              : null),
+      null,
+      null,
+      null,
+      null,
+    ];
+  }
+
+  // Why there is no tracking link, in words that match the order's real state.
+  String get _trackingUnavailableReason {
+    final String status = order.orderStatus.toLowerCase();
+    if (status == 'cancelled') {
+      return 'Tracking is not available for a cancelled order';
+    }
+    if (status == 'delivered') {
+      return 'This order was delivered. No tracking link was saved for it';
+    }
+    if (status == 'shipped') {
+      return 'Your order is on its way. The tracking link is not available yet';
+    }
+    return 'Tracking link will appear once your order is shipped';
+  }
+
   Widget buildTimeline() {
+    // A cancelled order never reached the later steps. The step list would show
+    // "Pending" as the current step, which is wrong, so show a plain notice.
+    if (_isCancelled) {
+      final String placed =
+          order.dateTime.isNotEmpty ? ' It was placed on ${order.dateTime}.' : '';
+      final String? cancelledAt = progress.stepDates['cancelled'];
+      return Container(
+        padding: const EdgeInsets.all(20),
+        decoration: BoxDecoration(
+          color:  Colors.white,
+          border: Border.all(color: const Color(0xFFCFC4C5)),
+        ),
+        child: Row(
+          children: [
+            const Icon(Icons.block, size: 20, color: Color(0xFF991B1B)),
+            const SizedBox(width: 12),
+            Expanded(
+              child: Text(
+                'This order was cancelled${cancelledAt != null ? ' on $cancelledAt' : ''}.$placed',
+                style: const TextStyle(
+                  fontFamily: 'Inter',
+                  fontSize:   13,
+                  height:     1.4,
+                  color:      Color(0xFF4C4546),
+                ),
+              ),
+            ),
+          ],
+        ),
+      );
+    }
     return Container(
       padding: const EdgeInsets.all(20),
       decoration: BoxDecoration(
@@ -270,14 +488,74 @@ class OrderTrackingScreen extends StatelessWidget {
         steps:       _steps,
         currentStep: _currentStep,
         timestamps:  _timestamps,
+        notes:       _stepNotes,
       ),
     );
   }
 
   // FIX: "TRACK PACKAGE" opens real Lalamove URL.
   //      Shows disabled state if not shipped yet.
-  Widget buildTrackingNumberRow() {
+  // On a phone the text and the button STACK (button full width) instead of the
+  // text being squeezed into a few words per line beside the button.
+  Widget buildTrackingNumberRow(BuildContext context) {
     final bool canTrack = _hasTrackingUrl;
+    final bool compact = MediaQuery.of(context).size.width < 520;
+
+    final Widget message = Column(
+      crossAxisAlignment: CrossAxisAlignment.start,
+      children: [
+        const Text(
+          'DELIVERY TRACKING',
+          style: TextStyle(
+            fontFamily:   'Inter',
+            fontSize:     10,
+            fontWeight:   FontWeight.w600,
+            letterSpacing: 1.0,
+            color:        Color(0xFF656464),
+          ),
+        ),
+        const SizedBox(height: 2),
+        Text(
+          canTrack
+              ? 'Lalamove — tap to track your delivery'
+              : _trackingUnavailableReason,
+          style: TextStyle(
+            fontFamily: 'Inter',
+            fontSize:   13,
+            height:     1.4,
+            color: canTrack ? Colors.black : const Color(0xFF656464),
+          ),
+        ),
+      ],
+    );
+
+    // Enabled only when the order really has a tracking link. Disabled keeps its
+    // place (so the card does not jump) and says so to screen readers.
+    final Widget button = Semantics(
+      button: true,
+      enabled: canTrack,
+      label: canTrack ? 'Track package' : 'Track package, not available yet',
+      excludeSemantics: true,
+      child: GestureDetector(
+        behavior: HitTestBehavior.opaque,
+        onTap: canTrack ? () => _openLalamove(context) : null,
+        child: Container(
+          alignment: compact ? Alignment.center : null,
+          padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 14),
+          color: canTrack ? Colors.black : const Color(0xFFD1D5DB),
+          child: Text(
+            'TRACK PACKAGE',
+            style: TextStyle(
+              fontFamily:   'Inter',
+              fontSize:     12,
+              fontWeight:   FontWeight.w600,
+              letterSpacing: 1.0,
+              color: canTrack ? Colors.white : const Color(0xFF6B7280),
+            ),
+          ),
+        ),
+      ),
+    );
 
     return Container(
       padding: const EdgeInsets.all(16),
@@ -285,65 +563,33 @@ class OrderTrackingScreen extends StatelessWidget {
         color:  Colors.white,
         border: Border.all(color: const Color(0xFFCFC4C5)),
       ),
-      child: Row(
-        children: [
-          const Icon(Icons.local_shipping_outlined,
-              size: 22, color: Color(0xFF656464)),
-          const SizedBox(width: 12),
-          Expanded(
-            child: Column(
-              crossAxisAlignment: CrossAxisAlignment.start,
+      child: compact
+          ? Column(
+              crossAxisAlignment: CrossAxisAlignment.stretch,
               children: [
-                const Text(
-                  'DELIVERY TRACKING',
-                  style: TextStyle(
-                    fontFamily:   'Inter',
-                    fontSize:     10,
-                    fontWeight:   FontWeight.w600,
-                    letterSpacing: 1.0,
-                    color:        Color(0xFF656464),
-                  ),
+                Row(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    const Icon(Icons.local_shipping_outlined,
+                        size: 22, color: Color(0xFF656464)),
+                    const SizedBox(width: 12),
+                    Expanded(child: message),
+                  ],
                 ),
-                const SizedBox(height: 2),
-                Text(
-                  canTrack
-                      ? 'Lalamove — tap to track your delivery'
-                      : 'Tracking link will appear once your order is shipped',
-                  style: TextStyle(
-                    fontFamily: 'Inter',
-                    fontSize:   13,
-                    color: canTrack
-                        ? Colors.black
-                        : const Color(0xFF9CA3AF),
-                  ),
-                ),
+                const SizedBox(height: 12),
+                button,
+              ],
+            )
+          : Row(
+              children: [
+                const Icon(Icons.local_shipping_outlined,
+                    size: 22, color: Color(0xFF656464)),
+                const SizedBox(width: 12),
+                Expanded(child: message),
+                const SizedBox(width: 12),
+                button,
               ],
             ),
-          ),
-          GestureDetector(
-            onTap: canTrack ? _openLalamove : null,
-            child: Container(
-              padding: const EdgeInsets.symmetric(
-                  horizontal: 16, vertical: 12),
-              color: canTrack
-                  ? Colors.black
-                  : const Color(0xFFD1D5DB),
-              child: Text(
-                'TRACK PACKAGE',
-                style: TextStyle(
-                  fontFamily:   'Inter',
-                  fontSize:     12,
-                  fontWeight:   FontWeight.w600,
-                  letterSpacing: 1.0,
-                  color: canTrack
-                      ? Colors.white
-                      : const Color(0xFF9CA3AF),
-                ),
-              ),
-            ),
-          ),
-        ],
-      ),
     );
   }
 
@@ -413,7 +659,7 @@ class OrderTrackingScreen extends StatelessWidget {
                       ),
                     ),
                     Text(
-                      '₱${item.total.toStringAsFixed(2)}',
+                      formatPeso(item.total),
                       style: const TextStyle(
                         fontFamily: 'Inter',
                         fontSize:   14,
@@ -433,9 +679,17 @@ class OrderTrackingScreen extends StatelessWidget {
                 ? order.subtotal
                 : order.items.fold<double>(0, (sum, item) => sum + item.total),
           ),
+          // The stored subtotal is ALREADY net of discount (every line holds the
+          // discounted price) and total = subtotal + shipping. A negative
+          // "Discount" row therefore made the lines not add up. The discount is
+          // shown as what the customer saved, outside the sum, like checkout.
           if (order.discountAmount > 0) ...[
             const SizedBox(height: 6),
-            _TotalRow(label: 'Discount', value: -order.discountAmount),
+            _TotalRow(
+              label: 'You saved',
+              value: order.discountAmount,
+              valueColor: const Color(0xFF16A34A),
+            ),
           ],
           const SizedBox(height: 6),
           _TotalRow(
@@ -459,7 +713,7 @@ class OrderTrackingScreen extends StatelessWidget {
                 ),
               ),
               Text(
-                '₱${order.totalAmount.toStringAsFixed(2)}',
+                formatPeso(order.totalAmount),
                 style: const TextStyle(
                   fontFamily: 'Archivo Narrow',
                   fontSize:   20,
@@ -642,9 +896,8 @@ class OrderTrackingScreen extends StatelessWidget {
 
 
 // ─── Desktop layout ───────────────────────────────────────────────────────────
-
 class _DesktopLayout extends StatelessWidget {
-  final OrderTrackingScreen screen;
+  final OrderTrackingView screen;
   const _DesktopLayout({required this.screen});
 
   @override
@@ -657,7 +910,9 @@ class _DesktopLayout extends StatelessWidget {
         screen.buildCancelReasonCard(),
         screen.buildAdminNoteCard(),
         const SizedBox(height: 16),
-        screen.buildTrackingNumberRow(),
+        screen.buildTimeline(),
+        const SizedBox(height: 16),
+        screen.buildTrackingNumberRow(context),
         const SizedBox(height: 24),
         Row(
           crossAxisAlignment: CrossAxisAlignment.start,
@@ -686,7 +941,7 @@ class _DesktopLayout extends StatelessWidget {
 // ─── Mobile layout ────────────────────────────────────────────────────────────
 
 class _MobileLayout extends StatelessWidget {
-  final OrderTrackingScreen screen;
+  final OrderTrackingView screen;
   const _MobileLayout({required this.screen});
 
   @override
@@ -701,7 +956,7 @@ class _MobileLayout extends StatelessWidget {
         const SizedBox(height: 20),
         screen.buildTimeline(),
         const SizedBox(height: 12),
-        screen.buildTrackingNumberRow(),
+        screen.buildTrackingNumberRow(context),
         const SizedBox(height: 12),
         screen.buildOrderSummary(),
         const SizedBox(height: 12),
@@ -718,7 +973,8 @@ class _MobileLayout extends StatelessWidget {
 class _TotalRow extends StatelessWidget {
   final String label;
   final double value;
-  const _TotalRow({required this.label, required this.value});
+  final Color? valueColor;
+  const _TotalRow({required this.label, required this.value, this.valueColor});
 
   @override
   Widget build(BuildContext context) {
@@ -730,11 +986,11 @@ class _TotalRow extends StatelessWidget {
                 fontFamily: 'Inter',
                 fontSize:   13,
                 color:      Color(0xFF656464))),
-        Text('₱${value.toStringAsFixed(2)}',
-            style: const TextStyle(
+        Text(formatPeso(value),
+            style: TextStyle(
                 fontFamily: 'Inter',
                 fontSize:   13,
-                color:      Colors.black)),
+                color:      valueColor ?? Colors.black)),
       ],
     );
   }

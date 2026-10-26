@@ -8,7 +8,6 @@ import '../../../providers/customer/customer_cart_provider.dart';
 import '../../../providers/product/product_provider.dart';
 import '../../../widgets/common/nav/app_top_bar.dart';
 import '../../../widgets/common/nav/app_drawer.dart';
-import '../../../widgets/common/nav/bottom_nav_bar.dart';
 import '../../../widgets/common/nav/app_footer.dart';
 import '../../../widgets/customer/checkout/checkout_progress_bar.dart';
 import 'checkout_step1_shipping.dart';
@@ -65,10 +64,10 @@ class _CheckoutScreenState extends ConsumerState<CheckoutScreen> {
   }
 
   // ── Customer info ─────────────────────────────────────────────────────
-  String customerName  = '';
+    String customerName  = '';
   String customerEmail = '';
+  String customerPhone = '';
   bool   _customerInfoLoaded = false;  // ← add this flag
-
 
   // Add this method to _CheckoutScreenState:
   Future<void> _loadCustomerInfo() async {
@@ -80,13 +79,13 @@ class _CheckoutScreenState extends ConsumerState<CheckoutScreen> {
     try {
       final dynamic profile = await Supabase.instance.client
           .from('users')
-          .select('first_name, last_name')
+          .select('first_name, last_name, phone')
           .eq('id', user.id)
           .single();
 
       if (mounted) {
-        setState(() {
-          customerName         = '${profile['first_name'] ?? ''} ${profile['last_name'] ?? ''}'.trim();
+        setState(() {          customerName         = '${profile['first_name'] ?? ''} ${profile['last_name'] ?? ''}'.trim();
+          customerPhone        = (profile['phone'] ?? '').toString();
           customerEmail        = user.email ?? '';
           _customerInfoLoaded  = true;
         });
@@ -105,12 +104,41 @@ class _CheckoutScreenState extends ConsumerState<CheckoutScreen> {
     _loadCustomerInfo();
   }
 
+  // Lets a step change scroll the page back to the top, so the customer lands
+  // at the start of the next step instead of wherever the last button was.
+  final ScrollController _scrollController = ScrollController();
+
+  void _scrollToTop() {
+    WidgetsBinding.instance.addPostFrameCallback((_) {
+      // The screen may have been left (or the order placed) before this frame.
+      if (!mounted) return;
+      if (_scrollController.hasClients) _scrollController.jumpTo(0);
+    });
+  }
+
+  @override
+  void dispose() {
+    _scrollController.dispose();
+    super.dispose();
+  }
+
+
+
 
   // ── Payment ───────────────────────────────────────────────────────────
+  // True while Step 3 is creating an order or taking a payment.
+  bool _step3Busy = false;
   String paymentMethod = 'gcash';
 
   // ── Step navigation ───────────────────────────────────────────────────
-  void _goToStep(int step) => setState(() => _currentStep = step);
+  void _goToStep(int step) {
+    // While Step 3 is creating an order or taking a payment, nobody can leave
+    // it: not with the Back link, the progress bar or the system Back button.
+    // Leaving mid-payment could strand a half-created order.
+    if (_step3Busy && step != _currentStep) return;
+    setState(() => _currentStep = step);
+    _scrollToTop();
+  }
 
   void _onShippingContinue({
     String? addressId,
@@ -133,9 +161,12 @@ class _CheckoutScreenState extends ConsumerState<CheckoutScreen> {
       this.landmark = landmark;
       _currentStep  = 2;
     });
+    _scrollToTop();
   }
-
-  void _onReviewContinue() => setState(() => _currentStep = 3);
+  void _onReviewContinue() {
+    setState(() => _currentStep = 3);
+    _scrollToTop();
+  }
 
     Future<int> _onPlaceOrder() async {
     final user = Supabase.instance.client.auth.currentUser;
@@ -241,28 +272,34 @@ return orderId;
       );
     }
 
-    return Scaffold(
+    // Back (system button / browser back) on Review or Payment goes to the
+    // PREVIOUS STEP instead of leaving checkout and losing the progress. On
+    // Shipping it leaves checkout, as before.
+    return PopScope(
+      canPop: _currentStep == 1,
+onPopInvokedWithResult: (bool didPop, Object? result) {
+        if (!didPop) _goToStep(_currentStep - 1);
+      },
+      child: Scaffold(
       backgroundColor: const Color(0xFFF9F9F9),
       drawer: const AppDrawer(),
       appBar: const AppTopBar(activeRoute: 'shop'),
-      bottomNavigationBar: BottomNavBar(
-        currentIndex: 2,
-        onTap: (i) {
-          if (i == 0) Navigator.of(context).popUntil((r) => r.isFirst);
-        },
-      ),
+      // The global bottom bar is hidden during checkout: it competed with the
+      // progress bar and the content for space on small screens. The top bar
+      // and the drawer still let the customer leave.
       body: LayoutBuilder(
         builder: (BuildContext context, BoxConstraints constraints) {
           final bool isDesktop = constraints.maxWidth >= 1024;
 
           return SingleChildScrollView(
+            controller: _scrollController,
             child: Column(
               crossAxisAlignment: CrossAxisAlignment.stretch,
               children: [
                 Padding(
                   padding: EdgeInsets.symmetric(
                     horizontal: isDesktop ? 48 : 16,
-                    vertical: 32,
+                    vertical: isDesktop ? 32 : 16,
                   ),
                   child: ConstrainedBox(
                     constraints: const BoxConstraints(maxWidth: 1440),
@@ -271,12 +308,23 @@ return orderId;
                       children: [
 
                         // ── Progress bar ─────────────────────────
-                        CheckoutProgressBar(currentStep: _currentStep),
-                        const SizedBox(height: 48),
+                        CheckoutProgressBar(
+                          currentStep: _currentStep,
+                          // Tapping a finished step goes back to it. Nothing the
+                          // customer entered is cleared.
+                          onStepTap: (int step) {
+                            if (step < _currentStep) _goToStep(step);
+                          },
+                        ),
+                        SizedBox(height: isDesktop ? 40 : 20),
 
                         // ── Step 1 ───────────────────────────────
-                        if (_currentStep == 1)
-                          CheckoutStep1Shipping(
+                        // Step 1 stays alive (only hidden) while the customer is on
+                        // Review or Payment, so going back keeps the chosen address
+                        // and the shipping fee instead of reloading and re-quoting.
+                        Offstage(
+                          offstage: _currentStep != 1,
+                          child: CheckoutStep1Shipping(
                             initialStreet:   street,
                             initialBarangay: barangay,
                             initialCity:     city,
@@ -292,16 +340,19 @@ return orderId;
                             onShippingFeeChanged: _onShippingFeeChanged,
                             onContinue:      _onShippingContinue,
                           ),
+                        ),
 
                         // ── Step 2 ───────────────────────────────
                         if (_currentStep == 2)
                           CheckoutStep2Review(
-                            firstName: '',
+                            // The name and phone used to be passed as empty text,
+                            // which left blank lines in the address card.
+                            firstName: customerName,
                             lastName:  '',
-                            street:    street,
-                            city:      city,
+                            street:    barangay.isEmpty ? street : '$street, $barangay',
+                            city:      [city, province].where((s) => s.isNotEmpty).join(', '),
                             postal:    zipCode,
-                            phone:     '',
+                            phone:     customerPhone,
                             country:   region,
                             items:     items,
                             subtotal:  subtotal,
@@ -327,6 +378,9 @@ return orderId;
                             customerEmail:   customerEmail,
                             onPlaceOrder:    _onPlaceOrder,
                             onBack:          () => _goToStep(2),
+                            onBusyChanged:   (bool busy) {
+                              if (mounted) setState(() => _step3Busy = busy);
+                            },
                           ),
                       ],
                     ),
@@ -337,6 +391,7 @@ return orderId;
             ),
           );
         },
+      ),
       ),
     );
   }

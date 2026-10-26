@@ -3,6 +3,7 @@
 import 'package:flutter/material.dart';
 import '../../../models/notification_model.dart';
 import '../../../models/order.dart';
+import '../../../screens/customer/orders/order_history_screen.dart';
 import '../../../screens/customer/orders/order_tracking_screen.dart';
 import '../../../services/customer/History/order_history_service.dart';
 import '../../common/dialog/app_toast.dart';
@@ -32,13 +33,21 @@ class _NotificationTileOrderState extends State<NotificationTileOrder> {
 
   Future<void> _goToOrder() async {
     final String? orderId = widget.notification.orderId;
-    if (orderId == null) return;
+    // A second tap while the first is still loading is ignored, so the same
+    // order can't be pushed onto the screen twice.
+    if (orderId == null || _isLoadingOrder) return;
 
     widget.onMarkRead();
     setState(() => _isLoadingOrder = true);
 
-    final Order? order =
-        await OrderHistoryService().fetchOrderById(orderId);
+    Order? order;
+    try {
+      order = await OrderHistoryService().fetchOrderById(orderId);
+    } catch (_) {
+      // A failed request (no connection, server error) must not leave the
+      // spinner running forever.
+      order = null;
+    }
 
     if (!mounted) return;
     setState(() => _isLoadingOrder = false);
@@ -53,8 +62,25 @@ class _NotificationTileOrderState extends State<NotificationTileOrder> {
     }
 
     Navigator.of(context).push(
-      MaterialPageRoute(builder: (_) => OrderTrackingScreen(order: order)),
+      MaterialPageRoute(builder: (_) => OrderTrackingScreen(order: order!)),
     );
+  }
+
+  // A notification with no order number (an older cancellation notice, for
+  // example) can't open one specific order. Rather than doing nothing, it
+  // takes the customer to their order list, where the order is shown.
+  bool _openingHistory = false;
+
+  Future<void> _openOrderHistory() async {
+    if (_openingHistory) return;
+    _openingHistory = true;
+
+    widget.onMarkRead();
+    await Navigator.of(context).push(
+      MaterialPageRoute(builder: (_) => const OrderHistoryScreen()),
+    );
+
+    _openingHistory = false;
   }
 
   @override
@@ -62,7 +88,7 @@ class _NotificationTileOrderState extends State<NotificationTileOrder> {
     final bool hasOrderId = widget.notification.orderId != null;
 
     return GestureDetector(
-      onTap: hasOrderId ? _goToOrder : widget.onMarkRead,
+      onTap: hasOrderId ? _goToOrder : _openOrderHistory,
       child: Container(
         margin: const EdgeInsets.only(bottom: 12),
         padding: const EdgeInsets.all(20),
@@ -155,38 +181,36 @@ class _NotificationTileOrderState extends State<NotificationTileOrder> {
                     ),
                   ),
 
-                  if (hasOrderId) ...[
-                    const SizedBox(height: 14),
-                    GestureDetector(
-                      onTap: _goToOrder,
-                      child: Container(
-                        padding: const EdgeInsets.symmetric(
-                            horizontal: 16, vertical: 10),
-                        decoration: BoxDecoration(
-                          border: Border.all(color: Colors.black, width: 1),
-                        ),
-                        child: _isLoadingOrder
-                            ? const SizedBox(
-                                width: 14,
-                                height: 14,
-                                child: CircularProgressIndicator(
-                                  strokeWidth: 2,
-                                  color: Colors.black,
-                                ),
-                              )
-                            : const Text(
-                                'TRACK SHIPMENT',
-                                style: TextStyle(
-                                  fontFamily: 'Inter',
-                                  fontSize: 12,
-                                  fontWeight: FontWeight.w600,
-                                  letterSpacing: 1.0,
-                                  color: Colors.black,
-                                ),
-                              ),
+                  const SizedBox(height: 14),
+                  GestureDetector(
+                    onTap: hasOrderId ? _goToOrder : _openOrderHistory,
+                    child: Container(
+                      padding: const EdgeInsets.symmetric(
+                          horizontal: 16, vertical: 10),
+                      decoration: BoxDecoration(
+                        border: Border.all(color: Colors.black, width: 1),
                       ),
+                      child: _isLoadingOrder
+                          ? const SizedBox(
+                              width: 14,
+                              height: 14,
+                              child: CircularProgressIndicator(
+                                strokeWidth: 2,
+                                color: Colors.black,
+                              ),
+                            )
+                          : Text(
+                              hasOrderId ? 'TRACK SHIPMENT' : 'VIEW ORDERS',
+                              style: const TextStyle(
+                                fontFamily: 'Inter',
+                                fontSize: 12,
+                                fontWeight: FontWeight.w600,
+                                letterSpacing: 1.0,
+                                color: Colors.black,
+                              ),
+                            ),
                     ),
-                  ],
+                  ),
                 ],
               ),
             ),

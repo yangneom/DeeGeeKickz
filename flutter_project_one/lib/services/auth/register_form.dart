@@ -18,7 +18,10 @@ import '../../screens/auth/terms_of_use_screen.dart';
 
 // Shared validation rules + shared auth look
 import '../../core/utils/form_validators.dart';
+import '../../core/utils/phone_format.dart';
 import '../../widgets/common/forms/auth_form_fields.dart';
+import 'email_policy_service.dart';
+import '../../providers/auth/pending_password_provider.dart';
 
 // ================================================
 // SIGN UP FORM
@@ -56,6 +59,7 @@ class _RegisterFormState extends ConsumerState<RegisterForm> {
   final TextEditingController _lastNameController = TextEditingController();
   final TextEditingController _phoneController = TextEditingController();
   final TextEditingController _emailController = TextEditingController();
+  final FocusNode _emailFocus = FocusNode();
   final TextEditingController _passwordController = TextEditingController();
   final TextEditingController _confirmPasswordController = TextEditingController();
 
@@ -71,6 +75,11 @@ class _RegisterFormState extends ConsumerState<RegisterForm> {
   // themselves as the user edits them.
   bool _showErrors = false;
   bool _isSubmitting = false;
+
+  // A message about the email that only the server can know (a temporary
+  // email provider, or an address that is already registered). It is shown
+  // under the email box, and cleared as soon as the person edits the box.
+  String? _emailPolicyError;
 
   // ── Tap recognizers for the two footer links ──
   // Created once here (not in build) and disposed below, so we don't
@@ -111,6 +120,7 @@ class _RegisterFormState extends ConsumerState<RegisterForm> {
     _lastNameController.dispose();
     _phoneController.dispose();
     _emailController.dispose();
+    _emailFocus.dispose();
     _passwordController.dispose();
     _confirmPasswordController.dispose();
     _privacyPolicyTapRecognizer.dispose();
@@ -151,10 +161,29 @@ class _RegisterFormState extends ConsumerState<RegisterForm> {
     // (The password is NOT trimmed here.)
     final String firstName = _firstNameController.text.trim();
     final String lastName = _lastNameController.text.trim();
-    final String email = _emailController.text.trim();
-    final String phone = _phoneController.text.trim();
+    final String email = _emailController.text.trim().toLowerCase();
+    // Saved as +639XXXXXXXXX. The box holds only the 10 digits after +63,
+    // and the validator has already confirmed they are a real number.
+    final String phone = PhoneFormat.toE164(_phoneController.text) ?? '';
 
     try {
+      // Is this address allowed? Checked BEFORE anything is created or sent,
+      // so a temporary or already-used address never reaches Supabase from
+      // this form. (The database enforces the same rule on its own too.)
+      final EmailPolicyResult policy = await EmailPolicyService().check(email);
+      final String? policyMessage = EmailPolicyService.messageFor(policy);
+      if (policyMessage != null) {
+        if (mounted) {
+          setState(() {
+            _emailPolicyError = policyMessage;
+            _showErrors = true;
+          });
+          // Re-run the form so the message appears under the email box.
+          _formKey.currentState?.validate();
+        }
+        return;
+      }
+
       final String? errorMessage = await authService.register(
         firstName: firstName,
         lastName: lastName,
@@ -165,7 +194,7 @@ class _RegisterFormState extends ConsumerState<RegisterForm> {
 
       // Registration failed: show the error and stop.
       if (errorMessage != null) {
-        errorNotifier.setError(errorMessage);
+        errorNotifier.setError(EmailPolicyService.friendlyRegisterError(errorMessage));
         return;
       }
 
@@ -179,11 +208,29 @@ class _RegisterFormState extends ConsumerState<RegisterForm> {
         ),
       );
 
+      // Keep the password IN MEMORY for the verification screen only, so its
+      // "Edit email" pop-up can restart the sign-up without asking again. It is
+      // cleared on every way out of that screen.
+      ref.read(pendingPasswordProvider.notifier).set(_passwordController.text);
+
       // Go to the OTP screen.
       if (mounted) {
-        Navigator.of(context).push(
-          MaterialPageRoute(builder: (context) => const OtpVerificationScreen()),
-        );
+        Navigator.of(context)
+            .push(
+              MaterialPageRoute(builder: (context) => const OtpVerificationScreen()),
+            )
+            .then((_) {
+          // The verification screen's "Wrong email? Edit" brings the person
+          // back here with everything still filled in. Put the cursor in the
+          // email box, with the address selected, ready to be corrected.
+          if (mounted) {
+            _emailController.selection = TextSelection(
+              baseOffset: 0,
+              extentOffset: _emailController.text.length,
+            );
+            _emailFocus.requestFocus();
+          }
+        });
       }
     } catch (_) {
       errorNotifier.setError('Something went wrong. Please try again.');
@@ -231,26 +278,27 @@ class _RegisterFormState extends ConsumerState<RegisterForm> {
       label: 'Email Address',
       hint: 'Enter your email address',
       controller: _emailController,
+      focusNode: _emailFocus,
       keyboardType: TextInputType.emailAddress,
       textInputAction: TextInputAction.next,
       autofillHints: const [AutofillHints.email],
-      validator: FormValidators.email,
+      // Format first; then any message the server gave about this address.
+      // Customers register with a Gmail address only. The server checks the
+      // same rule again, so skipping this form does not skip the rule.
+      validator: (String? value) =>
+          FormValidators.gmailEmail(value) ?? _emailPolicyError,
+      onChanged: (_) {
+        if (_emailPolicyError != null) {
+          setState(() => _emailPolicyError = null);
+        }
+      },
     );
   }
 
   Widget _phoneField() {
-    return AuthTextField(
-      label: 'Phone Number',
-      hint: 'e.g. 09171234567',
+    return AuthPhoneField(
       controller: _phoneController,
-      keyboardType: TextInputType.phone,
       textInputAction: TextInputAction.next,
-      autofillHints: const [AutofillHints.telephoneNumber],
-      inputFormatters: [
-        FilteringTextInputFormatter.allow(RegExp(r'[\d+]')),
-        LengthLimitingTextInputFormatter(13),
-      ],
-      validator: FormValidators.philippinePhone,
     );
   }
 

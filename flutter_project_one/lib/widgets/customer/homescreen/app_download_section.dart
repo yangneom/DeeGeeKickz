@@ -151,14 +151,7 @@ class AppDownloadSection extends ConsumerWidget {
           'Scan with your Android phone',
           style: TextStyle(fontSize: 12.5, color: Color(0xFF6B7280)),
         ),
-        const SizedBox(height: 4),
-        TextButton(
-          onPressed: () => _download(context),
-          child: const Text(
-            'or download the APK',
-            style: TextStyle(fontSize: 12.5, color: Color(0xFF2563EB)),
-          ),
-        ),
+
       ],
     );
   }

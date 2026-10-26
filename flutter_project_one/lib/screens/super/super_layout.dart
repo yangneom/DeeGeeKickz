@@ -1,5 +1,6 @@
 import 'package:flutter/material.dart';
 import 'package:flutter_riverpod/flutter_riverpod.dart';
+import '../../core/guards/staff_device_gate.dart';
 import '../../widgets/super/sidebar/super_sidebar.dart';
 import '../../widgets/super/topbar/super_top_bar.dart';
 import 'dashboard/super_dashboard_screen.dart';
@@ -129,6 +130,10 @@ class _SuperLayoutState extends ConsumerState<SuperLayout> {
   // ================================================
   @override
   Widget build(BuildContext context) {
+    return StaffDeviceGate(child: _buildLayout(context));
+  }
+
+  Widget _buildLayout(BuildContext context) {
     return Scaffold(
       backgroundColor: Colors.grey.shade100,
       body: Row(

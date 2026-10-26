@@ -1,5 +1,6 @@
 // Basic Flutter import
 import 'package:flutter/material.dart';
+import 'package:flutter/services.dart' show TextInput;
 import '../../providers/customer/customer_cart_provider.dart';
 // Riverpod import
 import 'package:flutter_riverpod/flutter_riverpod.dart';
@@ -23,12 +24,12 @@ import '../../screens/super/super_layout.dart';
 
 import '../../screens/customer/homescreen/home_screen.dart';
 
-import 'package:flutter/foundation.dart' show kIsWeb;
 import '../../screens/auth/mfa_enroll_screen.dart';
 import 'package:supabase_flutter/supabase_flutter.dart';
 import 'package:connectivity_plus/connectivity_plus.dart';
 import '../../screens/auth/mfa_challenge_screen.dart';
 import '../../main.dart';
+import '../../core/guards/staff_device_rules.dart';
 
 // Shared auth look + shared validation rules
 import '../../core/utils/form_validators.dart';
@@ -109,6 +110,11 @@ class _LoginFormState extends ConsumerState<LoginForm> {
     loadingNotifier.setLoading(true);
     errorNotifier.setError(null);
 
+    // True once the credentials were accepted and the account is allowed on
+    // this device. Only used to tell the browser's autofill / password manager
+    // whether to offer to save the password (see the finally block).
+    bool loginSucceeded = false;
+
     try {
       // Check BEFORE attempting the request at all — faster,
       // clearer feedback than waiting for the request to time out,
@@ -149,6 +155,8 @@ class _LoginFormState extends ConsumerState<LoginForm> {
         final phone = meta?['phone'] as String? ?? '';
 
         if (currentUser == null || phone.isEmpty) {
+          // Nothing to resume from: do not leave this account signed in.
+          await authService.logout();
           errorNotifier.setError(
             'Your signup wasn\'t finished and we couldn\'t recover your '
             'details. Please sign up again.',
@@ -183,41 +191,23 @@ class _LoginFormState extends ConsumerState<LoginForm> {
 
       final String? role = await authService.getUserRole();
 
-      // Staff roles (Admin/Cashier/Super Admin) are web-only — the
-      // mobile app is Customer-only by design. Block here rather than
-      // letting them reach a staff layout that assumes web-only
-      // features (CSV/Excel export, etc.) are available.
-      if (!kIsWeb && role != 'Customer' && role != null) {
+      // Staff roles (Admin/Cashier/Super Admin) are not allowed on a phone or
+      // in the mobile app. This is the SAME rule the global auth listener, app
+      // start-up and every staff layout use (StaffDeviceGuard). It also no
+      // longer depends on `mounted`: the old phone-browser check was silently
+      // skipped whenever this form had already been replaced by another screen.
+      final StaffDeviceBlock? deviceBlock = StaffDeviceGuard.isStaff(role)
+          ? StaffDeviceGuard.blockForThisDevice(
+              width: mounted ? MediaQuery.of(context).size.width : null,
+            )
+          : null;
+      if (deviceBlock != null) {
         await authService.logout();
-        errorNotifier.setError(
-          'This account type isn\'t supported on the mobile app. '
-          'Please use the web version to log in as $role.',
-        );
+        errorNotifier.setError(deviceBlock.messageFor(role));
         return;
       }
 
-      // AUDIT FIX: the check above only ever caught the native APK
-      // (!kIsWeb) — a staff member opening the Web portal in a phone's
-      // browser was never blocked at all, since kIsWeb is true there
-      // regardless of screen width. Staff layouts assume desktop-width
-      // features are available (the same reasoning as the APK block
-      // above), so this closes that gap using a genuine viewport-width
-      // check instead of a platform check. This is a presentation-layer
-      // rule only — real authorization stays entirely server-side via
-      // RLS/guard_protected_user_columns, unaffected by this check.
-      if (kIsWeb &&
-          role != 'Customer' &&
-          role != null &&
-          mounted &&
-          MediaQuery.of(context).size.width < 768) {
-        await authService.logout();
-        errorNotifier.setError(
-          'The staff portal requires a desktop or laptop screen. '
-          'Please log in as $role from a larger device.',
-        );
-        return;
-      }
-
+      loginSucceeded = true;
       isOwnLoginInProgress = true;
 
       if (role == 'Admin' || role == 'Super Admin' || role == 'Cashier') {
@@ -225,8 +215,24 @@ class _LoginFormState extends ConsumerState<LoginForm> {
         // Cashier accounts can process sales and perform
         // inventory-affecting operations, so they're treated as
         // privileged staff accounts, same tier as Admin/Super Admin.
-        final factors = await Supabase.instance.client.auth.mfa.listFactors();
-        final bool hasMfaEnrolled = factors.totp.isNotEmpty;
+        // Fail CLOSED: if the server's authenticator list cannot be read, the staff
+        // session is ended and nothing staff-related opens. (Before, the error was
+        // swallowed by the outer catch while the password-only session stayed signed
+        // in, and the "login in progress" flag stayed on.)
+        final List<Factor> verifiedTotp;
+        try {
+          final factors = await Supabase.instance.client.auth.mfa.listFactors();
+          verifiedTotp = factors.totp; // VERIFIED authenticators only
+        } catch (_) {
+          await authService.logout();
+          isOwnLoginInProgress = false;
+          errorNotifier.setError(
+            'We couldn\'t confirm your two-factor authentication status. '
+            'Please check your connection and try again.',
+          );
+          return;
+        }
+        final bool hasMfaEnrolled = verifiedTotp.isNotEmpty;
 
         if (!hasMfaEnrolled) {
           if (mounted) {
@@ -279,6 +285,10 @@ class _LoginFormState extends ConsumerState<LoginForm> {
         }
 
       } else {
+        // An account with no usable role must not stay signed in, and the
+        // "login in progress" flag set above must not be left on.
+        await authService.logout();
+        isOwnLoginInProgress = false;
         errorNotifier.setError(
           'Unknown role: $role. Please contact support.',
         );
@@ -295,6 +305,13 @@ class _LoginFormState extends ConsumerState<LoginForm> {
     } finally {
 
       loadingNotifier.setLoading(false);
+
+      // Ends the autofill session that the login form's AutofillGroup opened.
+      // Flutter's documentation says to do this after EVERY attempt: with
+      // shouldSave=true after a successful login (so the browser can offer to
+      // save the password) and false after a failed one. This form never did,
+      // so a failed attempt left that session open.
+      TextInput.finishAutofillContext(shouldSave: loginSucceeded);
 
     }
   }

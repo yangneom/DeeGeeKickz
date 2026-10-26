@@ -6,15 +6,10 @@ import '../../models/chat_message_model.dart';
 import '../../services/customer/chat/chat_service.dart';
 
 // ── Service provider ───────────────────────────────────────────────────────────
-// ── Service provider ───────────────────────────────────────────────────────────
 final chatServiceProvider = Provider<ChatService>((ref) {
   return ChatService();
 });
 
-// ── Pending product attachment ──────────────────────────────────────────────
-// Set when the customer taps "Ask about this item" on Product Detail.
-// The chat screen reads this, shows an attached chip above the input,
-// and clears it once the message is actually sent (or dismissed).
 // ── Pending product attachment ──────────────────────────────────────────────
 // Set when the customer taps "Ask about this item" on Product Detail.
 // The chat screen reads this, shows an attached chip above the input,
@@ -111,21 +106,24 @@ class CustomerChatNotifier extends Notifier<CustomerChatState> {
     }
   }
 
-// ── Send message ──────────────────────────────────────────────
+  // ── Send message ──────────────────────────────────────────────
   // text may be empty ONLY if imageUrl or productId is provided —
   // an entirely empty message (no text, no image, no product) is
   // rejected here so the UI can't send nothing.
-  Future<void> sendMessage(
+  // Returns true when the message was saved, false when it was not (empty,
+  // not logged in, or the save failed) so the screen can tell the customer
+  // instead of the message silently vanishing.
+  Future<bool> sendMessage(
     String text, {
     String? imageUrl,
     String? productId,
   }) async {
     final user         = Supabase.instance.client.auth.currentUser;
     final conversation = state.conversation;
-    if (user == null || conversation == null) return;
+    if (user == null || conversation == null) return false;
 
     final String trimmed = text.trim();
-    if (trimmed.isEmpty && imageUrl == null && productId == null) return;
+    if (trimmed.isEmpty && imageUrl == null && productId == null) return false;
 
     // Optimistic add
     final optimistic = Message(
@@ -150,6 +148,7 @@ class CustomerChatNotifier extends Notifier<CustomerChatState> {
         imageUrl:       imageUrl,
         productId:      productId,
       );
+      return true;
     } catch (_) {
       // Remove optimistic message on failure
       state = state.copyWith(
@@ -157,6 +156,7 @@ class CustomerChatNotifier extends Notifier<CustomerChatState> {
             .where((m) => m.id != optimistic.id)
             .toList(),
       );
+      return false;
     }
   }
 
@@ -173,11 +173,17 @@ class CustomerChatNotifier extends Notifier<CustomerChatState> {
     );
     if (url == null) return false;
 
-    await sendMessage(caption ?? '', imageUrl: url);
-    return true;
+    // The photo is only "sent" if the message that carries it was saved.
+    return sendMessage(caption ?? '', imageUrl: url);
   }
+
   // ── Realtime ──────────────────────────────────────────────────
   void _subscribeRealtime(String conversationId) {
+    // initConversation() can run more than once (for example when the
+    // chat is reopened). Drop the old subscription first so channels
+    // don't pile up.
+    _cancelSubscription();
+
     _channel = _service.subscribeToMessages(conversationId, (msg) {
       // Avoid duplicates from optimistic updates
       final alreadyPresent = state.messages.any((m) => m.id == msg.id);
@@ -194,6 +200,7 @@ class CustomerChatNotifier extends Notifier<CustomerChatState> {
   void _cancelSubscription() {
     if (_channel != null) {
       _service.unsubscribe(_channel!);
+      _channel = null;
     }
   }
 }
@@ -239,7 +246,7 @@ class AdminChatState {
       .where((c) => c.id == selectedConversationId)
       .firstOrNull;
 
-     AdminChatState copyWith({
+  AdminChatState copyWith({
     List<Conversation>? conversations,
     String? selectedConversationId,
     List<Message>? messages,
@@ -274,9 +281,15 @@ class AdminChatNotifier extends Notifier<AdminChatState> {
     return const AdminChatState(isLoading: true);
   }
 
-   // ── Load all conversations ────────────────────────────────────
-  Future<void> loadConversations() async {
-    state = state.copyWith(isLoading: true, error: null);
+  // ── Load all conversations ────────────────────────────────────
+  // silent: true is used for the background refresh. It updates the
+  // lists without switching the whole Messages screen to a loading
+  // spinner (which used to happen every 30 seconds and replaced the
+  // open conversation for a moment).
+  Future<void> loadConversations({bool silent = false}) async {
+    if (!silent) {
+      state = state.copyWith(isLoading: true, error: null);
+    }
     try {
       final results = await Future.wait([
         _service.fetchAllConversations(),
@@ -308,7 +321,10 @@ class AdminChatNotifier extends Notifier<AdminChatState> {
 
       _subscribeConversations();
     } catch (e) {
-      state = state.copyWith(isLoading: false, error: 'Failed to load chats.');
+      // A failed background refresh keeps what is already on screen.
+      if (!silent) {
+        state = state.copyWith(isLoading: false, error: 'Failed to load chats.');
+      }
     }
   }
 
@@ -322,6 +338,7 @@ class AdminChatNotifier extends Notifier<AdminChatState> {
     // Cancel previous message subscription
     if (_messageChannel != null) {
       _service.unsubscribe(_messageChannel!);
+      _messageChannel = null;
     }
 
     try {
@@ -343,7 +360,7 @@ class AdminChatNotifier extends Notifier<AdminChatState> {
     }
   }
 
-    // ── Start (or resume) a chat with a specific customer, even if
+  // ── Start (or resume) a chat with a specific customer, even if
   // they have no conversation yet. Creates one on the fly, adds it
   // to the conversations list if it's new, then selects it.
   Future<void> startChatWithCustomer(String customerId, String customerName) async {
@@ -360,8 +377,15 @@ class AdminChatNotifier extends Notifier<AdminChatState> {
       final conversation =
           await _service.getOrCreateConversationWithCustomer(customerId);
 
+      // The customer may have opened a conversation a moment ago; don't
+      // list the same one twice.
+      final bool alreadyListed =
+          state.conversations.any((c) => c.id == conversation.id);
+
       state = state.copyWith(
-        conversations: [conversation, ...state.conversations],
+        conversations: alreadyListed
+            ? state.conversations
+            : [conversation, ...state.conversations],
       );
 
       await selectConversation(conversation.id);
@@ -370,7 +394,7 @@ class AdminChatNotifier extends Notifier<AdminChatState> {
     }
   }
 
-// ── Admin sends a message ─────────────────────────────────────
+  // ── Admin sends a message ─────────────────────────────────────
   Future<void> sendMessage(
     String text, {
     String? imageUrl,
@@ -431,9 +455,15 @@ class AdminChatNotifier extends Notifier<AdminChatState> {
   }
 
   // ── Realtime: new conversations ────────────────────────────────
+  // Subscribes ONCE. loadConversations() runs repeatedly (every 30
+  // seconds in the Messages screen), and it used to open a brand-new
+  // channel every time, so channels piled up and one new conversation
+  // triggered a growing number of reloads.
   void _subscribeConversations() {
+    if (_conversationChannel != null) return;
+
     _conversationChannel = _service.subscribeToConversations(() {
-      loadConversations();
+      loadConversations(silent: true);
     });
   }
 
@@ -455,6 +485,8 @@ class AdminChatNotifier extends Notifier<AdminChatState> {
   void _cancelSubscriptions() {
     if (_conversationChannel != null) _service.unsubscribe(_conversationChannel!);
     if (_messageChannel      != null) _service.unsubscribe(_messageChannel!);
+    _conversationChannel = null;
+    _messageChannel      = null;
   }
 }
 
@@ -462,5 +494,3 @@ final adminChatProvider =
     NotifierProvider<AdminChatNotifier, AdminChatState>(() {
   return AdminChatNotifier();
 });
-
-

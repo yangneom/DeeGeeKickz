@@ -27,6 +27,11 @@ class CheckoutStep3Payment extends StatefulWidget {
   final String                 customerEmail;
   final VoidCallback           onBack;
 
+  /// Told when an order or payment is in progress (true) and when it has
+  /// finished (false), so the checkout screen can refuse to leave this step
+  /// (Back link, progress bar, system Back) in the middle of a payment.
+  final ValueChanged<bool>?    onBusyChanged;
+
   const CheckoutStep3Payment({
     super.key,
     required this.selectedMethod,
@@ -40,6 +45,7 @@ class CheckoutStep3Payment extends StatefulWidget {
     required this.customerName,
     required this.customerEmail,
     required this.onBack,
+    this.onBusyChanged,
   });
 
   @override
@@ -52,6 +58,18 @@ class _CheckoutStep3PaymentState
   bool _isProcessing = false;
   bool _placeOrderInFlight = false;
 
+  // The main button says what will actually happen for the chosen method.
+  String get _actionLabel {
+    switch (widget.selectedMethod) {
+      case 'gcash':
+        return 'PAY WITH GCASH';
+      case 'card':
+        return 'ENTER CARD DETAILS';
+      default:
+        return 'PLACE ORDER';
+    }
+  }
+
   Future<void> _handlePlaceOrder() async {
     // Synchronous guard, checked BEFORE the confirm dialog even opens.
     // _isProcessing alone wasn't enough — it only gets set true AFTER
@@ -59,6 +77,7 @@ class _CheckoutStep3PaymentState
     // independently start their own call and each place a real order.
     if (_placeOrderInFlight) return;
     _placeOrderInFlight = true;
+    widget.onBusyChanged?.call(true);
 
     try {
       await _placeOrderInternal();
@@ -67,26 +86,134 @@ class _CheckoutStep3PaymentState
       // never reset, meaning every attempt after the very first one
       // on this screen instance silently did nothing at all.
       _placeOrderInFlight = false;
+      widget.onBusyChanged?.call(false);
       if (mounted) setState(() => _isProcessing = false);
     }
   }
+  // One short confirmation for EVERY method, in the same square black-and-white
+  // look as the other customer dialogs. Creating the order reserves stock, so a
+  // stray tap should not be able to do that. The wording says what happens next
+  // and never calls an unpaid order "placed" or "paid".
+  Future<bool?> _showPlaceOrderConfirm() {
+    final String total = formatPeso(widget.total);
+    final String title;
+    final String body;
+    final String confirmLabel;
+
+    switch (widget.selectedMethod) {
+      case 'gcash':
+        title = 'PAY WITH GCASH?';
+        body = 'We will create your order for $total and take you to a secure '
+            'GCash payment page. Your order is not confirmed until the payment '
+            'goes through.';
+        confirmLabel = 'CONTINUE TO GCASH';
+        break;
+      case 'card':
+        title = 'PAY WITH CARD?';
+        body = 'We will create your order for $total, then ask for your card '
+            'details. Your order is not confirmed until the payment goes '
+            'through.';
+        confirmLabel = 'CONTINUE';
+        break;
+      default:
+        title = 'PLACE YOUR ORDER?';
+        body = 'Your order of $total will be placed now. You pay in cash when '
+            'it arrives, and our team will check your address before '
+            'confirming.';
+        confirmLabel = 'PLACE ORDER';
+    }
+
+    return showDialog<bool>(
+      context: context,
+      barrierDismissible: false,
+      builder: (BuildContext ctx) => Dialog(
+        backgroundColor: Colors.white,
+        shape: const RoundedRectangleBorder(borderRadius: BorderRadius.zero),
+        insetPadding: const EdgeInsets.symmetric(horizontal: 24, vertical: 24),
+        child: ConstrainedBox(
+          constraints: const BoxConstraints(maxWidth: 400),
+          child: Padding(
+            padding: const EdgeInsets.all(28),
+            child: Column(
+              mainAxisSize: MainAxisSize.min,
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                Text(
+                  title,
+                  style: const TextStyle(
+                    fontFamily: 'Archivo Narrow',
+                    fontSize: 24,
+                    fontWeight: FontWeight.w700,
+                    letterSpacing: 0.5,
+                    color: Colors.black,
+                  ),
+                ),
+                const SizedBox(height: 12),
+                Text(
+                  body,
+                  style: const TextStyle(
+                    fontFamily: 'Inter',
+                    fontSize: 14,
+                    height: 1.6,
+                    color: Color(0xFF4C4546),
+                  ),
+                ),
+                const SizedBox(height: 24),
+                GestureDetector(
+                  behavior: HitTestBehavior.opaque,
+                  onTap: () => Navigator.of(ctx).pop(true),
+                  child: Container(
+                    width: double.infinity,
+                    padding: const EdgeInsets.symmetric(vertical: 16),
+                    color: Colors.black,
+                    alignment: Alignment.center,
+                     child: Text(
+                      confirmLabel,
+                      style: const TextStyle(
+                        fontFamily: 'Inter',
+                        fontSize: 14,
+                        fontWeight: FontWeight.w600,
+                        letterSpacing: 2,
+                        color: Colors.white,
+                      ),
+                    ),
+                  ),
+                ),
+                const SizedBox(height: 12),
+                GestureDetector(
+                  behavior: HitTestBehavior.opaque,
+                  onTap: () => Navigator.of(ctx).pop(false),
+                  child: Container(
+                    width: double.infinity,
+                    padding: const EdgeInsets.symmetric(vertical: 16),
+                    decoration: BoxDecoration(
+                      border: Border.all(color: const Color(0xFFCFC4C5)),
+                    ),
+                    alignment: Alignment.center,
+                    child: const Text(
+                      'CANCEL',
+                      style: TextStyle(
+                        fontFamily: 'Inter',
+                        fontSize: 14,
+                        fontWeight: FontWeight.w600,
+                        letterSpacing: 2,
+                        color: Colors.black,
+                      ),
+                    ),
+                  ),
+                ),
+              ],
+            ),
+          ),
+        ),
+      ),
+    );
+  }
 
   Future<void> _placeOrderInternal() async {
-    final bool? confirmed = await showConfirmDialog(
-      context:      context,
-      title:        'Place this order?',
-      message:      widget.selectedMethod == 'cod'
-          ? 'Your order will be placed and the admin will '
-            'verify your address. Pay cash on delivery.'
-          : widget.selectedMethod == 'gcash'
-          ? 'You will be redirected to GCash to complete '
-            'payment. Your order will be placed immediately.'
-          : 'You will enter your card details to complete '
-            'payment. Your order will be placed immediately.',
-      confirmLabel: 'Place Order',
-      confirmColor: const Color(0xFF111827),
-    );
-
+    // The in-flight guard in _handlePlaceOrder was set before this runs, so
+    // rapid taps cannot open a second dialog or start a second order.
+    final bool? confirmed = await _showPlaceOrderConfirm();
     if (confirmed != true) return;
 
     setState(() => _isProcessing = true);
@@ -275,8 +402,12 @@ class _CheckoutStep3PaymentState
                         selectedMethod: widget.selectedMethod,
                         onChanged:      widget.onMethodChanged,
                       ),
-                      const SizedBox(height: 32),
-                      _BackButton(onTap: widget.onBack),
+                      // Directly under the payment options and left-aligned
+                      // with them. The last option already leaves its own gap.
+                      _BackButton(
+                        onTap: widget.onBack,
+                        enabled: !(_isProcessing || _placeOrderInFlight),
+                      ),
                     ],
                   ),
                 ),
@@ -291,6 +422,7 @@ class _CheckoutStep3PaymentState
                   showPlaceOrder: true,
                   isProcessing:   _isProcessing,
                   onPlaceOrder:   _handlePlaceOrder,
+                  actionLabel:    _actionLabel,
                 ),
               ),
             ],
@@ -304,7 +436,12 @@ class _CheckoutStep3PaymentState
               selectedMethod: widget.selectedMethod,
               onChanged:      widget.onMethodChanged,
             ),
-            const SizedBox(height: 48),
+            // Payment options, then Back, then the summary with the main button.
+            _BackButton(
+              onTap: widget.onBack,
+              enabled: !(_isProcessing || _placeOrderInFlight),
+            ),
+            const SizedBox(height: 8),
             CheckoutOrderSummary(
               items:          widget.items,
               subtotal:       widget.subtotal,
@@ -313,9 +450,11 @@ class _CheckoutStep3PaymentState
               showPlaceOrder: true,
               isProcessing:   _isProcessing,
               onPlaceOrder:   _handlePlaceOrder,
+              actionLabel:    _actionLabel,
+              // On a phone the item list starts folded, so the total and the
+              // button are visible without scrolling.
+              collapsibleItems: true,
             ),
-            const SizedBox(height: 24),
-            _BackButton(onTap: widget.onBack),
           ],
         );
       },
@@ -325,28 +464,48 @@ class _CheckoutStep3PaymentState
 
 class _BackButton extends StatelessWidget {
   final VoidCallback onTap;
-  const _BackButton({required this.onTap});
+
+  /// False while a payment is in progress: leaving the step then could leave an
+  /// order half-created. The link stays in place but greyed out.
+  final bool enabled;
+
+  const _BackButton({required this.onTap, this.enabled = true});
 
   @override
   Widget build(BuildContext context) {
-    return GestureDetector(
-      onTap: onTap,
-      child: const Row(
-        mainAxisSize: MainAxisSize.min,
-        children: [
-          Icon(Icons.arrow_back, size: 16, color: Color(0xFF656464)),
-          SizedBox(width: 8),
-          Text(
-            'BACK TO REVIEW',
-            style: TextStyle(
-              fontFamily:    'Inter',
-              fontSize:      12,
-              fontWeight:    FontWeight.w600,
-              letterSpacing: 2.0,
-              color:         Color(0xFF656464),
-            ),
+    final Color color =
+        enabled ? const Color(0xFF656464) : const Color(0xFFCFC4C5);
+
+    // The padding makes the tap area about 44px tall without changing how the
+    // link looks.
+    return Semantics(
+      button: true,
+      enabled: enabled,
+      label: 'Back to review',
+      excludeSemantics: true,
+      child: GestureDetector(
+        behavior: HitTestBehavior.opaque,
+        onTap: enabled ? onTap : null,
+        child: Padding(
+          padding: const EdgeInsets.symmetric(vertical: 14),
+          child: Row(
+            mainAxisSize: MainAxisSize.min,
+            children: [
+              Icon(Icons.arrow_back, size: 16, color: color),
+              const SizedBox(width: 8),
+              Text(
+                'BACK TO REVIEW',
+                style: TextStyle(
+                  fontFamily:    'Inter',
+                  fontSize:      12,
+                  fontWeight:    FontWeight.w600,
+                  letterSpacing: 2.0,
+                  color:         color,
+                ),
+              ),
+            ],
           ),
-        ],
+        ),
       ),
     );
   }

@@ -1,5 +1,8 @@
  
 import { serve } from "https://deno.land/std@0.168.0/http/server.ts";
+import { officialWebBase } from "../_shared/web_base.ts";
+import { createClient } from "https://esm.sh/@supabase/supabase-js@2";
+
 
 const corsHeaders = {
   "Access-Control-Allow-Origin": "*",
@@ -139,7 +142,7 @@ serve(async (req) => {
             attributes: {
               payment_method:         methodId,              client_key:             clientKey,
               payment_method_allowed: ["card"],
-              return_url:             `https://deegeekickz-7b041.web.app/payment-success?order=${orderId}`,
+              return_url:             `${officialWebBase(Deno.env.get("WEB_BASE_URL"))}/payment-success?order=${orderId}`
             },
           },
         }),

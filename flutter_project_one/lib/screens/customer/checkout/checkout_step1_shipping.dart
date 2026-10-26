@@ -399,7 +399,7 @@ setState(() => _isSavingAddress = true);
 
             if (_selectedAddress != null) ...[
               const Text(
-                'DELIVERING TO',
+                'DELIVERING FEE',
                 style: TextStyle(
                   fontFamily: 'Inter',
                   fontSize: 12,
@@ -416,81 +416,6 @@ setState(() => _isSavingAddress = true);
                 child: Column(
                   crossAxisAlignment: CrossAxisAlignment.start,
                   children: [
-                    if (_userName.isNotEmpty)
-                      Text(
-                        _userName,
-                        style: const TextStyle(
-                          fontFamily: 'Inter',
-                          fontSize: 14,
-                          fontWeight: FontWeight.w600,
-                          color: Colors.black,
-                        ),
-                      ),
-                    const SizedBox(height: 4),
-                    Text(
-                      _selectedAddress!.street,
-                      style: const TextStyle(
-                        fontFamily: 'Inter',
-                        fontSize: 13,
-                        color: Color(0xFF4C4546),
-                      ),
-                    ),
-                    if (_selectedAddress!.barangay.isNotEmpty)
-                      Text(
-                        _selectedAddress!.barangay,
-                        style: const TextStyle(
-                          fontFamily: 'Inter',
-                          fontSize: 13,
-                          color: Color(0xFF4C4546),
-                        ),
-                      ),
-                    Text(
-                      [
-                        _selectedAddress!.city,
-                        _selectedAddress!.province,
-                        _selectedAddress!.zipCode,
-                      ].where((s) => s.isNotEmpty).join(', '),
-                      style: const TextStyle(
-                        fontFamily: 'Inter',
-                        fontSize: 13,
-                        color: Color(0xFF4C4546),
-                      ),
-                    ),
-                    if (_selectedAddress!.region.isNotEmpty)
-                      Text(
-                        _selectedAddress!.region,
-                        style: const TextStyle(
-                          fontFamily: 'Inter',
-                          fontSize: 13,
-                          color: Color(0xFF4C4546),
-                        ),
-                      ),
-                    if (_selectedAddress!.landmark.isNotEmpty)
-                      Text(
-                        _selectedAddress!.landmark,
-                        style: const TextStyle(
-                          fontFamily: 'Inter',
-                          fontSize: 12,
-                          color: Color(0xFF9CA3AF),
-                          fontStyle: FontStyle.italic,
-                        ),
-                      ),
-                    if (_userPhone.isNotEmpty) ...[
-                      const SizedBox(height: 4),
-                      Text(
-                        _userPhone,
-                        style: const TextStyle(
-                          fontFamily: 'Inter',
-                          fontSize: 13,
-                          color: Color(0xFF4C4546),
-                        ),
-                      ),
-                    ],
-
-                    // ── Shipping fee status row ───────────────────
-                    const SizedBox(height: 12),
-                    const Divider(height: 1, color: Color(0xFFCFC4C5)),
-                    const SizedBox(height: 12),
                     if (_isLoadingQuote)
                       const Row(
                         children: [
@@ -566,7 +491,7 @@ setState(() => _isSavingAddress = true);
                       )
                     else
                       Text(
-                        'Delivery fee: ₱${widget.shipping.toStringAsFixed(2)}',
+                        'Delivery fee: ${formatPeso(widget.shipping)}',
                         style: const TextStyle(
                           fontFamily: 'Inter',
                           fontSize: 13,
@@ -577,7 +502,7 @@ setState(() => _isSavingAddress = true);
                   ],
                 ),
               ),
-              const SizedBox(height: 48),
+              const SizedBox(height: 24),
             ],
 
             _ContinueButton(onTap: _handleContinue, enabled: _canContinue),

@@ -99,9 +99,9 @@ class CheckoutAddressSelector extends StatelessWidget {
           ),
         ),
 
-        const SizedBox(height: 32),
+        const SizedBox(height: 20),
         const Divider(color: Color(0xFFCFC4C5), thickness: 1),
-        const SizedBox(height: 32),
+        const SizedBox(height: 20),
       ],
     );
   }
@@ -285,7 +285,8 @@ class _AddressCard extends StatelessWidget {
             ),
 
 // ── Edit + Delete buttons (side by side) ──
-            Row(
+            Column(
+              crossAxisAlignment: CrossAxisAlignment.end,
               children: [
                 GestureDetector(
                   onTap: onEdit,
@@ -304,7 +305,7 @@ class _AddressCard extends StatelessWidget {
                     ),
                   ),
                 ),
-                const SizedBox(width: 12),
+                const SizedBox(height: 12),
                 GestureDetector(
                   onTap: onDelete,
                   child: const Padding(

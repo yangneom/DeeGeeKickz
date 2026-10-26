@@ -29,6 +29,7 @@ import '../../../services/customer/History/order_history_service.dart';
 // ── Other screens ─────────────────────────────────────────────────────────────
 import '../orders/order_history_screen.dart';
 import '../orders/order_tracking_screen.dart';
+import '../messages/customer_chat_screen.dart';
 
 /// Customer Profile screen.
 ///
@@ -36,8 +37,9 @@ import '../orders/order_tracking_screen.dart';
 ///   0. Active Order card   — only shown if user has a non-delivered order
 ///   1. Profile Information
 ///   2. Saved Addresses     — with add/edit bottom sheet
-///   3. Order History       — 2-item preview + "View All" → OrderHistoryScreen
-///   4. Logout button
+///   3. Help & Support      — Contact Support opens the customer chat
+///   4. Order History       — 2-item preview + "View All" → OrderHistoryScreen
+///   5. Logout button
 class ProfileScreen extends StatefulWidget {
   const ProfileScreen({super.key});
 
@@ -80,7 +82,6 @@ class _ProfileScreenState extends State<ProfileScreen> {
   }
 
   // Active order = first order that is NOT delivered or cancelled
-// Active order = first order that is NOT delivered or cancelled
   Order? _activeOrderFrom(List<Order> orders) {
     try {
       return orders.firstWhere(
@@ -95,6 +96,7 @@ class _ProfileScreenState extends State<ProfileScreen> {
 
   // Preview = first 2 orders for the mini history card
   List<Order> _previewOrdersFrom(List<Order> orders) => orders.take(2).toList();
+
   @override
   Widget build(BuildContext context) {
     return Scaffold(
@@ -106,7 +108,7 @@ class _ProfileScreenState extends State<ProfileScreen> {
           children: [
             const AppTopBar(activeRoute: 'profile'),
             Expanded(
-            child: FutureBuilder<List<dynamic>>(
+              child: FutureBuilder<List<dynamic>>(
                 future: Future.wait([_userFuture, _addressesFuture, _ordersFuture]),
                 builder: (context, snapshot) {
                   if (snapshot.connectionState == ConnectionState.waiting) {
@@ -150,7 +152,7 @@ class _ProfileScreenState extends State<ProfileScreen> {
                           },
                         ),
                         const AppFooter(),
-                    ],
+                      ],
                     ),
                   );
                 },
@@ -226,7 +228,6 @@ class _PageContent extends StatelessWidget {
               const SizedBox(height: 24),
 
               // ── 3. Saved Addresses ──────────────────────────────
-              // ── 3. Saved Addresses ──────────────────────────────
               ProfileAddressSection(
                 addresses: addresses,
                 onChanged: onAddressesChanged,
@@ -234,7 +235,12 @@ class _PageContent extends StatelessWidget {
 
               const SizedBox(height: 24),
 
-              // ── 4. Order History preview ────────────────────────
+              // ── 4. Help & Support ───────────────────────────────
+              const _HelpSupportCard(),
+
+              const SizedBox(height: 24),
+
+              // ── 5. Order History preview ────────────────────────
               _OrderHistoryPreview(
                 orders: previewOrders,
                 onViewAll: () => _goToOrderHistory(context),
@@ -243,11 +249,98 @@ class _PageContent extends StatelessWidget {
 
               const SizedBox(height: 24),
 
-              // ── 5. Logout ───────────────────────────────────────
+              // ── 6. Logout ───────────────────────────────────────
               _LogoutButton(),
             ],
           ),
         ),
+      ),
+    );
+  }
+}
+
+// ─── Help & Support card ──────────────────────────────────────────────────────
+// Opens the SAME customer chat screen the rest of the app uses (the order
+// tracking page, the menu and the product page all open it too), so a
+// message sent from here lands in the same support inbox. The profile page
+// is only reachable when logged in, so no extra sign-in check is needed.
+
+class _HelpSupportCard extends StatelessWidget {
+  const _HelpSupportCard();
+
+  @override
+  Widget build(BuildContext context) {
+    final isDesktop = MediaQuery.of(context).size.width >= 768;
+    final padding   = isDesktop ? 48.0 : 16.0;
+
+    return Container(
+      width: double.infinity,
+      decoration: BoxDecoration(
+        color: Colors.white,
+        border: Border.all(color: const Color(0xFFCFC4C5), width: 1),
+      ),
+      padding: EdgeInsets.all(padding),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          const Text(
+            'HELP & SUPPORT',
+            style: TextStyle(
+              fontFamily: 'Inter',
+              fontSize: 14,
+              fontWeight: FontWeight.w600,
+              letterSpacing: 0.7,
+              color: Colors.black,
+            ),
+          ),
+
+          const Padding(
+            padding: EdgeInsets.only(top: 8, bottom: 16),
+            child: Divider(height: 1, color: Color(0xFFCFC4C5)),
+          ),
+
+          const Text(
+            'Questions about your orders or your account? Send us a message.',
+            style: TextStyle(
+              fontFamily: 'Inter',
+              fontSize: 14,
+              height: 1.5,
+              color: Color(0xFF656464),
+            ),
+          ),
+
+          const SizedBox(height: 16),
+
+          SizedBox(
+            width: double.infinity,
+            height: 48,
+            child: ElevatedButton.icon(
+              onPressed: () {
+                Navigator.of(context).push(
+                  MaterialPageRoute(builder: (_) => const CustomerChatScreen()),
+                );
+              },
+              icon: const Icon(Icons.support_agent, size: 20),
+              label: const Text(
+                'CONTACT SUPPORT',
+                style: TextStyle(
+                  fontFamily: 'Inter',
+                  fontSize: 13,
+                  fontWeight: FontWeight.w700,
+                  letterSpacing: 1.2,
+                ),
+              ),
+              style: ElevatedButton.styleFrom(
+                backgroundColor: Colors.black,
+                foregroundColor: Colors.white,
+                elevation: 0,
+                shape: const RoundedRectangleBorder(
+                  borderRadius: BorderRadius.zero,
+                ),
+              ),
+            ),
+          ),
+        ],
       ),
     );
   }
@@ -456,9 +549,9 @@ class _PreviewOrderRow extends StatelessWidget {
 
 // ─── Logout button ────────────────────────────────────────────────────────────
 
-class _LogoutButton extends ConsumerWidget {                    // ← 1. StatelessWidget → ConsumerWidget
+class _LogoutButton extends ConsumerWidget {
   @override
-  Widget build(BuildContext context, WidgetRef ref) {            
+  Widget build(BuildContext context, WidgetRef ref) {
     return GestureDetector(
       onTap: () {
         showDialog(
@@ -499,21 +592,20 @@ class _LogoutButton extends ConsumerWidget {                    // ← 1. Statel
               ),
               TextButton(
                 onPressed: () async {
-                    Navigator.of(context).pop();
+                  Navigator.of(context).pop();
 
-                    await Supabase.instance.client.auth.signOut();
-                    ref.read(customerCartProvider.notifier).clearLocalOnly();   // ← 3. add this line
+                  await Supabase.instance.client.auth.signOut();
+                  ref.read(customerCartProvider.notifier).clearLocalOnly();
 
-
-                    if (context.mounted) {
-                      Navigator.of(context).pushAndRemoveUntil(
-                        MaterialPageRoute(
-                          builder: (_) => const LoginScreen(),
-                        ),
-                        (route) => false,
-                      );
-                    }
-                  },
+                  if (context.mounted) {
+                    Navigator.of(context).pushAndRemoveUntil(
+                      MaterialPageRoute(
+                        builder: (_) => const LoginScreen(),
+                      ),
+                      (route) => false,
+                    );
+                  }
+                },
                 child: const Text(
                   'LOGOUT',
                   style: TextStyle(

@@ -111,7 +111,17 @@ serve(async (req) => {
     // earlier testing) could otherwise keep bypassing every
     // aal2-gated check, exactly as just observed with the Admin
     // account landing straight on the dashboard after a refresh.
-    await adminClient.auth.admin.signOut(target_user_id, "global");
+    // admin.signOut() takes the user's own ACCESS TOKEN, not a user id, so the id made
+    // the old call fail silently. Supabase Auth has no admin route to end another
+    // user's sessions, so this uses a database function that only the service role
+    // may run (see revoke_user_sessions.sql).
+    const { error: revokeError } = await adminClient.rpc("revoke_user_sessions", {
+      p_user_id: target_user_id,
+    });
+    if (revokeError) {
+      // The factors are already removed; do not undo that. Log the reason, no secrets.
+      console.error("reset-mfa: could not end the target's sessions:", revokeError.message);
+    }
 
     return new Response(
       JSON.stringify({ success: true }),

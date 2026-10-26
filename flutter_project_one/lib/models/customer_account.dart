@@ -24,6 +24,12 @@ class CustomerAccount {
   final String? disabledUntil;
   final DateTime? lastActiveAt;
 
+  // Path of the customer's profile photo inside the `profile-photos`
+  // bucket (for example "<their id>/avatar_1790000000000.jpg"), or null when
+  // they have not uploaded one. Only the PATH is stored; the picture's web
+  // address is built from it.
+  final String? avatarPath;
+
   const CustomerAccount({
     required this.id,
     required this.firstName,
@@ -41,6 +47,7 @@ class CustomerAccount {
     this.banTier = 0,
     this.disabledUntil,
     this.lastActiveAt,
+    this.avatarPath,
   });
 
   // full name helper
@@ -103,6 +110,8 @@ class CustomerAccount {
       landmark = chosen['landmark']?.toString() ?? '';
     }
 
+    final String? rawAvatar = json['avatar_path']?.toString();
+
     return CustomerAccount(
       id: json['id']?.toString() ?? '',
       firstName: json['first_name'] ?? '',
@@ -122,6 +131,7 @@ class CustomerAccount {
       lastActiveAt: json['last_active_at'] != null
           ? DateTime.tryParse(json['last_active_at'].toString())
           : null,
+      avatarPath: (rawAvatar == null || rawAvatar.isEmpty) ? null : rawAvatar,
     );
   }
 }

@@ -1,6 +1,7 @@
 import 'package:flutter/material.dart';
 import 'package:supabase_flutter/supabase_flutter.dart';
 import '../../screens/auth/mfa_recovery_screen.dart';
+import '../../core/guards/mfa_flow_guard.dart';
 import 'login_screen.dart';
 
 class MfaChallengeScreen extends StatefulWidget {
@@ -16,11 +17,20 @@ class MfaChallengeScreen extends StatefulWidget {
 class _MfaChallengeScreenState extends State<MfaChallengeScreen> {
   final TextEditingController _codeController = TextEditingController();
   bool _verifying = false;
+  // True while the recovery-code screen is open, so a second tap cannot open it twice.
+  bool _openingRecovery = false;
   String? _errorMessage;
+
+  @override
+  void initState() {
+    super.initState();
+    MfaFlowGuard.opened(MfaScreenKind.challenge);
+  }
 
   @override
   void dispose() {
     _codeController.dispose();
+    MfaFlowGuard.closed(MfaScreenKind.challenge);
     super.dispose();
   }
 
@@ -152,12 +162,14 @@ class _MfaChallengeScreenState extends State<MfaChallengeScreen> {
                     const SizedBox(height: 16),
                     Center(
                       child: TextButton(
-                        onPressed: _verifying
+                        onPressed: (_verifying || _openingRecovery)
                             ? null
-                            : () {
-                                Navigator.of(context).push(
+                            : () async {
+                                setState(() => _openingRecovery = true);
+                                await Navigator.of(context).push(
                                   MaterialPageRoute(builder: (_) => const MfaRecoveryScreen()),
                                 );
+                                if (mounted) setState(() => _openingRecovery = false);
                               },
                         child: const Text(
                           'Lost your device? Use a recovery code',

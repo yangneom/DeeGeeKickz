@@ -6,6 +6,7 @@ import 'package:flutter_colorpicker/flutter_colorpicker.dart';
 import 'package:file_picker/file_picker.dart';
 import 'package:supabase_flutter/supabase_flutter.dart';
 import 'package:flutter_project_one/widgets/common/dialog/confirm_dialog.dart';
+import 'package:flutter_project_one/widgets/common/forms/app_dropdown_field.dart';
 import 'package:flutter_project_one/widgets/common/dialog/app_toast.dart';import 'package:flutter_project_one/services/admin/inventory/inventory_service.dart';
 import 'dart:typed_data';
 import 'package:crop_your_image/crop_your_image.dart';
@@ -816,20 +817,13 @@ class _AddProductDialogState extends ConsumerState<AddProductDialog> {
     required void Function(String?) onChanged,
     String? Function(String?)? validator,
   }) {
-    return DropdownButtonFormField<String>(
+    return AppDropdownField<String>(
+      hint: hint,
       value: value,
-      validator: validator,
-      style: const TextStyle(fontSize: 13, color: Color(0xFF374151)),
-      decoration: _inputDecoration(hint).copyWith(hintText: null),
-      hint: Text(
-        hint,
-        style: const TextStyle(fontSize: 13, color: Color(0xFF9CA3AF)),
-      ),
-      items: items
-          .map((item) =>
-              DropdownMenuItem<String>(value: item, child: Text(item)))
-          .toList(),
+      items: items,
+      labelOf: (String item) => item,
       onChanged: onChanged,
+      validator: validator,
     );
   }
 

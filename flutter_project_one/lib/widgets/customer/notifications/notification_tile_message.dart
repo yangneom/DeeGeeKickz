@@ -7,7 +7,12 @@ import '../../../screens/customer/messages/customer_chat_screen.dart';
 
 /// Notification card for [NotificationType.adminReply].
 /// Shown when support/admin replies to the customer's chat conversation.
-class NotificationTileMessage extends StatelessWidget {
+///
+/// FIX: only the small REPLY button opened the chat. Tapping the rest of the
+/// card just marked it read and went nowhere, unlike the order and review
+/// notifications where the whole card is the link. The whole card now opens
+/// the chat too.
+class NotificationTileMessage extends StatefulWidget {
   final AppNotification notification;
   final VoidCallback onMarkRead;
 
@@ -18,9 +23,32 @@ class NotificationTileMessage extends StatelessWidget {
   });
 
   @override
+  State<NotificationTileMessage> createState() =>
+      _NotificationTileMessageState();
+}
+
+class _NotificationTileMessageState extends State<NotificationTileMessage> {
+  // True while the chat is open, so a double tap can't stack two chats.
+  bool _opening = false;
+
+  Future<void> _openChat() async {
+    if (_opening) return;
+    _opening = true;
+
+    widget.onMarkRead();
+    await Navigator.of(context).push(
+      MaterialPageRoute(builder: (_) => const CustomerChatScreen()),
+    );
+
+    _opening = false;
+  }
+
+  @override
   Widget build(BuildContext context) {
+    final AppNotification notification = widget.notification;
+
     return GestureDetector(
-      onTap: onMarkRead,
+      onTap: _openChat,
       child: Container(
         margin: const EdgeInsets.only(bottom: 12),
         padding: const EdgeInsets.all(20),
@@ -118,14 +146,7 @@ class NotificationTileMessage extends StatelessWidget {
                   const SizedBox(height: 14),
 
                   GestureDetector(
-                    onTap: () {
-                      onMarkRead();
-                      Navigator.of(context).push(
-                        MaterialPageRoute(
-                          builder: (_) => const CustomerChatScreen(),
-                        ),
-                      );
-                    },
+                    onTap: _openChat,
                     child: Container(
                       padding: const EdgeInsets.symmetric(
                           horizontal: 16, vertical: 10),

@@ -14,9 +14,9 @@ enum NotificationType {
   adminActivity,
   salesAlert,
   adminReply,
-  newArrival, // ← add this
-
+  newArrival,
 }
+
 class AppNotification {
   final String id;          // notification_id as string
   final NotificationType type;
@@ -27,6 +27,13 @@ class AppNotification {
   final String? orderId;      // nullable — only set for order notifications
   final String? referenceId;  // generic reference (size_id, feedback_id, conversation_id — depends on type)
 
+  // The type exactly as it is stored in the database ("account_warning",
+  // "discount", ...). The NotificationType list above is shared with the staff
+  // screens, which list every type, so adding a type there stops them
+  // compiling. A customer-only notice such as an account warning is
+  // recognised from this text instead.
+  final String? rawType;
+
   const AppNotification({
     required this.id,
     required this.type,
@@ -36,9 +43,13 @@ class AppNotification {
     this.isRead = false,
     this.orderId,
     this.referenceId,
+    this.rawType,
   });
 
   bool get isUnread => !isRead;
+
+  // A warning or suspension notice about the customer's own account.
+  bool get isAccountWarning => rawType == 'account_warning';
 
   // ── Time-ago helper ────────────────────────────────────────────
   String get timeAgo {
@@ -52,7 +63,6 @@ class AppNotification {
   }
 
   // ── Factory: from Supabase row ─────────────────────────────────
-// ── Factory: from Supabase row ─────────────────────────────────
   factory AppNotification.fromMap(Map<String, dynamic> map) {
     return AppNotification(
       id: map['notification_id'].toString(),
@@ -63,6 +73,7 @@ class AppNotification {
       isRead:    map['is_read'] as bool? ?? false,
       orderId:      map['order_id']?.toString(),
       referenceId:  map['reference_id']?.toString(),
+      rawType:      map['type'] as String?,
     );
   }
 
@@ -81,20 +92,26 @@ class AppNotification {
       case 'admin_reply':        return NotificationType.adminReply;
       case 'new_arrival':        return NotificationType.newArrival;
       default:                   return NotificationType.promotion;
-
     }
   }
 
   // ── copyWith ───────────────────────────────────────────────────
+  // FIX: this used to rebuild the notification WITHOUT its referenceId.
+  // Marking a notification read (one tap, or "Mark all as read") therefore
+  // erased the link it carried, so a review-reply notification opened the
+  // review the first time and then said "too old to link directly" every
+  // time after.
   AppNotification copyWith({bool? isRead}) {
     return AppNotification(
-      id:        id,
-      type:      type,
-      title:     title,
-      body:      body,
-      createdAt: createdAt,
-      isRead:    isRead ?? this.isRead,
-      orderId:   orderId,
+      id:          id,
+      type:        type,
+      title:       title,
+      body:        body,
+      createdAt:   createdAt,
+      isRead:      isRead ?? this.isRead,
+      orderId:     orderId,
+      referenceId: referenceId,
+      rawType:     rawType,
     );
   }
 }
